@@ -87,6 +87,3 @@ with col_chart2:
     ganancias_sim = [p - (total_gastos * (p/precio_venta)) - costo_articulo for p in precios_sim]
     df_line = pd.DataFrame({"Precio": precios_sim, "Ganancia": ganancias_sim})
     st.line_chart(df_line.set_index("Precio"))
-    st.success(f"Estás ganando ${ganancia_final:,.2f} por cada venta.")
-else:
-    st.error("¡Cuidado! Esta operación da pérdida.")
