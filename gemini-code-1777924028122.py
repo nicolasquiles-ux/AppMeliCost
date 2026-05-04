@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# --- CONFIGURACIÓN ESTÉTICA ---
+# 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="MeLi Pro Analytics", layout="wide")
+
+# Estilos CSS para mejorar la UI
 st.markdown("""
     <style>
     .main { background-color: #f5f7f9; }
@@ -14,76 +16,69 @@ st.markdown("""
 st.title("📊 MeLi Profit Dashboard Pro")
 st.caption("Herramienta de análisis de rentabilidad para vendedores avanzados")
 
-# --- SIDEBAR: CONFIGURACIÓN GLOBAL ---
+# 2. SIDEBAR: CONFIGURACIÓN
 with st.sidebar:
     st.header("⚙️ Configuración")
     tipo_vendedor = st.radio("Condición ante el IVA", ["Responsable Inscripto", "Monotributista"])
     iibb = st.number_input("% Ingresos Brutos", value=3.5, step=0.1)
-    costos_fijos_mensuales = st.number_input("Costos Fijos Mensuales (Sueldos, Alquiler, etc)", value=0)
     st.divider()
-    st.info("Esta configuración se aplica a todos los cálculos.")
+    st.info("Configurá tus impuestos para cálculos precisos.")
 
-# --- PANEL PRINCIPAL: ENTRADA DE DATOS ---
+# 3. ENTRADA DE DATOS
 col_in1, col_in2, col_in3, col_in4 = st.columns(4)
 
 with col_in1:
-    costo_articulo = st.number_input("Costo de Compra ($)", min_value=1.0, value=15000.0)
+    costo_prod = st.number_input("Costo de Compra ($)", min_value=0.0, value=15000.0)
 with col_in2:
-    precio_venta = st.number_input("Precio de Venta ($)", min_value=1.0, value=35000.0)
+    pvp = st.number_input("Precio de Venta ($)", min_value=1.0, value=35000.0)
 with col_in3:
-    comision_meli = st.selectbox("% Comisión MeLi", [10, 11, 13, 15, 27, 29], index=3)
+    comision_meli_pct = st.selectbox("% Comisión MeLi", [10, 11, 13, 15, 27, 29], index=3)
 with col_in4:
-    envio_costo = st.number_input("Costo Envío ($)", value=4500.0)
+    costo_envio = st.number_input("Costo Envío ($)", value=4500.0)
 
-# --- MOTOR DE CÁLCULO PRO ---
-# 1. Ajuste de IVA
+# 4. MOTOR DE CÁLCULO (Lógica Corregida)
+# Costo Fijo MeLi Argentina 2026
+costo_fijo = 0
+if pvp < 16000: costo_fijo = 1255
+elif pvp < 24000: costo_fijo = 2500
+elif pvp < 33000: costo_fijo = 3030
+
+# Ajuste de IVA
 if tipo_vendedor == "Responsable Inscripto":
-    iva_venta = precio_venta - (precio_venta / 1.21)
-    precio_neto_iva = precio_venta / 1.21
-    # Asumimos que el costo_articulo que ingresó ya es sin IVA
+    iva_venta = pvp - (pvp / 1.21)
+    pvp_neto_iva = pvp / 1.21
 else:
     iva_venta = 0
-    precio_neto_iva = precio_venta
+    pvp_neto_iva = pvp
 
-# 2. Cargos MeLi (Actualizados Mayo 2026)
-cargo_fijo = 0
-if precio_venta < 16000: cargo_fijo = 1255
-elif precio_venta < 24000: cargo_fijo = 2500
-elif precio_venta < 33000: cargo_fijo = 3030
+costo_comision = pvp * (comision_meli_pct / 100)
+costo_iibb = pvp_neto_iva * (iibb / 100)
 
-comision_pesos = precio_venta * (comision_meli / 100)
-impuestos_iibb = precio_neto_iva * (iibb / 100)
+# Resultado Final
+total_gastos = costo_comision + costo_fijo + costo_envio + iva_venta + costo_iibb
+ganancia_final = pvp - total_gastos - costo_prod
+margen_neto = (ganancia_final / pvp) * 100 if pvp > 0 else 0
 
-# 3. Resultado Final
-total_gastos = comision_pesos + cargo_fijo + envio_costo + iva_venta + impuestos_iibb
-ganancia_neta = precio_venta - total_gastos - costo_articulo
-margen_pro = (ganancia_neta / precio_venta) * 100
-
-# --- VISUALIZACIÓN DE RESULTADOS ---
+# 5. VISUALIZACIÓN
 st.divider()
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Ganancia Neta", f"$ {ganancia_neta:,.2f}")
-m2.metric("Margen sobre Venta", f"{margen_pro:.2f}%")
-m3.metric("Punto de Equilibrio", f"$ {costo_articulo + total_gastos:,.0f}")
-m4.metric("Markup", f"{((precio_venta/costo_articulo)-1)*100:.1f}%")
+m1.metric("Ganancia Neta", f"$ {ganancia_final:,.2f}")
+m2.metric("Margen Real", f"{margen_neto:.2f}%")
+m3.metric("Costo Fijo MeLi", f"$ {costo_fijo}")
+m4.metric("Impuestos totales", f"$ {iva_venta + costo_iibb:,.2f}")
 
-# --- GRÁFICOS ---
-col_chart1, col_chart2 = st.columns([1, 1])
+# Alertas Dinámicas
+if ganancia_final > 0:
+    st.success(f"### ✅ ¡Operación Rentable! Estás ganando ${ganancia_final:,.2f} por venta.")
+else:
+    st.error(f"### ⚠️ Alerta de Pérdida: ${ganancia_final:,.2f}")
+    st.warning("Tu estructura de costos supera el precio de venta.")
 
-with col_chart1:
-    st.subheader("Distribución del Ingreso")
-    df_pie = pd.DataFrame({
-        "Concepto": ["Costo Producto", "Comisión MeLi", "Envío", "Impuestos (IVA/IIBB)", "Ganancia Neta"],
-        "Valores": [costo_articulo, comision_pesos + cargo_fijo, envio_costo, iva_venta + impuestos_iibb, max(0, ganancia_neta)]
-    })
-    fig = px.pie(df_pie, values='Valores', names='Concepto', hole=.4, 
-                 color_discrete_sequence=px.colors.qualitative.Pastel)
-    st.plotly_chart(fig, use_container_width=True)
-
-with col_chart2:
-    st.subheader("Análisis de Sensibilidad")
-    st.write("¿Qué pasa si cambiás el precio?")
-    precios_sim = [precio_venta * 0.9, precio_venta, precio_venta * 1.1, precio_venta * 1.2]
-    ganancias_sim = [p - (total_gastos * (p/precio_venta)) - costo_articulo for p in precios_sim]
-    df_line = pd.DataFrame({"Precio": precios_sim, "Ganancia": ganancias_sim})
-    st.line_chart(df_line.set_index("Precio"))
+# Gráfico de Torta
+st.subheader("Distribución de cada peso cobrado")
+df_pie = pd.DataFrame({
+    "Concepto": ["Costo Producto", "Comisión MeLi", "Envío", "Impuestos", "Ganancia"],
+    "Valores": [costo_prod, costo_comision + costo_fijo, costo_envio, iva_venta + costo_iibb, max(0, ganancia_final)]
+})
+fig = px.pie(df_pie, values='Valores', names='Concepto', hole=.4)
+st.plotly_chart(fig, use_container_width=True)
