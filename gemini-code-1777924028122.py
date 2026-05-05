@@ -12,7 +12,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 MeLi Profit Dashboard Pro")
+st.title("📊 MeLi Dashboard Pro")
 st.caption("Estructura de Costos, Logística y Cuotas - Mayo 2026")
 
 # --- DATA DE REFERENCIA ---
