@@ -4,7 +4,7 @@ import pandas as pd
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="MeLi Pro Analytics", layout="wide")
 
-# Estilos CSS para un look profesional y limpio
+# Estilos CSS para un look profesional
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -14,7 +14,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🚀 MeLi Profit Dashboard Pro")
-st.caption("Versión Final Corregida - Mayo 2026 (Mercado Libre Argentina)")
+st.caption("Versión 2.1 Final - Mayo 2026 (Mercado Libre Argentina)")
 
 # --- DATOS DE REFERENCIA (Tarifario Mayo 2026) ---
 tarifario_envios = {
@@ -54,7 +54,6 @@ with col_in2:
     categoria_peso = st.selectbox("Peso Facturable", list(tarifario_envios.keys()))
     costo_lista_envio = tarifario_envios[categoria_peso]
     
-    # Envío gratis obligatorio desde $33.000
     ofrece_envio_gratis = st.checkbox("Ofrecer Envío Gratis", value=(precio_venta >= 33000))
     otros_costos = st.number_input("Otros Gastos ($)", value=0.0)
 
@@ -72,37 +71,39 @@ with col_in3:
 
 # --- MOTOR DE CÁLCULO ---
 
-# 1. Costo Fijo por unidad (Ventas menores a $33.000)
-costo_fijo_meli = 0
-if precio_venta > 0 and precio_venta < 16000: costo_fijo_meli = 1255
-elif precio_venta >= 16000 and precio_venta < 24000: costo_fijo_meli = 2500
-elif precio_venta >= 24000 and precio_venta < 33000: costo_fijo_meli = 3030
+# Inicialización de variables críticas para evitar NameError
+costo_fijo_meli = 0.0
+iva_venta = 0.0
+total_iibb = 0.0
+gasto_envio = 0.0
 
-# 2. Descuento de Envío según reputación
+# 1. Costo Fijo MeLi
+if 0 < precio_venta < 16000: costo_fijo_meli = 1255.0
+elif 16000 <= precio_venta < 24000: costo_fijo_meli = 2500.0
+elif 24000 <= precio_venta < 33000: costo_fijo_meli = 3030.0
+
+# 2. Descuento de Envío
 if ofrece_envio_gratis:
     if reputacion == "Verde (50%)": dcto = 0.50
     elif reputacion == "Amarilla/Sin Medalla (40%)": dcto = 0.40
     else: dcto = 0.0
     gasto_envio = costo_lista_envio * (1 - dcto)
-else:
-    gasto_envio = 0.0
 
-# 3. Impuestos (IVA e IIBB)
+# 3. Impuestos
 if tipo_vendedor == "Responsable Inscripto":
-    iva_sobre_venta = precio_venta - (precio_venta / 1.21)
+    iva_venta = precio_venta - (precio_venta / 1.21)
     base_imponible_iibb = precio_venta / 1.21
 else:
-    iva_sobre_venta = 0
+    iva_venta = 0.0
     base_imponible_iibb = precio_venta
 
 total_iibb = base_imponible_iibb * (iibb_tax / 100)
 total_comision_meli = (precio_venta * (comision_pct / 100)) + costo_fijo_meli
 
-# 4. Cálculo Final de Rentabilidad
-gastos_totales = total_comision_meli + gasto_envio + iva_sobre_venta + total_iibb + otros_costos
+# 4. Cálculo Final
+gastos_totales = total_comision_meli + gasto_envio + iva_venta + total_iibb + otros_costos
 ganancia_neta = precio_venta - gastos_totales - costo_compra
 
-# Definimos margen_neto_decimal para evitar NameError en el metric
 if precio_venta > 0:
     margen_neto_decimal = ganancia_neta / precio_venta
 else:
@@ -122,7 +123,6 @@ if ganancia_neta > 0:
 elif precio_venta > 0:
     st.error(f"⚠️ Operación en pérdida. Pierdes ${abs(ganancia_neta):,.2f}.")
 
-# --- TABLA DE DESGLOSE ---
 with st.expander("🔍 Ver detalle de costos"):
     data_desglose = {
         "Concepto": ["Costo Producto", "Comisión MeLi", "Costo Fijo MeLi", "Envío", "IVA", "IIBB", "Otros"],
