@@ -106,31 +106,26 @@ gastos_totales = total_comision_meli + gasto_envio + iva_sobre_venta + total_iib
 ganancia_neta = precio_venta - gastos_totales - costo_compra
 margen_sobre_venta = (ganancia_neta / precio_venta) * 100 if precio_venta > 0 else 0
 
+# --- MOTOR DE CÁLCULO (Versión Corregida) ---
+
+# ... (todo el cálculo anterior de gastos_totales igual) ...
+
+ganancia_neta = precio_venta - gastos_totales - costo_compra
+
+# Corregimos el cálculo del margen para que sea compatible con el formato %
+if precio_venta > 0:
+    # Lo dejamos en decimal (ej: 0.15 en vez de 15) para que el formateador :.2% funcione bien
+    margen_neto_decimal = ganancia_neta / precio_venta 
+else:
+    margen_neto_decimal = 0.0
+
 # --- INTERFAZ DE RESULTADOS ---
 st.divider()
 m1, m2, m3, m4 = st.columns(4)
 
 m1.metric("Ganancia de Bolsillo", f"$ {ganancia_neta:,.2f}")
-m2.metric("Margen Neto", f"{margen_neto:.2%}")
+# Usamos la variable en decimal con el formateador de porcentaje
+m2.metric("Margen Neto", f"{margen_neto_decimal:.2%}") 
 m3.metric("Gastos Totales", f"$ {gastos_totales:,.2f}")
 m4.metric("Punto de Equilibrio", f"$ {(costo_compra + gastos_totales - iva_venta):,.0f}")
 
-if ganancia_neta > 0:
-    st.success(f"### ✅ ¡ES RENTABLE! Ganás ${ganancia_neta:,.2f} por cada unidad vendida.")
-else:
-    st.error(f"### ⚠️ ¡PÉRDIDA! Estás perdiendo ${abs(ganancia_neta):,.2f}. Revisá el precio o el peso.")
-
-# --- DESGLOSE DETALLADO ---
-with st.expander("🔍 Ver desglose de cada peso"):
-    desglose = {
-        "Concepto": ["Costo del Producto", "Comisión MeLi", "Costo Fijo MeLi", "Envío a tu cargo", "IVA (ARCA)", "Ingresos Brutos", "Otros Gastos"],
-        "Monto ($)": [costo_compra, precio_venta * (comision_pct / 100), costo_fijo_meli, gasto_envio, iva_venta, total_iibb, otros_costos]
-    }
-    df_desglose = pd.DataFrame(desglose)
-    st.table(df_desglose.style.format({"Monto ($)": "${:,.2f}"}))
-
-    st.caption("Nota: El cálculo de IVA asume alícuota general del 21% y que el costo de compra es neto.")
-
-# --- BOTÓN DE CIERRE ---
-if st.button("Generar Reporte para Cliente"):
-    st.write("Capturá la pantalla para enviarle este análisis profesional a tu cliente.")
