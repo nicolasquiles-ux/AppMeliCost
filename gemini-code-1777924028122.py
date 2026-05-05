@@ -55,7 +55,7 @@ with col_envio:
 with col_finan:
     st.subheader("💳 Financiación")
     plan_cuotas = st.selectbox("Plan de Cuotas (Publicación Clásica)", 
-                               ["1 Pago", "3 Cuotas (12.5%)", "6 Cuotas (23.8%)"])
+                               ["1 Pago", "3 Cuotas (7%)", "6 Cuotas (10%)","9 Cuotas (13,5%)", "12 Cuotas (16%)"])
     tasa_finan = 0.0 if "1 Pago" in plan_cuotas else (12.5 if "3 Cuotas" in plan_cuotas else 23.8)
 
 # --- LÓGICA DE PRICING INTELIGENTE ---
