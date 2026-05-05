@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="MeLi Pro Analytics", layout="wide")
+st.set_page_config(page_title="MeLi Pro Costos", layout="wide")
 
 # Estilos CSS para un look profesional
 st.markdown("""
