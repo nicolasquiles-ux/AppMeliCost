@@ -1,26 +1,24 @@
 import streamlit as st
 import pandas as pd
 
-# CONFIGURACIÓN
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="MeLi Pro Analytics", layout="wide")
 
-st.title("📊 MeLi Profit Dashboard Pro")
-st.caption("Estructura de costos actualizada - Mayo 2026")
+# Estilos personalizados para un look profesional
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eee; }
+    div[data-testid="stExpander"] { background-color: #ffffff; border-radius: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- SIDEBAR: CONFIGURACIÓN FISCAL Y REPUTACIÓN ---
-with st.sidebar:
-    st.header("⚙️ Configuración del Vendedor")
-    reputacion = st.selectbox("Tu Reputación (Descuento Envío)", 
-                              ["Verde (50%)", "Amarilla/Sin Medalla (40%)", "Roja/Naranja (0%)"])
-    tipo_vendedor = st.radio("Condición Fiscal", ["Responsable Inscripto", "Monotributista"])
-    iibb = st.number_input("% Ingresos Brutos", value=3.5)
-    st.divider()
-    st.info("El descuento de envío se aplica automáticamente si el producto supera los $33.000.")
+st.title("🚀 MeLi Dashboard Rentabilidad")
+st.caption("Versión 2.0 - Actualizado Mayo 2026 (Lógica ARCA / MeLi Argentina)")
 
-# --- DICCIONARIO DE COSTOS DE ENVÍO (Precios de Lista Mayo 2026) ---
-# Estos valores son los que cobra MeLi antes de aplicar descuentos por reputación.
+# --- DATOS DE REFERENCIA (Mayo 2026) ---
 tarifario_envios = {
-    "0.5 kg (Sobres/Pequeños)": 4800.0,
+    "0.5 kg (Sobres)": 4800.0,
     "1 kg": 5200.0,
     "2 kg": 5900.0,
     "5 kg": 7400.0,
@@ -28,93 +26,111 @@ tarifario_envios = {
     "15 kg": 12500.0,
     "20 kg": 15200.0,
     "25 kg": 18400.0,
-    "30 kg (Límite Máximo)": 22000.0,
-    "Especial (Muebles/Línea Blanca)": 35000.0
+    "30 kg (Límite)": 22000.0,
+    "Especial (Muebles)": 35000.0
 }
 
-with col3:
-    st.subheader("📦 Logística y Peso")
-    # Selector de peso basado en información pública de MeLi
-    categoria_peso = st.selectbox("Peso Facturable (Real o Volumétrico)", list(tarifario_envios.keys()))
+# --- SIDEBAR: CONFIGURACIÓN FISCAL ---
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    reputacion = st.selectbox("Tu Reputación", ["Verde (50%)", "Amarilla/Sin Medalla (40%)", "Roja/Naranja (0%)"])
+    tipo_vendedor = st.radio("Condición ante el IVA", ["Responsable Inscripto", "Monotributista"])
+    iibb_tax = st.number_input("% Ingresos Brutos", value=3.5, step=0.1)
+    st.divider()
+    st.info("💡 Los Responsables Inscriptos recuperan el IVA de la factura A de MeLi, pero aquí calculamos el neto final de bolsillo.")
+
+# --- PANEL PRINCIPAL: ENTRADA DE DATOS ---
+col_in1, col_in2, col_in3 = st.columns([1, 1, 1.2])
+
+with col_in1:
+    st.subheader("💰 Precios")
+    costo_compra = st.number_input("Costo de Compra ($)", min_value=0.0, value=15000.0, help="Tu costo de adquisición o fabricación.")
+    precio_venta = st.number_input("Precio de Venta ($)", min_value=1.0, value=35000.0)
+    tipo_pub = st.selectbox("Tipo de Publicación", ["Clásica", "Premium (Cuotas)"])
+    comision_pct = st.number_input("% Comisión MeLi", value=15.0 if tipo_pub == "Clásica" else 29.0)
+
+with col_in2:
+    st.subheader("📦 Logística")
+    categoria_peso = st.selectbox("Peso Facturable", list(tarifario_envios.keys()))
     costo_lista_envio = tarifario_envios[categoria_peso]
     
-    # Checkbox automático para envío gratis (Obligatorio > $33.000)
-    envio_gratis_req = precio_venta >= 33000
-    ofrece_envio_gratis = st.checkbox("Ofrecer Envío Gratis", value=envio_gratis_req)
+    envio_gratis_obligatorio = precio_venta >= 33000
+    ofrece_envio_gratis = st.checkbox("Ofrecer Envío Gratis", value=envio_gratis_obligatorio)
     
-    # Cálculo del subsidio según reputación
-    if ofrece_envio_gratis:
-        if reputacion == "Verde (50%)": 
-            descuento = 0.50
-        elif reputacion == "Amarilla/Sin Medalla (40%)": 
-            descuento = 0.40
-        else: 
-            descuento = 0.0
-            
-        envio_final = costo_lista_envio * (1 - descuento)
-        st.caption(f"Costo de lista: ${costo_lista_envio:,.0f}")
-        st.write(f"**Tu costo de envío:** ${envio_final:,.2f}")
+    otros_costos = st.number_input("Otros Gastos ($)", value=0.0, help="Embalaje, cinta, cadetería, etc.")
+
+with col_in3:
+    st.subheader("📏 Peso Volumétrico")
+    st.caption("Calculá si tu caja paga por tamaño:")
+    c_l, c_an, c_al = st.columns(3)
+    largo = c_l.number_input("Largo (cm)", value=0)
+    ancho = c_an.number_input("Ancho (cm)", value=0)
+    alto = c_al.number_input("Alto (cm)", value=0)
+    
+    if largo > 0 and ancho > 0 and alto > 0:
+        volumetrico = (largo * ancho * alto) / 4000
+        st.warning(f"Peso Volumétrico: {volumetrico:.2f} kg")
     else:
-        envio_final = 0.0
-        st.info("El envío lo paga el comprador.")
-
-# --- LÓGICA DE PESO VOLUMÉTRICO (Ayuda para el usuario) ---
-with st.expander("¿Cómo calcular el peso volumétrico?"):
-    st.write("Si el producto es liviano pero grande, MeLi aplica esta fórmula:")
-    col_dim1, col_dim2, col_dim3 = st.columns(3)
-    largo = col_dim1.number_input("Largo (cm)", value=50)
-    ancho = col_dim2.number_input("Ancho (cm)", value=40)
-    alto = col_dim3.number_input("Alto (cm)", value=30)
-    
-    volumetrico = (largo * ancho * alto) / 4000 # Coeficiente estándar MeLi
-    st.info(f"Peso Volumétrico: **{volumetrico:.2f} kg**. Usá el mayor entre este y el peso real.")
-
+        st.write("Ingresá medidas para calcular.")
 
 # --- MOTOR DE CÁLCULO ---
 
-# 1. Costo Fijo (Ventas < $33.000)
-costo_fijo = 0
-if precio_venta < 16000: costo_fijo = 1255
-elif precio_venta < 24000: costo_fijo = 2500
-elif precio_venta < 33000: costo_fijo = 3030
+# 1. Costo Fijo por unidad
+costo_fijo_meli = 0
+if precio_venta < 16000: costo_fijo_meli = 1255
+elif precio_venta < 24000: costo_fijo_meli = 2500
+elif precio_venta < 33000: costo_fijo_meli = 3030
 
-# 2. Impuestos
-if tipo_vendedor == "Responsable Inscripto":
-    iva_venta = precio_venta - (precio_venta / 1.21)
-    base_iibb = precio_venta / 1.21
+# 2. Descuento de Envío
+if ofrece_envio_gratis:
+    if reputacion == "Verde (50%)": dcto = 0.50
+    elif reputacion == "Amarilla/Sin Medalla (40%)": dcto = 0.40
+    else: dcto = 0.0
+    gasto_envio = costo_lista_envio * (1 - dcto)
 else:
-    iva_venta = 0
-    base_iibb = precio_venta
+    gasto_envio = 0.0
 
-total_iibb = base_iibb * (iibb / 100)
-comision_pesos = precio_venta * (comision_pct / 100)
+# 3. Impuestos (Deducción de IVA para RI)
+if tipo_vendedor == "Responsable Inscripto":
+    iva_sobre_venta = precio_venta - (precio_venta / 1.21)
+    base_imponible_iibb = precio_venta / 1.21
+else:
+    iva_sobre_venta = 0
+    base_imponible_iibb = precio_venta
 
-# 3. Resultado Final
-total_gastos = comision_pesos + costo_fijo + envio_final + iva_venta + total_iibb + otros_costos
-ganancia_neta = precio_venta - total_gastos - costo_prod
-margen_neto = (ganancia_neta / precio_venta) * 100
+total_iibb = base_imponible_iibb * (iibb_tax / 100)
+total_comision_meli = (precio_venta * (comision_pct / 100)) + costo_fijo_meli
 
-# --- RESULTADOS VISUALES ---
+# 4. RESULTADO FINAL
+gastos_totales = total_comision_meli + gasto_envio + iva_sobre_venta + total_iibb + otros_costos
+ganancia_neta = precio_venta - gastos_totales - costo_compra
+margen_sobre_venta = (ganancia_neta / precio_venta) * 100 if precio_venta > 0 else 0
+
+# --- INTERFAZ DE RESULTADOS ---
 st.divider()
-c1, c2, c3 = st.columns(3)
-c1.metric("Ganancia Neta", f"$ {ganancia_neta:,.2f}")
-c2.metric("Margen Real", f"{margen_neto:.2f}%")
-c3.metric("Gastos Totales", f"$ {total_gastos:,.2f}")
+m1, m2, m3, m4 = st.columns(4)
+
+m1.metric("Ganancia de Bolsillo", f"$ {ganancia_neta:,.2f}")
+m2.metric("Margen Neto", f"{margen_neto:.2%}")
+m3.metric("Gastos Totales", f"$ {gastos_totales:,.2f}")
+m4.metric("Punto de Equilibrio", f"$ {(costo_compra + gastos_totales - iva_venta):,.0f}")
 
 if ganancia_neta > 0:
-    st.success(f"### Rentable: Ganas ${ganancia_neta:,.2f} por unidad.")
+    st.success(f"### ✅ ¡ES RENTABLE! Ganás ${ganancia_neta:,.2f} por cada unidad vendida.")
 else:
-    st.error(f"### Pérdida: Pierdes ${abs(ganancia_neta):,.2f}. Revisa tus costos.")
+    st.error(f"### ⚠️ ¡PÉRDIDA! Estás perdiendo ${abs(ganancia_neta):,.2f}. Revisá el precio o el peso.")
 
-# --- DESGLOSE PARA EL CLIENTE ---
-with st.expander("Ver desglose de costos detallado"):
-    items = {
-        "Costo Producto": costo_prod,
-        "Comisión MeLi": comision_pesos,
-        "Costo Fijo": costo_fijo,
-        "Envío Final (con descuento)": envio_final,
-        "IVA": iva_venta,
-        "Ingresos Brutos": total_iibb,
-        "Otros Costos": otros_costos
+# --- DESGLOSE DETALLADO ---
+with st.expander("🔍 Ver desglose de cada peso"):
+    desglose = {
+        "Concepto": ["Costo del Producto", "Comisión MeLi", "Costo Fijo MeLi", "Envío a tu cargo", "IVA (ARCA)", "Ingresos Brutos", "Otros Gastos"],
+        "Monto ($)": [costo_compra, precio_venta * (comision_pct / 100), costo_fijo_meli, gasto_envio, iva_venta, total_iibb, otros_costos]
     }
-    st.table(pd.DataFrame(items.items(), columns=["Concepto", "Monto ($)"]))
+    df_desglose = pd.DataFrame(desglose)
+    st.table(df_desglose.style.format({"Monto ($)": "${:,.2f}"}))
+
+    st.caption("Nota: El cálculo de IVA asume alícuota general del 21% y que el costo de compra es neto.")
+
+# --- BOTÓN DE CIERRE ---
+if st.button("Generar Reporte para Cliente"):
+    st.write("Capturá la pantalla para enviarle este análisis profesional a tu cliente.")
