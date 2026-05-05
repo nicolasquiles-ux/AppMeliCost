@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="MeLi Pro Analytics", layout="wide")
+st.set_page_config(page_title="MeLi App - Costos", layout="wide")
 # Estilos CSS para mejorar la UI
 st.markdown("""
     <style>
