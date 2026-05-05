@@ -13,8 +13,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🚀 MeLi Profit Dashboard Pro")
-st.caption("Versión 2.1 Final - Mayo 2026 (Mercado Libre Argentina)")
+st.title("🚀 MeLi Pro Costos")
+st.caption("Versión 2.1 Final - Mayo 2026 (NQ)")
 
 # --- DATOS DE REFERENCIA (Tarifario Mayo 2026) ---
 tarifario_envios = {
