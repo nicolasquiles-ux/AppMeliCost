@@ -2,144 +2,146 @@ import streamlit as st
 import pandas as pd
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Centro Estant Pro v7.5", layout="centered")
+st.set_page_config(page_title="MeLi QuickCheck Pro", layout="centered")
 
 # =========================================================
-# TABLAS MAESTRAS EDITABLES (Valores 2026)
+# TABLAS MAESTRAS (Ajustadas a Mayo 2026)
 # =========================================================
-COSTOS_LOGISTICA = {
-    "MeLi Colecta / Full (Estándar)": {
-        "Chico (Hasta 2kg)": 5900.0,
-        "Mediano (5 a 10kg)": 9800.0,
-        "Grande (15 a 25kg)": 16500.0,
-        "Extra Grande (25 a 30kg)": 22000.0
+LOGISTICA_UNIV = {
+    "📦 Estándar (Colecta/Full)": {
+        "Sobres / XS (0.5kg)": 4800.0,
+        "Pequeño / S (1-2kg)": 6200.0,
+        "Mediano / M (5-10kg)": 10500.0,
+        "Grande / L (15-25kg)": 17800.0,
+        "Muy Grande / XL (30kg)": 23500.0
     },
-    "Envíos Especiales (Muebles Pesados)": {
-        "Escritorio / Rack Mediano": 28500.0,
-        "Placard / Biblioteca Grande": 38000.0,
-        "Multifunción / Combo Pesado": 45000.0
+    "🚚 Especiales (Muebles/Pesados)": {
+        "Bulto Pesado Nivel 1": 29000.0,
+        "Bulto Pesado Nivel 2": 39500.0,
+        "Bulto Pesado Nivel 3": 48000.0
     },
-    "Mercado Envío Flex (Promedio)": {
-        "Zona Local": 4500.0,
-        "Zona Extendida": 7200.0,
-        "CABA/GBA Full": 8500.0
+    "🛵 Rápido (Flex / Propio)": {
+        "Rango Local": 4800.0,
+        "Rango Extendido": 7500.0,
+        "Rango Especial": 9200.0
     }
 }
 
-TASAS_FINANCIACION = {
+FINANCIACION = {
     "1 Pago": 0.0, "3 Pagos (7%)": 7, 
     "6 Pagos (10%)": 10, "9 Pagos (13.5%)": 13.5, "12 Pagos (16%)": 16
 }
 
 CLAVE_CORRECTA = "MELIPRO_2026"
-# =========================================================
 
-# --- ESTILOS CSS ---
+# --- ESTILOS ---
 st.markdown("""
     <style>
-    .card-sugerido {
+    .stApp { background-color: #f7f9fb; }
+    .main-card {
         background-color: #000; color: #ffe600; padding: 25px;
         border-radius: 20px; text-align: center; margin-bottom: 20px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
     }
-    .big-text { font-size: 3.5rem; font-weight: 900; margin: 0; }
-    .stNumberInput input { font-size: 1.5rem !important; }
-    .label-logistica { 
-        background-color: #e1f5fe; padding: 10px; border-radius: 10px;
-        border-left: 5px solid #03a9f4; margin-bottom: 10px;
-    }
+    .big-price { font-size: 4rem; font-weight: 900; line-height: 1; margin: 10px 0; }
+    .stNumberInput input { font-size: 1.6rem !important; font-weight: bold !important; color: #1e1e1e !important; }
     </style>
     """, unsafe_allow_html=True)
 
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("🔐 Acceso")
-    clave = st.text_input("Clave", type="password")
-    acceso = (clave == CLAVE_CORRECTA)
+    st.title("👤 Configuración")
+    pass_input = st.text_input("Clave Pro", type="password")
+    if pass_input != CLAVE_CORRECTA:
+        st.error("Clave Incorrecta")
+        st.stop()
+    
+    st.success("Acceso Concedido")
     st.divider()
     repu = st.selectbox("Tu Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
     cond_iva = st.radio("Tu IVA", ["Responsable Inscripto", "Monotributista"])
-    per_iibb = st.number_input("% IIBB", value=3.5)
+    iibb_tax = st.number_input("% IIBB", value=3.5)
 
-if not acceso:
-    st.warning("⚠️ Ingresá la clave.")
+# --- APP PRINCIPAL ---
+st.title("🚀 MeLi QuickCheck")
+st.caption("Evaluación de rentabilidad instantánea")
+
+# SECCIÓN 1: COSTO BASE
+costo_compra = st.number_input("¿Cuánto te costó el producto? ($)", value=0.0, step=500.0)
+
+# SECCIÓN 2: LOGÍSTICA RÁPIDA
+col_a, col_b = st.columns(2)
+with col_a:
+    tipo_envio = st.selectbox("Tipo de Envío", list(LOGISTICA_UNIV.keys()))
+with col_b:
+    tamanio = st.selectbox("Tamaño del Bulto", list(LOGISTICA_UNIV[tipo_envio].keys()))
+
+# Cálculo de envío con descuento
+costo_envio_lista = LOGISTICA_UNIV[tipo_envio][tamanio]
+bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
+envio_final = costo_envio_lista * (1 if "Flex" in tipo_envio else bonif)
+
+# SECCIÓN 3: COMISIÓN Y CUOTAS
+col_c, col_d = st.columns(2)
+with col_c:
+    comi_meli = st.selectbox("% Comisión MeLi", [10, 12, 14, 15, 16.5, 28], index=3)
+with col_d:
+    plan_cuotas = st.selectbox("Financiación", list(FINANCIACION.keys()))
+
+margen_neto_obj = st.slider("% Margen Neto Deseado", 5, 40, 15)
+
+# --- LÓGICA DE CÁLCULO MAESTRA ---
+t_iva = 0.1735 if cond_iva == "Responsable Inscripto" else 0.0
+t_iibb = iibb_tax / 100
+t_finan = FINANCIACION[plan_cuotas] / 100
+
+divisor = (1 - (comi_meli/100) - (margen_neto_obj/100) - t_iibb - t_iva - t_finan)
+pvp_sugerido = (costo_compra + envio_final) / divisor if divisor > 0 else 0
+
+# --- DASHBOARD VISUAL ---
+st.markdown(f"""
+    <div class="main-card">
+        <div style="font-size: 1.1rem; text-transform: uppercase; font-weight: bold;">Precio Sugerido de Venta</div>
+        <div class="big-price">${pvp_sugerido:,.0f}</div>
+        <div style="font-size: 1.2rem;">Ganás el {margen_neto_obj}% Neto (${(pvp_sugerido * margen_neto_obj/100):,.0f})</div>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- EVALUADOR DE PRECIO REAL ---
+st.divider()
+st.subheader("🏁 ¿Dá o no dá?")
+precio_mercado = st.number_input("Precio al que vende la competencia ($)", value=float(round(pvp_sugerido, 0)))
+
+# Cálculos sobre el precio del mercado
+# Valor 2026 para Envío Gratis: $33.000. Si es menos, se paga costo fijo.
+costo_fijo = 3800.0 if precio_mercado < 33000 else 0.0
+envio_real = envio_final if precio_mercado >= 33000 else 0.0
+
+i_iva = (precio_mercado - (precio_mercado / 1.21)) if cond_iva == "Responsable Inscripto" else 0.0
+i_iibb = (precio_mercado / (1.21 if cond_iva == "Responsable Inscripto" else 1)) * t_iibb
+i_comi = precio_mercado * (comi_meli/100)
+i_fina = precio_mercado * t_finan
+
+ganancia_neta = precio_mercado - (i_comi + costo_fijo + envio_real + i_iva + i_iibb + i_fina) - costo_compra
+margen_real = (ganancia_neta / precio_mercado) if precio_mercado > 0 else 0
+
+# Tarjetas de decisión
+c1, c2 = st.columns(2)
+with c1:
+    st.metric("Tu Ganancia", f"$ {ganancia_neta:,.0f}")
+with c2:
+    st.metric("Margen Real", f"{margen_real:.1%}")
+
+if ganancia_neta < 0:
+    st.error("🛑 NO PUBLICAR: Estás perdiendo dinero.")
+elif margen_real < (margen_neto_obj/100):
+    st.warning("⚠️ RIESGOSO: Margen por debajo de tu objetivo.")
 else:
-    st.title("📦 Calculadora Centro Estant")
+    st.success("✅ RENTABLE: Supera tu objetivo. ¡Dale para adelante!")
 
-    # --- ENTRADA DE DATOS ---
-    c_fabrica = st.number_input("Costo de Compra ($)", value=35000.0, step=1000.0)
-    
-    # --- NUEVO SELECTOR DE LOGÍSTICA ---
-    st.markdown('<div class="label-logistica"><b>CONFIGURACIÓN DE ENVÍO</b></div>', unsafe_allow_html=True)
-    tipo_logistica = st.selectbox("Tipo de Servicio", list(COSTOS_LOGISTICA.keys()))
-    categoria_peso = st.selectbox("Categoría de Producto", list(COSTOS_LOGISTICA[tipo_logistica].keys()))
-    
-    # Obtener costo base de la tabla
-    costo_envio_lista = COSTOS_LOGISTICA[tipo_logistica][categoria_peso]
-    
-    # Aplicar bonificación por reputación (Solo aplica a Mercado Envíos, no a Flex por lo general)
-    if "Flex" in tipo_logistica:
-        costo_envio_final = costo_envio_lista # Flex se suele pagar completo o negociado
-    else:
-        bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
-        costo_envio_final = costo_envio_lista * bonif
-
-    st.info(f"Costo Logístico detectado: ${costo_envio_final:,.2f}")
-
-    # --- PARÁMETROS DE VENTA ---
-    col1, col2 = st.columns(2)
-    with col1:
-        comi_meli = st.selectbox("% Comisión MeLi", [10, 12, 14, 15, 16.5, 28], index=3)
-    with col2:
-        plan_pago = st.selectbox("Financiación", list(TASAS_FINANCIACION.keys()))
-
-    margen_obj = st.slider("% Margen Neto Deseado", 5, 40, 15)
-
-    # --- LÓGICA DE CÁLCULO ---
-    t_iva = 0.1735 if cond_iva == "Responsable Inscripto" else 0.0
-    t_iibb = per_iibb / 100
-    t_finan = TASAS_FINANCIACION[plan_pago] / 100
-    
-    divisor = (1 - (comi_meli/100) - (margen_obj/100) - t_iibb - t_iva - t_finan)
-    pvp_objetivo = (c_fabrica + costo_envio_final) / divisor if divisor > 0 else 0
-
-    # --- DASHBOARD ---
-    st.markdown(f"""
-        <div class="card-sugerido">
-            <div style="font-size: 1rem; text-transform: uppercase;">Precio de Venta Sugerido</div>
-            <div class="big-text">${pvp_objetivo:,.0f}</div>
-            <div style="font-weight: bold; margin-top:5px;">Margen Neto: {margen_obj}%</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # --- COMPARADOR ---
-    st.divider()
-    st.subheader("🏁 Comparar vs Competencia")
-    p_comp = st.number_input("Precio a Evaluar ($)", value=float(round(pvp_objetivo,0)))
-
-    # Recálculo con el precio de competencia
-    # Si es menor a 33.000 (valor 2026), hay costo fijo
-    fijo = 3500.0 if p_comp < 33000 else 0.0
-    
-    i_iva = (p_comp - (p_comp / 1.21)) if cond_iva == "Responsable Inscripto" else 0.0
-    i_iibb = (p_comp / (1.21 if cond_iva == "Responsable Inscripto" else 1)) * t_iibb
-    i_comi = p_comp * (comi_meli/100)
-    i_fina = p_comp * t_finan
-    
-    utilidad = p_comp - (i_comi + fijo + costo_envio_final + i_iva + i_iibb + i_fina) - c_fabrica
-    margen_r = (utilidad / p_comp) if p_comp > 0 else 0
-
-    col_res1, col_res2 = st.columns(2)
-    col_res1.metric("Ganancia Neta", f"$ {utilidad:,.0f}")
-    col_res2.metric("Margen Real", f"{margen_r:.1%}")
-
-    if margen_r < 0:
-        st.error("⚠️ Estás operando a PERDIDA con este precio.")
-    elif margen_r < (margen_obj/100):
-        st.warning("⚠️ Ganancia por debajo del objetivo.")
-    else:
-        st.success("✅ Precio altamente rentable.")
-
-    with st.expander("📊 Desglose de Gastos"):
-        st.write(f"• Envio Final: ${costo_envio_final:,.2f}")
-        st.write(f"• Comisión: ${i_comi:,.2f}")
-        st.write(f"• Financiación: ${i_fina:,.2f}")
-        st.write(f"• Impuestos: ${(i_iva + i_iibb):,.2f}")
+with st.expander("📊 Ver Desglose de Costos"):
+    df_gastos = pd.DataFrame({
+        "Concepto": ["Costo Compra", "Comisión MeLi", "Envío / Fijo", "Impuestos (IVA+IIBB)", "Financiación"],
+        "Monto": [costo_compra, i_comi, (envio_real + costo_fijo), (i_iva + i_iibb), i_fina]
+    })
+    st.table(df_gastos.style.format({"Monto": "${:,.2f}"}))
