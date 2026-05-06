@@ -24,10 +24,10 @@ tarifario_envios = {
 # ACÁ PODÉS EDITAR LOS PORCENTAJES DE CADA PLAN
 tasas_financiacion = {
     "1 Pago": 0.0,
-    "3 Pagos": 7.0,
-    "6 Pagos": 10.0,
-    "9 Pagos": 13.5,
-    "12 Pagos": 16.0
+    "3 Pagos": 12.5,
+    "6 Pagos": 23.8,
+    "9 Pagos": 35.0,
+    "12 Pagos": 45.0
 }
 
 # --- SIDEBAR CONFIG ---
