@@ -9,51 +9,54 @@ st.set_page_config(page_title="MeLi Intelligence Pro", layout="wide", page_icon=
 # --- CLAVE DE ACCESO PRO ---
 CLAVE_CORRECTA = "CENTRO_PRO_2026"
 
-# --- ESTILOS CSS ---
+# --- ESTILOS CSS AVANZADOS ---
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 6px solid #ffe600; }
-    .whatsapp-button { background-color: #25d366; color: white !important; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; display: block; text-align: center; margin-top: 15px; }
+    /* Destacar el PVP Sugerido */
+    .pvp-box {
+        background-color: #ffe600;
+        padding: 25px;
+        border-radius: 15px;
+        text-align: center;
+        border: 2px solid #e6cf00;
+        margin-bottom: 20px;
+    }
+    .pvp-label { font-size: 1.2rem; font-weight: bold; color: #333; }
+    .pvp-value { font-size: 3rem; font-weight: 900; color: #000; }
+    
+    /* Estilo de métricas secundarias */
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .whatsapp-button { background-color: #25d366; color: white !important; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; display: block; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCIONES TÉCNICAS ---
-def extraer_mla(texto):
-    match = re.search(r'MLA[- ]?(\d+)', texto.upper())
-    return f"MLA{match.group(1)}" if match else None
-
-def buscar_en_meli(mla_id):
-    if not mla_id: return {"status": "error", "mensaje": "ID inválido"}
+# --- FUNCIONES DE BÚSQUEDA ROBUSTA ---
+def buscar_en_meli(id_input):
+    if not id_input: return {"status": "error", "mensaje": "Ingresá un ID"}
     
-    # 1. Intentamos como ITEM (Publicación normal)
-    url_item = f"https://api.mercadolibre.com/items/{mla_id}"
-    res_item = requests.get(url_item)
+    # Limpieza total del ID
+    id_limpio = re.sub(r'\D', '', id_input) # Solo números
     
-    if res_item.status_code == 200:
-        data = res_item.json()
-        return {
-            "titulo": data.get("title"),
-            "precio": data.get("price"),
-            "imagen": data.get("thumbnail"),
-            "status": "ok"
-        }
+    intentos = [
+        f"https://api.mercadolibre.com/items/MLA{id_limpio}",      # Opción 1: Publicación
+        f"https://api.mercadolibre.com/products/MLA{id_limpio}",   # Opción 2: Catálogo con MLA
+        f"https://api.mercadolibre.com/products/{id_limpio}"       # Opción 3: Catálogo puro
+    ]
     
-    # 2. Si falla, intentamos como PRODUCTO (Catálogo como el MLA27392194)
-    # Nota: Para catálogo, a veces el ID no lleva el prefijo "MLA" en la URL de la API
-    solo_numeros = mla_id.replace("MLA", "")
-    url_prod = f"https://api.mercadolibre.com/products/{mla_id}"
-    res_prod = requests.get(url_prod)
-    
-    if res_prod.status_code == 200:
-        data = res_prod.json()
-        return {
-            "titulo": data.get("name"),
-            "precio": data.get("buy_box_winner", {}).get("price") or 0,
-            "imagen": data.get("pictures")[0].get("url") if data.get("pictures") else "",
-            "status": "ok"
-        }
-    
-    return {"status": "error", "mensaje": "No se encontró el ID en Publicaciones ni en Catálogo."}
+    for url in intentos:
+        try:
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                # Normalizamos la respuesta según si es Item o Producto
+                titulo = data.get("title") or data.get("name")
+                precio = data.get("price") or data.get("buy_box_winner", {}).get("price")
+                imagen = data.get("thumbnail") or (data.get("pictures")[0].get("url") if data.get("pictures") else "")
+                if precio:
+                    return {"titulo": titulo, "precio": precio, "imagen": imagen, "status": "ok"}
+        except: continue
+        
+    return {"status": "error", "mensaje": "ID no encontrado. Verificá que el código sea correcto."}
 
 # --- DATA DE REFERENCIA ---
 tarifario_envios = {
@@ -65,102 +68,103 @@ tasas_financiacion = {"1 Pago": 0.0, "3 Pagos": 12.5, "6 Pagos": 23.8, "9 Pagos"
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://http2.mlstatic.com/static/org-img/mkt/vendas-mkt/v3/logo-mercado-livre.png", width=140)
-    st.header("🔐 Acceso Clientes")
-    clave_ingresada = st.text_input("Ingresá tu Clave Pro", type="password")
-    es_pro = (clave_ingresada == CLAVE_CORRECTA)
-    
+    st.header("🔐 Acceso")
+    clave = st.text_input("Clave Pro", type="password")
+    es_pro = (clave == CLAVE_CORRECTA)
     if not es_pro:
-        st.markdown(f'<a href="https://wa.me/5491165808113?text=Quiero%20mi%20clave%20Pro" class="whatsapp-button">Pedir Clave Pro</a>', unsafe_allow_html=True)
-    
+        st.markdown(f'<a href="https://wa.me/5491165808113" class="whatsapp-button">Pedir Clave Pro</a>', unsafe_allow_html=True)
     st.divider()
-    reputacion = st.selectbox("Tu Reputación", ["Verde (50%)", "Amarilla (40%)", "Roja (0%)"])
+    reputacion = st.selectbox("Reputación", ["Verde (50%)", "Amarilla (40%)", "Roja (0%)"])
     tipo_vend = st.radio("IVA", ["Responsable Inscripto", "Monotributista"])
     iibb_tax = st.number_input("% IIBB", value=3.5)
 
-# --- APP PRINCIPAL ---
-st.title("🚀 MeLi Smart Pricing")
+# --- APP ---
+st.title("🚀 MeLi Intelligence Pro")
 
 tab_calc, tab_mla = st.tabs(["🧮 Calculadora", "🔍 Buscador MeLi"])
 
-# Persistencia de precio buscado
 if 'precio_buscado' not in st.session_state: st.session_state.precio_buscado = 0.0
 
 with tab_mla:
-    st.subheader("Buscador Híbrido (Publicación o Catálogo)")
-    mla_input = st.text_input("Pegá el código o link aquí", placeholder="Ej: MLA27392194")
-    
+    st.subheader("Buscador de Competencia")
+    mla_input = st.text_input("Pegá el código (ej: 27392194)")
     if st.button("Consultar MeLi", use_container_width=True):
-        if not es_pro:
-            st.error("🔒 Función exclusiva para suscriptores Pro.")
+        if not es_pro: st.error("Función Pro bloqueada.")
         else:
-            id_limpio = extraer_mla(mla_input)
-            with st.spinner('Consultando base de datos de MeLi...'):
-                res = buscar_en_meli(id_limpio)
-                if res["status"] == "ok":
-                    st.session_state.precio_buscado = float(res["precio"])
-                    st.success(f"Encontrado: {res['titulo']}")
-                    st.image(res["imagen"], width=150)
-                    st.metric("Precio Competencia", f"$ {res['precio']:,.2f}")
-                    st.info("✅ Precio cargado en la calculadora.")
-                else:
-                    st.error(res["mensaje"])
+            res = buscar_en_meli(mla_input)
+            if res["status"] == "ok":
+                st.session_state.precio_buscado = float(res["precio"])
+                st.success(f"Encontrado: {res['titulo']}")
+                st.metric("Precio Competencia", f"$ {res['precio']:,.2f}")
+            else: st.error(res["mensaje"])
 
 with tab_calc:
-    col_l, col_r = st.columns(2)
+    # FILA PRINCIPAL: PVP DESTACADO A LA IZQUIERDA
+    col_pvp, col_inputs = st.columns([1.2, 2])
     
-    with col_l:
-        st.subheader("💰 Costos y Márgenes")
-        costo_compra = st.number_input("Costo de Compra ($)", value=15000.0)
-        margen_obj = st.slider("% Margen Objetivo", 5, 50, 20)
-        comision_base = st.number_input("% Comisión MeLi", value=15.0)
-        plan_cuotas = st.selectbox("Financiación", list(tasas_financiacion.keys()))
-        tasa_f = tasas_financiacion[plan_cuotas]
-
-    with col_r:
-        st.subheader("📦 Logística")
-        peso_sel = st.selectbox("Peso del bulto", list(tarifario_envios.keys()))
-        otros_gastos = st.number_input("Embalaje/Otros ($)", value=0.0)
-        
-        # Sugerencia de PVP automática (Pricing Inteligente)
-        t_iva = 0.1735 if tipo_vend == "Responsable Inscripto" else 0.0
-        t_iibb = iibb_tax / 100
-        t_comm = comision_base / 100
-        t_finan = tasa_f / 100
-        divisor = (1 - t_comm - (margen_obj/100) - t_iibb - t_iva - t_finan)
-        
-        c_envio_lista = tarifario_envios[peso_sel]
-        dcto_e = 0.5 if "Verde" in reputacion else (0.6 if "Amarilla" in reputacion else 1)
-        # Estimamos costo envío para el PVP sugerido
-        c_envio_est = c_envio_lista * dcto_e
-        
-        pvp_sugerido = (costo_compra + otros_gastos + c_envio_est) / divisor if divisor > 0 else costo_compra * 2
-        
-        # El precio de venta toma el valor buscado en MLA si existe, sino el sugerido
-        val_inicial = st.session_state.precio_buscado if st.session_state.precio_buscado > 0 else pvp_sugerido
-        precio_venta = st.number_input("Precio de Venta Final (PVP)", value=float(round(val_inicial, 0)))
-
-    # --- RE-CÁLCULO DE DESGLOSE ---
-    costo_fijo = 3030.0 if precio_venta < 33000 else 0.0
-    envio_real = c_envio_lista * dcto_e if precio_venta >= 33000 else 0.0
-    iva_r = (precio_venta - (precio_venta / 1.21)) if tipo_vend == "Responsable Inscripto" else 0.0
-    iibb_r = (precio_venta / (1.21 if tipo_vend == "Responsable Inscripto" else 1)) * (iibb_tax/100)
-    comm_r = precio_venta * (comision_base / 100)
-    finan_r = precio_venta * (tasa_f / 100)
+    # Lógica de cálculo primero para mostrar en el box
+    costo_compra = st.session_state.get('costo_input', 15000.0)
+    margen_obj = st.session_state.get('margen_input', 20)
+    comision_base = st.session_state.get('comision_input', 15.0)
+    tasa_f = tasas_financiacion[st.session_state.get('plan_input', '1 Pago')]
     
-    total_gastos = comm_r + costo_fijo + envio_real + iva_r + iibb_r + finan_r + otros_gastos
-    ganancia_neta = precio_venta - total_gastos - costo_compra
-    margen_real = (ganancia_neta / precio_venta) if precio_venta > 0 else 0
+    t_iva = 0.1735 if tipo_vend == "Responsable Inscripto" else 0.0
+    t_iibb = iibb_tax / 100
+    divisor = (1 - (comision_base/100) - (margen_obj/100) - t_iibb - t_iva - (tasa_f/100))
+    
+    # Estimación envío para sugerencia
+    peso_sel = st.session_state.get('peso_input', "10 kg")
+    dcto_e = 0.5 if "Verde" in reputacion else 0.6
+    c_envio_lista = tarifario_envios[peso_sel]
+    
+    pvp_sugerido = (costo_compra + (c_envio_lista * dcto_e)) / divisor if divisor > 0 else 0
+    
+    with col_pvp:
+        st.markdown(f"""
+            <div class="pvp-box">
+                <div class="pvp-label">PVP SUGERIDO</div>
+                <div class="pvp-value">$ {pvp_sugerido:,.0f}</div>
+                <p style="color: #666; margin-top:10px;">Para ganar el {margen_obj}% neto</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col_inputs:
+        sub1, sub2 = st.columns(2)
+        with sub1:
+            st.session_state.costo_input = st.number_input("Costo Compra ($)", value=15000.0)
+            st.session_state.plan_input = st.selectbox("Cuotas", list(tasas_financiacion.keys()))
+        with sub2:
+            st.session_state.margen_input = st.slider("% Margen", 5, 50, 20)
+            st.session_state.comision_input = st.number_input("% Comisión MeLi", value=15.0)
 
     st.divider()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Ganancia Neta", f"$ {ganancia_neta:,.2f}")
-    m2.metric("Margen Real", f"{margen_real:.2%}")
-    m3.metric("PVP Sugerido", f"$ {pvp_sugerido:,.0f}")
+    
+    # SEGUNDA FILA: PRECIO FINAL Y MÉTRICAS
+    col_venta, col_m1, col_m2 = st.columns([1, 1, 1])
+    
+    with col_venta:
+        val_pvp = st.session_state.precio_buscado if st.session_state.precio_buscado > 0 else pvp_sugerido
+        precio_final = st.number_input("PVP Final (Editable)", value=float(round(val_pvp, 0)))
+    
+    # Recálculo con precio final
+    costo_fijo = 3030.0 if precio_final < 33000 else 0.0
+    envio_r = c_envio_lista * dcto_e if precio_final >= 33000 else 0.0
+    iva_r = (precio_final - (precio_final / 1.21)) if tipo_vend == "Responsable Inscripto" else 0.0
+    iibb_r = (precio_final / (1.21 if tipo_vend == "Responsable Inscripto" else 1)) * (iibb_tax/100)
+    comm_r = precio_final * (comision_base / 100)
+    finan_r = precio_final * (tasa_f / 100)
+    
+    total_g = comm_r + costo_fijo + envio_r + iva_r + iibb_r + finan_r
+    ganancia = precio_final - total_g - costo_compra
+    margen_r = (ganancia / precio_final) if precio_final > 0 else 0
 
-    with st.expander("📊 Ver Desglose de Costos Detallado"):
-        df_desc = pd.DataFrame({
-            "Concepto": ["Costo Producto", "Comisión MeLi", "Costo Fijo MeLi", "Envío (Fulfillment/Colecta)", "IVA (ARCA)", "Ingresos Brutos", "Costo Financiero", "Embalaje/Otros"],
-            "Monto": [costo_compra, comm_r, costo_fijo, envio_real, iva_r, iibb_r, finan_r, otros_gastos]
+    with col_m1: st.metric("Ganancia Neta", f"$ {ganancia:,.2f}")
+    with col_m2: st.metric("Margen Real", f"{margen_r:.2%}")
+
+    with st.expander("📊 Desglose de Gastos"):
+        st.session_state.peso_input = st.selectbox("Peso para envío", list(tarifario_envios.keys()))
+        df = pd.DataFrame({
+            "Concepto": ["Compra", "Comisión", "Fijo", "Envío", "IVA", "IIBB", "Finan"],
+            "Monto": [costo_compra, comm_r, costo_fijo, envio_r, iva_r, iibb_r, finan_r]
         })
-        st.table(df_desc.style.format({"Monto": "${:,.2f}"}))
+        st.table(df.style.format({"Monto": "${:,.2f}"}))
