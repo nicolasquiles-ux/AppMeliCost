@@ -14,8 +14,8 @@ TARIFARIO_ENVIOS = {
 }
 
 TASAS_FINANCIACION = {
-    "1 Pago": 0.0, "3 Pagos (Cuota Simple)": 7, 
-    "6 Pagos (Cuota Simple)": 10, "9 Pagos": 13.5, "12 Pagos": 16
+    "1 Pago": 0.0, "3 Pagos (7%)": 7, 
+    "6 Pagos (10%)": 10, "9 Pagos (13.5%)": 13.5, "12 Pagos (16%)": 16
 }
 
 CLAVE_CORRECTA = "CENTRO_PRO_2026"
