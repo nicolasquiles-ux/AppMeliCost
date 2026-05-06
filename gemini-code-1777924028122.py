@@ -14,8 +14,8 @@ TARIFARIO_ENVIOS = {
 }
 
 TASAS_FINANCIACION = {
-    "1 Pago (Contado)": 0.0, "3 Pagos (Cuota Simple)": 7, 
-    "6 Pagos (Cuota Simple)": 10, "9 Pagos": 13.5, "12 Pagos": 16
+    "1 Pago": 0.0, "3 Pagos (7%)": 7, 
+    "6 Pagos (10%)": 10, "9 Pagos (13.5%)": 13.5, "12 Pagos (16%)": 16
 }
 
 CLAVE_CORRECTA = "MELIPRO_2026"
@@ -63,7 +63,7 @@ with st.sidebar:
 if not acceso:
     st.warning("⚠️ Ingresá la clave para ver el Dashboard.")
 else:
-    st.title("📦 Calculadora de Precios")
+    st.title("📦 Calculadora de PVP y Rentabilidad MELI")
 
     # --- ENTRADA DE DATOS ---
     with st.container():
