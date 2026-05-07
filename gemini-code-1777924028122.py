@@ -50,11 +50,11 @@ st.markdown("""
     .dash-main {
         background-color: #0F172A; /* Azul Naval Oscuro */
         color: white;
-        padding: 30px;
+        padding: 20px;
         border-radius: 8px;
         text-align: center;
         border-bottom: 5px solid #3B82F6;
-        margin-bottom: 25px;
+        margin-bottom: 15px;
     }
     .dash-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; }
     .dash-price { font-size: 3.5rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
