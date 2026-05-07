@@ -12,8 +12,8 @@ LOGISTICA = {
         "M - Mediano (5-10kg)": 10500.0, "L - Grande (15-25kg)": 17800.0,
         "XL - Muy Grande (30kg)": 23500.0
     },
-    "🚚 Logística Centro Estant": {
-        "Nivel 1 (Escritorios)": 29000.0, "Nivel 2 (Bibliotecas)": 39500.0, "Nivel 3 (Placares)": 48000.0
+    "🚚 Logística M1": {
+        "Nivel 1 (chicos)": 29000.0, "Nivel 2 (Medianos)": 39500.0, "Nivel 3 (Pesados)": 48000.0
     },
     "🛵 Flex / Entregas Propias": {
         "Rango Local": 4800.0, "Rango GBA": 7500.0, "Rango Especial": 9500.0
@@ -51,7 +51,7 @@ st.markdown("""
         background-color: #0F172A; /* Azul Naval Oscuro */
         color: white;
         padding: 30px;
-        border-radius: 12px;
+        border-radius: 8px;
         text-align: center;
         border-bottom: 5px solid #3B82F6;
         margin-bottom: 25px;
