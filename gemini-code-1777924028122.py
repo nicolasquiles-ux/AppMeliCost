@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence", layout="centered")
+st.set_page_config(page_title="NQ | Sales Intelligence", layout="centered")
 
 # =========================================================
 # DATOS MAESTROS
