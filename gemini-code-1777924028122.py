@@ -144,3 +144,59 @@ with st.expander("📝 Desglose de Costos Detallado"):
     st.info(f"Total Gastos: ${(c_meli + c_fina + imp_iva + imp_iibb + e_real + fijo):,.2f}")
 
 st.markdown('<a href="https://wa.me/5491165808113" style="display:block; background:#1E293B; color:white; text-align:center; padding:12px; border-radius:10px; text-decoration:none; font-weight:bold; margin-top:20px;">CONSULTA WHATSAPP</a>', unsafe_allow_html=True)
+
+
+import requests
+
+def obtener_datos_meli(item_id):
+    # Limpiamos el ID por si pegas el link entero
+    item_id = item_id.split('/')[-1].split('?')[0].replace("MLA", "MLA")
+    if not item_id.startswith("MLA"):
+        item_id = f"MLA{item_id}"
+
+    url = f"https://api.mercadolibre.com/items/{item_id}"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "titulo": data.get("title"),
+                "precio": data.get("price"),
+                "logistica": data.get("shipping", {}).get("mode"), # me1 o me2
+                "condicion": data.get("listing_type_id"), # gold_pro (Premium) o gold_special (Clásica)
+                "envio_gratis": data.get("shipping", {}).get("free_shipping"),
+                "exito": True
+            }
+    except Exception as e:
+        return {"exito": False, "error": str(e)}
+    return {"exito": False}
+
+# --- NUEVA SECCIÓN: RADAR DE COMPETENCIA ---
+st.divider()
+st.subheader("🕵️ Radar de Competencia (API)")
+url_rival = st.text_input("Pegá el ID o Link del producto rival", placeholder="MLA123456789")
+
+if url_rival:
+    datos_rival = obtener_datos_meli(url_rival)
+    
+    if datos_rival.get("exito"):
+        st.info(f"🔎 Analizando: {datos_rival['titulo']}")
+        
+        # Seteamos el precio de competencia automáticamente
+        precio_rival = datos_rival['precio']
+        tipo_envio_rival = "ME1" if datos_rival['logistica'] == "me1" else "ME2"
+        es_premium = "Premium" if "gold_pro" in datos_rival['condicion'] else "Clásica"
+        
+        col_r1, col_r2 = st.columns(2)
+        col_r1.metric("Precio Rival", f"${precio_rival:,.0f}")
+        col_r2.metric("Logística", tipo_envio_rival)
+        
+        st.caption(f"Tipo de publicación detectada: **{es_premium}**")
+        
+        # Botón para usar este precio en el calculador
+        if st.button("Usar este precio para mi evaluación"):
+            st.session_state.precio_evaluar = precio_rival
+            st.rerun()
+    else:
+        st.error("No se pudo obtener info de ese producto. Revisá el ID.")
