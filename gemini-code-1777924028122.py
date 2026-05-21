@@ -1,10 +1,10 @@
 import streamlit as st
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Centro Estant | Intelligence V10", layout="centered")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Centro Estant | Sales Intelligence", layout="centered")
 
 # =========================================================
-# NUEVA TABLA DE ENVÍOS (image_41c7fd.png)
+# DATOS MAESTRAS
 # =========================================================
 TABLA_ME1 = {
     "Hasta 0,3 Kg": 6080.0, "0,3 a 0,5 Kg": 6600.0, "0,5 a 1 Kg": 7470.0,
@@ -17,32 +17,48 @@ TABLA_ME1 = {
     "Mas de 180 Kg": 112060.0
 }
 
-# Actualización cuotas (Imagen 2 + Cuota 5%)
 FINANCIACION = {
-    "1 Pago": 0.0,
-    "3 Pagos CON Interes Bajo (5%)": 5.0,
-    "3 Pagos (7%)": 7.0,
-    "6 Pagos (10%)": 10.0,
-    "9 Pagos (13.5%)": 13.5,
-    "12 Pagos (16%)": 16.0
+    "1 Pago": 0.0, "3 Pagos (5%)": 5.0, "3 Pagos (7%)": 7.0,
+    "6 Pagos (10%)": 10.0, "9 Pagos (13.5%)": 13.5, "12 Pagos (16%)": 16.0
 }
 
-CLAVE_CORRECTA = "MELIPRO_2026"
+CLAVE_CORRECTA = "CENTRO_PRO_2026"
 
-# --- CSS PROFESIONAL ---
+# --- CSS: DISEÑO SOBRIO Y PROFESIONAL ---
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #F4F7F9; }
+
+    .stNumberInput input, .stSelectbox div {
+        background-color: white !important;
+        border: 1px solid #D1D9E0 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        color: #1A202C !important;
+    }
+
+    /* Estructura del Dashboard */
     .dash-main {
-        background-color: #0F172A; color: white; padding: 25px;
-        border-radius: 15px; text-align: center; border-bottom: 5px solid #3B82F6;
+        background-color: #0F172A; color: white; padding: 30px;
+        border-radius: 12px; text-align: center;
+        border-bottom: 5px solid #3B82F6; margin-bottom: 25px;
     }
-    .dash-price { font-size: 3.2rem; font-weight: 900; color: #FFFFFF; }
-    .metric-card {
-        background-color: white; padding: 15px; border-radius: 10px;
-        border: 1px solid #E2E8F0; text-align: center;
+    .dash-main-inverse {
+        background-color: #1E293B; color: white; padding: 30px;
+        border-radius: 12px; text-align: center;
+        border-bottom: 5px solid #10B981; margin-bottom: 25px;
     }
-    .stNumberInput input { font-weight: bold !important; }
+    .dash-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; }
+    .dash-price { font-size: 3.5rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
+    .dash-margin { background: #0F172A; display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.9rem; color: #10B981; font-weight: bold; }
+
+    .btn-wa {
+        background-color: #1E293B; color: white !important; padding: 12px;
+        border-radius: 8px; text-align: center; text-decoration: none;
+        display: block; font-weight: bold; margin-top: 20px; border: 1px solid #334155;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,152 +67,136 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🔐 Acceso Sistema")
-    clave_input = st.text_input("Clave Operador", type="password")
-    if st.button("INGRESAR"):
-        if clave_input == CLAVE_CORRECTA:
-            st.session_state.autenticado = True
-            st.rerun()
+    st.markdown("<h2 style='text-align: center; color: #0F172A;'>Control de Gestión</h2>", unsafe_allow_html=True)
+    with st.container():
+        clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Ingrese Clave de Operador")
+        if st.button("AUTENTICAR", use_container_width=True):
+            if clave_input == CLAVE_CORRECTA:
+                st.session_state.autenticado = True
+                st.rerun()
+            else: st.error("Acceso Denegado")
     st.stop()
 
-# --- PANEL ---
+# --- SIDEBAR (Ajustes fijos) ---
 with st.sidebar:
-    st.header("Configuración")
+    st.title("Ajustes de Perfil")
     repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
-    tipo_iva = st.radio("IVA", ["Responsable Inscripto", "Monotributista"])
+    tipo_iva = st.radio("Condición Fiscal", ["Responsable Inscripto", "Monotributista"])
     iibb_perc = st.number_input("% IIBB", value=3.5)
-    if st.button("Cerrar Sesión"):
+    st.divider()
+    if st.button("SALIR DEL SISTEMA"):
         st.session_state.autenticado = False
         st.rerun()
 
-st.subheader("📊 Simulador de Rentabilidad Real")
+# --- PESTAÑAS DE NAVEGACIÓN DUAL ---
+tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ ANALIZAR COSTO OBJETIVO"])
 
-# Inputs
-costo_in = st.number_input("COSTO PRODUCTO ($)", value=0.0, step=1000.0)
-tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True)
-peso_cat = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()))
-comi_p = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2)
-plan_f = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()))
-margen_obj = st.slider("% MARGEN NETO DESEADO", 5, 40, 15)
-
-# --- MOTOR DE CÁLCULO ---
+# Tasas comunes de cálculo
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
-envio_v = TABLA_ME1[peso_cat] * bonif
-
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
-t_finan = FINANCIACION[plan_f] / 100
-t_comi = comi_p / 100
-t_margen = margen_obj / 100
 
-if "ME2" in tipo_me:
-    # ME2: El envío está dentro del PVP que comisiona
-    # PVP = (Costo + Envio) / (1 - Comi - Margen - IIBB - IVA - Finan)
-    divisor = (1 - t_comi - t_margen - t_iibb - t_iva - t_finan)
-    pvp_sug = (costo_in + envio_v) / divisor if divisor > 0 else 0
-else:
-    # ME1: El envío NO comisiona. Se suma al final del cálculo de base.
-    # PVP_Base = Costo / (1 - Comi - Margen - IIBB - IVA - Finan)
-    # PVP_Total = PVP_Base + Envio
-    divisor = (1 - t_comi - t_margen - t_iibb - t_iva - t_finan)
-    pvp_sug = (costo_in / divisor) + envio_v if divisor > 0 else 0
-
-# --- DASHBOARD ---
-st.markdown(f"""
-    <div class="dash-main">
-        <div style="font-size: 0.8rem; letter-spacing: 2px;">PVP SUGERIDO FINAL</div>
-        <div class="dash-price">${pvp_sug:,.0f}</div>
-        <div style="color: #3B82F6; font-weight: bold;">OBJETIVO: {margen_obj}% NETO</div>
-    </div>
-""", unsafe_allow_html=True)
-
-st.divider()
-
-# --- EVALUADOR ---
-p_comp = st.number_input("PRECIO COMPETENCIA A EVALUAR ($)", value=float(round(pvp_sug, 0)))
-
-# Lógica de costos según sistema
-e_real = envio_v if p_comp >= 33000 else 0.0
-fijo = 3800.0 if p_comp < 33000 else 0.0
-
-# Base imponible para comisión
-base_comisionable = p_comp if "ME2" in tipo_me else (p_comp - e_real)
-
-c_meli = base_comisionable * t_comi
-c_fina = p_comp * t_finan
-imp_iva = (p_comp - (p_comp / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-imp_iibb = (p_comp / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
-
-utilidad = p_comp - (c_meli + c_fina + imp_iva + imp_iibb + e_real + fijo) - costo_in
-m_real = (utilidad / p_comp) if p_comp > 0 else 0
-
-c1, c2 = st.columns(2)
-with c1:
-    st.markdown(f"""<div class="metric-card"><div style="font-size:0.7rem; color:gray;">GANANCIA NETA</div><div style="font-size:1.5rem; font-weight:bold; color:{'#10B981' if utilidad > 0 else '#EF4444'};">${utilidad:,.0f}</div></div>""", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"""<div class="metric-card"><div style="font-size:0.7rem; color:gray;">MARGEN REAL</div><div style="font-size:1.5rem; font-weight:bold; color:{'#10B981' if m_real >= t_margen else '#F59E0B'};">{m_real:.1%}</div></div>""", unsafe_allow_html=True)
-
-with st.expander("📝 Desglose de Costos Detallado"):
-    st.write(f"• **Envío:** ${e_real:,.2f} ({'No comisiona' if 'ME1' in tipo_me else 'Comisiona'})")
-    st.write(f"• **Comisión MeLi:** ${c_meli:,.2f}")
-    st.write(f"• **Carga Financiera:** ${c_fina:,.2f}")
-    st.write(f"• **IVA + IIBB:** ${(imp_iva + imp_iibb):,.2f}")
-    st.info(f"Total Gastos: ${(c_meli + c_fina + imp_iva + imp_iibb + e_real + fijo):,.2f}")
-
-st.markdown('<a href="https://wa.me/5491165808113" style="display:block; background:#1E293B; color:white; text-align:center; padding:12px; border-radius:10px; text-decoration:none; font-weight:bold; margin-top:20px;">CONSULTA WHATSAPP</a>', unsafe_allow_html=True)
-
-
-import requests
-
-def obtener_datos_meli(item_id):
-    # Limpiamos el ID por si pegas el link entero
-    item_id = item_id.split('/')[-1].split('?')[0].replace("MLA", "MLA")
-    if not item_id.startswith("MLA"):
-        item_id = f"MLA{item_id}"
-
-    url = f"https://api.mercadolibre.com/items/{item_id}"
+# =========================================================
+# PESTAÑA 1: CAMINO DIRECTO (Costo -> PVP)
+# =========================================================
+with tab1:
+    st.markdown("<h4 style='color: #0F172A;'>¿A cuánto tengo que vender?</h4>", unsafe_allow_html=True)
     
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                "titulo": data.get("title"),
-                "precio": data.get("price"),
-                "logistica": data.get("shipping", {}).get("mode"), # me1 o me2
-                "condicion": data.get("listing_type_id"), # gold_pro (Premium) o gold_special (Clásica)
-                "envio_gratis": data.get("shipping", {}).get("free_shipping"),
-                "exito": True
-            }
-    except Exception as e:
-        return {"exito": False, "error": str(e)}
-    return {"exito": False}
-
-# --- NUEVA SECCIÓN: RADAR DE COMPETENCIA ---
-st.divider()
-st.subheader("🕵️ Radar de Competencia (API)")
-url_rival = st.text_input("Pegá el ID o Link del producto rival", placeholder="MLA123456789")
-
-if url_rival:
-    datos_rival = obtener_datos_meli(url_rival)
+    costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
+    tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
+    peso_cat = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_directo")
     
-    if datos_rival.get("exito"):
-        st.info(f"🔎 Analizando: {datos_rival['titulo']}")
+    col1, col2 = st.columns(2)
+    with col1:
+        comi_p = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
+    with col2:
+        plan_f = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), key='finan_dir')
         
-        # Seteamos el precio de competencia automáticamente
-        precio_rival = datos_rival['precio']
-        tipo_envio_rival = "ME1" if datos_rival['logistica'] == "me1" else "ME2"
-        es_premium = "Premium" if "gold_pro" in datos_rival['condicion'] else "Clásica"
-        
-        col_r1, col_r2 = st.columns(2)
-        col_r1.metric("Precio Rival", f"${precio_rival:,.0f}")
-        col_r2.metric("Logística", tipo_envio_rival)
-        
-        st.caption(f"Tipo de publicación detectada: **{es_premium}**")
-        
-        # Botón para usar este precio en el calculador
-        if st.button("Usar este precio para mi evaluación"):
-            st.session_state.precio_evaluar = precio_rival
-            st.rerun()
+    margen_obj = st.slider("% MARGEN NETO DESEADO", 5, 40, 15, key='margen_dir')
+
+    # Motor directo
+    envio_v = TABLA_ME1[peso_cat] * bonif
+    t_finan = FINANCIACION[plan_f] / 100
+    t_comi = comi_p / 100
+    t_margen = margen_obj / 100
+
+    divisor = (1 - t_comi - t_margen - t_iibb - t_iva - t_finan)
+    
+    if "ME2" in tipo_me:
+        pvp_sug = (costo_in + envio_v) / divisor if divisor > 0 else 0
     else:
-        st.error("No se pudo obtener info de ese producto. Revisá el ID.")
+        pvp_sug = (costo_in / divisor) + envio_v if divisor > 0 else 0
+
+    st.markdown(f"""
+        <div class="dash-main">
+            <div class="dash-label">Precio de Venta Sugerido</div>
+            <div class="dash-price">${pvp_sug:,.0f}</div>
+            <div style="color: #3B82F6; font-weight: bold;">OBJETIVO NETO: {margen_obj}%</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+
+# =========================================================
+# PESTAÑA 2: CAMINO INVERSO (PVP -> Costo Máximo de Compra)
+# =========================================================
+with tab2:
+    st.markdown("<h4 style='color: #0F172A;'>¿Cuánto puedo pagar este producto?</h4>", unsafe_allow_html=True)
+    
+    pvp_target = st.number_input("PRECIO DE VENTA OBJETIVO / COMPETENCIA ($)", value=0.0, step=1000.0, key="pvp_inverso")
+    tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inverso")
+    peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inverso")
+    
+    col3, col4 = st.columns(2)
+    with col3:
+        comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
+    with col4:
+        plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), key='finan_inv')
+        
+    margen_obj_inv = st.slider("% MARGEN NETO QUE QUIERO GANAR", 5, 40, 15, key='margen_inv')
+
+    # Motor inverso
+    envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
+    # Validamos si aplica costo fijo por precio menor a $33.000 (Valores 2026)
+    fijo_inv = 3800.0 if pvp_target < 33000 and pvp_target > 0 else 0.0
+    envio_real_inv = envio_v_inv if pvp_target >= 33000 else 0.0
+
+    t_finan_inv = FINANCIACION[plan_f_inv] / 100
+    t_comi_inv = comi_p_inv / 100
+    t_margen_inv = margen_obj_inv / 100
+
+    # Desglose de retenciones sobre el PVP
+    c_fina_inv = pvp_target * t_finan_inv
+    imp_iva_inv = (pvp_target - (pvp_target / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+    imp_iibb_inv = (pvp_target / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+    margen_pesos_inv = pvp_target * t_margen_inv
+
+    if "ME2" in tipo_me_inv:
+        # ME2: Comisiona sobre el PVP total
+        c_meli_inv = pvp_target * t_comi_inv
+        costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
+    else:
+        # ME1: No comisiona sobre el costo de envío
+        base_comisionable_inv = pvp_target - envio_real_inv
+        c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
+        costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
+
+    # Forzar que si no hay PVP puesto, el costo max sea 0
+    if pvp_target == 0: costo_maximo = 0
+
+    st.markdown(f"""
+        <div class="dash-main-inverse">
+            <div class="dash-label">Costo Máximo de Compra Admitido</div>
+            <div class="dash-price" style="color: #10B981;">${max(0.0, costo_maximo):,.0f}</div>
+            <div class="dash-margin">CUIDANDO TU MARGEN DEL: {margen_obj_inv}%</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("📥 VER QUÉ TE MUELLA CADA CONCEPTO DE ESTE PVP"):
+        st.write(f"• **Tu Margen Limpio en Pesos:** ${margen_pesos_inv:,.2f}")
+        st.write(f"• **Envío que pagás:** ${envio_real_inv:,.2f}")
+        st.write(f"• **Comisión MeLi:** ${c_meli_inv:,.2f}")
+        st.write(f"• **Costo Financiero:** ${c_fina_inv:,.2f}")
+        st.write(f"• **Impuestos (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
+        if fijo_inv > 0: st.write(f"• **Costo Fijo Unitario:** ${fijo_inv:,.2f}")
+
+st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
