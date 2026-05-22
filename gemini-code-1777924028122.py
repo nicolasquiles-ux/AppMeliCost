@@ -1,10 +1,10 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence", layout="centered")
+st.set_page_config(page_title="Centro Estant | Sales Intelligence V12", layout="centered")
 
 # =========================================================
-# DATOS MAESTRAS
+# DATOS MAESTROS ACTUALIZADOS (image_433f6d.png)
 # =========================================================
 TABLA_ME1 = {
     "Hasta 0,3 Kg": 6080.0, "0,3 a 0,5 Kg": 6600.0, "0,5 a 1 Kg": 7470.0,
@@ -17,9 +17,14 @@ TABLA_ME1 = {
     "Mas de 180 Kg": 112060.0
 }
 
+# Nuevas tasas vigentes de Mercado Libre
 FINANCIACION = {
-    "1 Pago": 0.0, "3 Pagos (5%)": 5.0, "3 Pagos (7%)": 7.0,
-    "6 Pagos (10%)": 10.0, "9 Pagos (13.5%)": 13.5, "12 Pagos (16%)": 16.0
+    "1 Pago": 0.0,
+    "3 Cuotas (5% Promo)": 5.0,
+    "3 Cuotas (8.40% Actual)": 8.40,
+    "6 Cuotas (12.30% Actual)": 12.30,
+    "9 Cuotas (15.70% Actual)": 15.70,
+    "12 Cuotas (19.20% Actual)": 19.20
 }
 
 CLAVE_CORRECTA = "CENTRO_PRO_2026"
@@ -77,7 +82,7 @@ if not st.session_state.autenticado:
             else: st.error("Acceso Denegado")
     st.stop()
 
-# --- SIDEBAR (Ajustes fijos) ---
+# --- SIDEBAR (Ajustes fiscales fijos) ---
 with st.sidebar:
     st.title("Ajustes de Perfil")
     repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
@@ -91,7 +96,6 @@ with st.sidebar:
 # --- PESTAÑAS DE NAVEGACIÓN DUAL ---
 tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ ANALIZAR COSTO OBJETIVO"])
 
-# Tasas comunes de cálculo
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
@@ -100,7 +104,7 @@ t_iibb = iibb_perc / 100
 # PESTAÑA 1: CAMINO DIRECTO (Costo -> PVP)
 # =========================================================
 with tab1:
-    st.markdown("<h4 style='color: #0F172A;'>¿A cuánto tengo que vender?</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #0F172A;'>¿A cuánto tengo que vender con las nuevas tasas?</h4>", unsafe_allow_html=True)
     
     costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
     tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
@@ -110,11 +114,10 @@ with tab1:
     with col1:
         comi_p = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
     with col2:
-        plan_f = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), key='finan_dir')
+        plan_f = st.selectbox("PLAN DE CUOTAS (NUEVAS TASAS)", list(FINANCIACION.keys()), index=3, key='finan_dir') # Index 3 apunta a 6 cuotas por defecto
         
     margen_obj = st.slider("% MARGEN NETO DESEADO", 5, 40, 15, key='margen_dir')
 
-    # Motor directo
     envio_v = TABLA_ME1[peso_cat] * bonif
     t_finan = FINANCIACION[plan_f] / 100
     t_comi = comi_p / 100
@@ -135,12 +138,11 @@ with tab1:
         </div>
     """, unsafe_allow_html=True)
 
-
 # =========================================================
 # PESTAÑA 2: CAMINO INVERSO (PVP -> Costo Máximo de Compra)
 # =========================================================
 with tab2:
-    st.markdown("<h4 style='color: #0F172A;'>¿Cuánto puedo pagar este producto?</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #0F172A;'>¿Cuánto puedo pagar este producto con la baja de tasas?</h4>", unsafe_allow_html=True)
     
     pvp_target = st.number_input("PRECIO DE VENTA OBJETIVO / COMPETENCIA ($)", value=0.0, step=1000.0, key="pvp_inverso")
     tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inverso")
@@ -150,13 +152,11 @@ with tab2:
     with col3:
         comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
     with col4:
-        plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), key='finan_inv')
+        plan_f_inv = st.selectbox("PLAN DE CUOTAS (NUEVAS TASAS)", list(FINANCIACION.keys()), index=3, key='finan_inv')
         
     margen_obj_inv = st.slider("% MARGEN NETO QUE QUIERO GANAR", 5, 40, 15, key='margen_inv')
 
-    # Motor inverso
     envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
-    # Validamos si aplica costo fijo por precio menor a $33.000 (Valores 2026)
     fijo_inv = 3800.0 if pvp_target < 33000 and pvp_target > 0 else 0.0
     envio_real_inv = envio_v_inv if pvp_target >= 33000 else 0.0
 
@@ -164,23 +164,19 @@ with tab2:
     t_comi_inv = comi_p_inv / 100
     t_margen_inv = margen_obj_inv / 100
 
-    # Desglose de retenciones sobre el PVP
     c_fina_inv = pvp_target * t_finan_inv
     imp_iva_inv = (pvp_target - (pvp_target / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
     imp_iibb_inv = (pvp_target / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
     margen_pesos_inv = pvp_target * t_margen_inv
 
     if "ME2" in tipo_me_inv:
-        # ME2: Comisiona sobre el PVP total
         c_meli_inv = pvp_target * t_comi_inv
-        costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
     else:
-        # ME1: No comisiona sobre el costo de envío
         base_comisionable_inv = pvp_target - envio_real_inv
         c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
-        costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
 
-    # Forzar que si no hay PVP puesto, el costo max sea 0
+    costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
+
     if pvp_target == 0: costo_maximo = 0
 
     st.markdown(f"""
@@ -191,12 +187,11 @@ with tab2:
         </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 VER QUÉ TE MUELLA CADA CONCEPTO DE ESTE PVP"):
-        st.write(f"• **Tu Margen Limpio en Pesos:** ${margen_pesos_inv:,.2f}")
-        st.write(f"• **Envío que pagás:** ${envio_real_inv:,.2f}")
+    with st.expander("📥 DESGLOSE DE COSTOS CON LA NUEVA FINANCIACIÓN"):
+        st.write(f"• **Tu Margen Neto en Pesos:** ${margen_pesos_inv:,.2f}")
+        st.write(f"• **Costo Financiero (Bajo al {FINANCIACION[plan_f_inv]}%):** ${c_fina_inv:,.2f}")
+        st.write(f"• **Envío Neto:** ${envio_real_inv:,.2f}")
         st.write(f"• **Comisión MeLi:** ${c_meli_inv:,.2f}")
-        st.write(f"• **Costo Financiero:** ${c_fina_inv:,.2f}")
-        st.write(f"• **Impuestos (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
-        if fijo_inv > 0: st.write(f"• **Costo Fijo Unitario:** ${fijo_inv:,.2f}")
+        st.write(f"• **Impuestos consolidados (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
 
 st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
