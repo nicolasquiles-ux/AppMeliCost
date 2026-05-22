@@ -70,4 +70,133 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st
+    st.markdown("<h2 style='text-align: center; color: #0F172A;'>Control de Gestión</h2>", unsafe_allow_html=True)
+    with st.container():
+        clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Ingrese Clave de Operador")
+        if st.button("AUTENTICAR", use_container_width=True):
+            if clave_input == CLAVE_CORRECTA:
+                st.session_state.autenticado = True
+                st.rerun()
+            else: st.error("Acceso Denegado")
+    st.stop()
+
+# --- SIDEBAR (Ajustes de Perfil) ---
+with st.sidebar:
+    st.title("Ajustes de Perfil")
+    repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
+    tipo_iva = st.radio("Condición Fiscal", ["Responsable Inscripto", "Monotributista"])
+    iibb_perc = st.number_input("% IIBB", value=3.5)
+    st.divider()
+    if st.button("SALIR DEL SISTEMA"):
+        st.session_state.autenticado = False
+        st.rerun()
+
+# --- PESTAÑAS DUALES ---
+tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ CALCULAR COSTO MÁXIMO ADMITIDO"])
+
+bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
+t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
+t_iibb = iibb_perc / 100
+
+# =========================================================
+# PESTAÑA 1: CAMINO DIRECTO
+# =========================================================
+with tab1:
+    st.markdown("<h4 style='color: #0F172A;'>¿A cuánto tengo que vender?</h4>", unsafe_allow_html=True)
+    costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
+    tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
+    peso_cat = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_directo")
+    
+    col1, col2 = st.columns(2)
+    with col1: comi_p = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
+    with col2: plan_f = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_dir')
+    margen_obj = st.slider("% MARGEN NETO DESEADO", 5, 40, 15, key='margen_dir')
+
+    envio_v = TABLA_ME1[peso_cat] * bonif
+    t_finan = FINANCIACION[plan_f] / 100
+    t_comi = comi_p / 100
+    t_margen = margen_obj / 100
+    divisor = (1 - t_comi - t_margen - t_iibb - t_iva - t_finan)
+    
+    if "ME2" in tipo_me: pvp_sug = (costo_in + envio_v) / divisor if divisor > 0 else 0
+    else: pvp_sug = (costo_in / divisor) + envio_v if divisor > 0 else 0
+
+    st.markdown(f"""
+        <div class="dash-main">
+            <div class="dash-label">Precio de Venta Sugerido</div>
+            <div class="dash-price">${pvp_sug:,.0f}</div>
+            <div style="color: #3B82F6; font-weight: bold;">OBJETIVO NETO: {margen_obj}%</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+# =========================================================
+# PESTAÑA 2: CAMINO INVERSO EXACTO (PVP -> Costo Máximo)
+# =========================================================
+with tab2:
+    st.markdown("<h4 style='color: #0F172A;'>¿Cuánto es lo MÁXIMO que puedo pagarle al proveedor?</h4>", unsafe_allow_html=True)
+    
+    pvp_target = st.number_input("PRECIO DE VENTA OBJETIVO FIJO ($)", value=0.0, step=1000.0, key="pvp_inverso")
+    tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inverso")
+    peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inverso")
+    
+    col3, col4 = st.columns(2)
+    with col3: comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
+    with col4: plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_inv')
+    
+    margen_obj_inv = st.slider("% MARGEN NETO QUE EXIJO GANAR", 5, 40, 15, key='margen_inv')
+
+    envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
+    fijo_inv = 3800.0 if pvp_target < 33000 and pvp_target > 0 else 0.0
+    envio_real_inv = envio_v_inv if pvp_target >= 33000 else 0.0
+
+    t_finan_inv = FINANCIACION[plan_f_inv] / 100
+    t_comi_inv = comi_p_inv / 100
+    t_margen_inv = margen_obj_inv / 100
+
+    c_fina_inv = pvp_target * t_finan_inv
+    imp_iva_inv = (pvp_target - (pvp_target / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+    imp_iibb_inv = (pvp_target / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+    margen_pesos_inv = pvp_target * t_margen_inv
+
+    if "ME2" in tipo_me_inv:
+        c_meli_inv = pvp_target * t_comi_inv
+    else:
+        base_comisionable_inv = pvp_target - envio_real_inv
+        c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
+
+    costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
+
+    if pvp_target == 0: costo_maximo = 0
+
+    st.markdown(f"""
+        <div class="dash-main-inverse">
+            <div class="dash-label">Costo Máximo de Compra Admitido</div>
+            <div class="dash-price" style="color: #10B981;">${max(0.0, costo_maximo):,.0f}</div>
+            <div class="dash-margin">ASEGURANDO TU {margen_obj_inv}% NETO EXIGIDO</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # EVALUADOR INTERNO
+    st.subheader("💡 Comparar contra costo real de Fábrica")
+    costo_real_proveedor = st.number_input("¿A cuánto te lo vende el proveedor REALMENTE? ($)", value=0.0, step=1000.0)
+    
+    if costo_real_proveedor > 0 and pvp_target > 0:
+        if costo_real_proveedor <= costo_maximo:
+            ahorro_extra = costo_maximo - costo_real_proveedor
+            margen_total_pesos = margen_pesos_inv + ahorro_extra
+            porcentaje_total_real = (margen_total_pesos / pvp_target) * 100
+            
+            st.success(f"¡Excelente compra! Estás pagando menos de tu costo máximo.")
+            st.info(f"👉 **¡Esa plata sobra y va al margen!** Tu margen neto real sube de {margen_obj_inv}% a **{porcentaje_total_real:.1f}%** (Ganancia total: ${margen_total_pesos:,.0f}).")
+        else:
+            perdida_extra = costo_real_proveedor - costo_maximo
+            st.error(f"Ojo: El proveedor está cobrando ${perdida_extra:,.0f} de más sobre tu límite. Tu margen neto va a caer por debajo del {margen_obj_inv}%.")
+
+    with st.expander("📥 VER DESGLOSE DEL REPARTO DEL PVP"):
+        st.write(f"• **Tu Margen Exigido (Fijo):** ${margen_pesos_inv:,.2f}")
+        st.write(f"• **Comisión MeLi:** ${c_meli_inv:,.2f}")
+        st.write(f"• **Financiación:** ${c_fina_inv:,.2f}")
+        st.write(f"• **Envío:** ${envio_real_inv:,.2f}")
+        st.write(f"• **Impuestos (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
+
+st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
