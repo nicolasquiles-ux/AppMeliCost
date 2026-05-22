@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence V13", layout="centered")
+st.set_page_config(page_title="Centro Estant | Sales Intelligence V13.1", layout="centered")
 
 # =========================================================
 # DATOS MAESTROS
@@ -70,30 +70,4 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.markdown("<h2 style='text-align: center; color: #0F172A;'>Control de Gestión</h2>", unsafe_allow_html=True)
-    with st.container():
-        clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Ingrese Clave de Operador")
-        if st.button("AUTENTICAR", use_container_width=True):
-            if clave_input == CLRECTA := CLAVE_CORRECTA:
-                st.session_state.autenticado = True
-                st.rerun()
-            else: st.error("Acceso Denegado")
-    st.stop()
-
-# --- SIDEBAR (Ajustes de Perfil) ---
-with st.sidebar:
-    st.title("Ajustes de Perfil")
-    repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
-    tipo_iva = st.radio("Condición Fiscal", ["Responsable Inscripto", "Monotributista"])
-    iibb_perc = st.number_input("% IIBB", value=3.5)
-    st.divider()
-    if st.button("SALIR DEL SISTEMA"):
-        st.session_state.autenticado = False
-        st.rerun()
-
-# --- PESTAÑAS DUALES ---
-tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ CALCULAR COSTO MÁXIMO ADMITIDO"])
-
-bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
-t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
-t
+    st
