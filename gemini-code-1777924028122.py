@@ -35,7 +35,7 @@ nq_gold = "#BFA100"
 gray_bg = "#F3F5F7"       
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO (Template string libre de llaves conflictivas)
+# INYECCIÓN DE CSS SEGURO (Limpio de llaves conflictivas)
 # =========================================================
 css_template = """
 <style>
@@ -47,7 +47,7 @@ html, body, [class*="css"] {
 }
 .stApp { background-color: #FFFFFF; }
 
-/* --- HEADER NQ --- */
+/* --- HEADER NQ REAL-DATA --- */
 .nq-header-container {
     display: flex; align-items: center; justify-content: space-between;
     padding: 20px 30px; background-color: #FFFFFF;
@@ -65,28 +65,23 @@ html, body, [class*="css"] {
 .nq-dashboard { color: NQ_MAIN_COLOR; font-weight: 700; font-size: 1.3rem; margin-top: 2px; }
 .nq-title-date { color: #7F8C8D; font-size: 0.8rem; margin-top: 3px; }
 
-/* --- KPI CARDS RIGHT --- */
-.nq-kpi-card-right {
-    background-color: #FFFFFF; border-radius: 12px; padding: 15px 25px; 
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 20px;
-    border: 1px solid #E5E7EB;
-}
-.kpi-text-block { text-align: center; }
-.kpi-main-price { color: #111827; font-size: 1.8rem; font-weight: 800; margin-bottom: 5px; }
-.kpi-subtext { color: #7F8C8D; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
-
-.donut-chart-container { display: flex; align-items: center; gap: 12px; }
+/* --- DONUT CHART SYSTEM --- */
+.donut-chart-container { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .donut-block { 
-    width: 45px; height: 45px; border-radius: 50%; 
-    background: conic-gradient(#00BFBF 51.43%, #E5E7EB 0); position: relative; 
+    width: 40px; height: 40px; border-radius: 50%; 
+    position: relative; 
 }
 .donut-block::after { 
-    content: ''; width: 27px; height: 27px; border-radius: 50%; 
-    background: white; position: absolute; top: 9px; left: 9px; 
+    content: ''; width: 24px; height: 24px; border-radius: 50%; 
+    position: absolute; top: 8px; left: 8px; 
 }
+/* Variantes de fondo para dona interna según contenedor */
+.banner-strict .donut-block::after { background: NQ_GREEN; }
+.banner-dark .donut-block::after { background: NQ_MAIN_COLOR; }
+
 .donut-text-group { display: flex; flex-direction: column; font-size: 0.85rem; }
-.donut-main-val { color: #00BFBF; font-weight: 700; }
-.donut-sub-val { color: #7F8C8D; }
+.donut-main-val { font-weight: 700; }
+.donut-sub-val { opacity: 0.85; font-size: 0.75rem; }
 
 /* --- SECCIONES DE CONTROL --- */
 .tax-bar {
@@ -94,7 +89,7 @@ html, body, [class*="css"] {
     margin-bottom: 25px; border: 1px solid #E5E7EB;
 }
 
-/* --- BANNER DE RESULTADOS NUBIMETRICS --- */
+/* --- BANNER DE RESULTADOS NUBIMETRICS REAL-DATA --- */
 .results-main-container {
     display: flex; border-radius: 16px; overflow: hidden;
     margin-top: 25px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
@@ -112,19 +107,23 @@ html, body, [class*="css"] {
 .cost-value { color: #111827; font-weight: 700; text-align: right; }
 
 .banner-strict {
-    flex: 1.5; background-color: NQ_GREEN; color: white; padding: 30px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px;
+    flex: 1.4; background-color: NQ_GREEN; color: white; padding: 30px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
 }
 .banner-loose {
-    flex: 1.5; background-color: NQ_GOLD; color: white; padding: 30px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px;
+    flex: 1.4; background-color: NQ_GOLD; color: white; padding: 30px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
+}
+.banner-dark {
+    flex: 1.4; background-color: NQ_MAIN_COLOR; color: white; padding: 30px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
 }
 
 .label-banner { color: rgba(255,255,255,0.85); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.price-main { color: white; font-size: 2.8rem; font-weight: 800; margin: 5px 0; }
+.price-main { color: white; font-size: 2.4rem; font-weight: 800; margin: 2px 0; }
 .badge-banner {
     background: rgba(255,255,255,0.2); color: white;
-    padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; margin-top: 5px;
+    padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; margin-top: 4px;
 }
 </style>
 """.replace("NQ_MAIN_COLOR", nq_main_color).replace("NQ_GREEN", nq_green).replace("NQ_GOLD", nq_gold).replace("GRAY_BG", gray_bg)
@@ -149,7 +148,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # =========================================================
-# ENCABEZADO CORPORATIVO (Fijo Nubimetrics Style)
+# ENCABEZADO CORPORATIVO (Limpio y Profesional)
 # =========================================================
 st.markdown("""
     <div class="nq-header-container">
@@ -157,28 +156,15 @@ st.markdown("""
             <span class="nq-logo">NQ</span>
             <div class="nq-title-group">
                 <div class="nq-title-country">NQ Argentina</div>
-                <div class="nq-dashboard">NQ | Sales Intelligence</div>
-                <div class="nq-title-date">Data last updated: 26 May, 2026</div>
-            </div>
-        </div>
-        <div class="nq-kpi-card-right">
-            <div class="kpi-text-block">
-                <div class="kpi-main-price">$47.093.358.901</div>
-                <div class="kpi-subtext">MUEBLES PARA EL HOGAR</div>
-            </div>
-            <div class="donut-chart-container">
-                <div class="donut-block"></div>
-                <div class="donut-text-group">
-                    <span class="donut-main-val">Catálogo 51,43%</span>
-                    <span class="donut-sub-val">($24.221.308.150)</span>
-                </div>
+                <div class="nq-dashboard">NQ | Sales Intelligence Matrix</div>
+                <div class="nq-title-date">Operador Autenticado | Simulación de Costos Real-Time</div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL MATRIZ FISCAL (Afecta principalmente a Solapa 2)
+# CONTROL MATRIZ FISCAL (Afecta a Solapa 2 Directa)
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
@@ -231,9 +217,7 @@ with tab1:
         p_meli_inv = pvp_target * t_comi_inv
         p_finan_inv = pvp_target * t_finan_val_inv
         
-        # --- CAMBIO ESTRATÉGICO NICO ---
-        # Forzamos que el desglose inverso descuente SIEMPRE el IVA y calcule IIBB sobre neto (Modelo RI).
-        # Esto genera la simulación restrictiva que pediste: si sos Monotributista tu ganancia real final terminará siendo mayor.
+        # Estrategia Nico: Forzamos siempre el IVA de Responsable Inscripto para armar el "colchón impositivo"
         p_iva_inv = (pvp_target - (pvp_target / 1.21))
         p_iibb_inv = (pvp_target / 1.21) * t_iibb
         p_margen_inv = pvp_target * (margen_exi / 100)
@@ -247,17 +231,23 @@ with tab1:
                     <div class="cost-item"><span class="cost-label">Costo Financiero Plan</span><span class="cost-value">${p_finan_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Reserva IVA (Colchón RI 21%)</span><span class="cost-value">${p_iva_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Ingresos Brutos Simulado</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Logística Final Asignada</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Logística Asignada</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
                 </div>
                 <div class="banner-strict">
                     <div class="label-banner">PVP de Referencia</div>
                     <div class="price-main">${pvp_target:,.0f}</div>
-                    <div class="badge-banner">Colchón RI Activo 🛡️</div>
+                    <div class="donut-chart-container">
+                        <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_exi}%, rgba(255,255,255,0.2) 0);"></div>
+                        <div class="donut-text-group" style="text-align: left;">
+                            <span class="donut-main-val" style="color: white;">Objetivo: {margen_exi}%</span>
+                            <span class="donut-sub-val" style="color: rgba(255,255,255,0.85);">${p_margen_inv:,.0f} Neto Protegido</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="banner-loose">
-                    <div class="label-banner">Costo Máximo en Fábrica</div>
+                    <div class="label-banner">Costo Máximo Fábrica</div>
                     <div class="price-main" style="color: #FFFFFF;">${max(0.0, costo_max_admitido):,.2f}</div>
-                    <div class="badge-banner" style="background-color: rgba(0,0,0,0.2);">Margen Mínimo: {margen_exi}%</div>
+                    <div class="badge-banner" style="background-color: rgba(0,0,0,0.2);">Colchón Impositivo Activo 🛡️</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -291,7 +281,6 @@ with tab2:
         t_comi_dir = 14 / 100
         t_marg_dir = margen_deseado / 100
         
-        # El divisor de la venta real sí responde al botón impositivo de arriba
         divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva - t_finan_val_dir)
         
         if divisor > 0:
@@ -312,17 +301,23 @@ with tab2:
                         <div class="cost-item"><span class="cost-label">IVA Liquidado Real</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
                         <div class="cost-item"><span class="cost-label">Ingresos Brutos ({tipo_iva})</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
                     </div>
-                    <div class="banner-strict" style="background-color: #2B3E4F;">
-                        <div class="label-banner">Ganancia Líquida Unitaria</div>
+                    <div class="banner-dark">
+                        <div class="label-banner">Ganancia Líquida Real</div>
                         <div class="price-main">${p_neto_dir:,.2f}</div>
-                        <div class="badge-banner">Retorno Neto Real: {margen_deseado}%</div>
+                        <div class="donut-chart-container">
+                            <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_deseado}%, rgba(255,255,255,0.15) 0);"></div>
+                            <div class="donut-text-group" style="text-align: left;">
+                                <span class="donut-main-val" style="color: #00BFBF;">Retorno: {margen_deseado}%</span>
+                                <span class="donut-sub-val" style="color: rgba(255,255,255,0.85);">Limpios sobre PVP</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="banner-strict">
-                        <div class="label-banner">Precio de Venta Recomendado</div>
+                        <div class="label-banner">Precio Venta Recomendado</div>
                         <div class="price-main">${pvp_sugerido:,.2f}</div>
                         <div class="badge-banner" style="background-color: rgba(255,255,255,0.25);">PVP Sugerido NQ</div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.2 | Argentina 2026</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.3 | Argentina 2026</p></div>", unsafe_allow_html=True)
