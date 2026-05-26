@@ -1,10 +1,10 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence V13.1", layout="centered")
+st.set_page_config(page_title="Centro Estant | Sales Intelligence V14", layout="centered")
 
 # =========================================================
-# DATOS MAESTROS
+# DATOS MAESTROS ACTUALIZADOS VIGENTES 2026
 # =========================================================
 TABLA_ME1 = {
     "Hasta 0,3 Kg": 6080.0, "0,3 a 0,5 Kg": 6600.0, "0,5 a 1 Kg": 7470.0,
@@ -49,13 +49,19 @@ st.markdown("""
         border-bottom: 5px solid #3B82F6; margin-bottom: 25px;
     }
     .dash-main-inverse {
-        background-color: #1E293B; color: white; padding: 30px;
+        background-color: #1E293B; color: white; padding: 25px;
         border-radius: 12px; text-align: center;
         border-bottom: 5px solid #10B981; margin-bottom: 25px;
     }
     .dash-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; }
-    .dash-price { font-size: 3.5rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
+    .dash-price { font-size: 3.2rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
     .dash-margin { background: #0F172A; display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.9rem; color: #10B981; font-weight: bold; }
+    
+    /* Bloque de Volumen */
+    .vol-box {
+        background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 20px;
+        border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
 
     .btn-wa {
         background-color: #1E293B; color: white !important; padding: 12px;
@@ -80,7 +86,7 @@ if not st.session_state.autenticado:
             else: st.error("Acceso Denegado")
     st.stop()
 
-# --- SIDEBAR (Ajustes de Perfil) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("Ajustes de Perfil")
     repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
@@ -91,8 +97,8 @@ with st.sidebar:
         st.session_state.autenticado = False
         st.rerun()
 
-# --- PESTAÑAS DUALES ---
-tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ CALCULAR COSTO MÁXIMO ADMITIDO"])
+# --- PESTAÑAS ---
+tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ ANALIZAR COSTO OBJETIVO INTELIGENTE"])
 
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
@@ -130,73 +136,91 @@ with tab1:
     """, unsafe_allow_html=True)
 
 # =========================================================
-# PESTAÑA 2: CAMINO INVERSO EXACTO (PVP -> Costo Máximo)
+# PESTAÑA 2: CAMINO INVERSO CON LOS 4 PILARES INTEGRADOS
 # =========================================================
 with tab2:
-    st.markdown("<h4 style='color: #0F172A;'>¿Cuánto es lo MÁXIMO que puedo pagarle al proveedor?</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #0F172A;'>Evaluación Avanzada de Costo Máximo</h4>", unsafe_allow_html=True)
     
-    pvp_target = st.number_input("PRECIO DE VENTA OBJETIVO FIJO ($)", value=0.0, step=1000.0, key="pvp_inverso")
-    tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inverso")
-    peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inverso")
+    # Datos Base de Entrada
+    col_in1, col_in2 = st.columns(2)
+    with col_in1:
+        pvp_target = st.number_input("PVP OBJETIVO (MERCADO) ($)", value=0.0, step=1000.0, key="pvp_inv")
+    with col_in2:
+        margen_obj_inv = st.slider("% MARGEN NETO EXIGIDO", 5, 40, 15, key='margen_inv')
+
+    # CONFIGURACIÓN SIMPLIFICADA DE LOS 4 PILARES
+    with st.expander("⚙️ AJUSTES DE PILARES (HISTORIAL, PLAZOS Y COSTOS OCULTOS)", expanded=False):
+        st.markdown("**Pilar 1 & 2: Elasticidad del Mercado y Plazos del Proveedor**")
+        ajuste_mercado = st.selectbox("Descuento por Fluctuación de Mercado (Historial)", 
+                                      {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90})
+        tasa_proveedor = st.selectbox("Financiación del Proveedor (Plazo de pago)", 
+                                      {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06})
+        
+        st.markdown("---")
+        st.markdown("**Pilar 3: Costos Ocultos de Estructura**")
+        ocultos_perc = st.slider("% Fondo de Cobertura (Roturas, Mermas y Devoluciones)", 0.0, 5.0, 1.5, step=0.5)
+
+    # Estructura de logística base
+    tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inv")
+    peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inv")
     
     col3, col4 = st.columns(2)
     with col3: comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
     with col4: plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_inv')
-    
-    margen_obj_inv = st.slider("% MARGEN NETO QUE EXIJO GANAR", 5, 40, 15, key='margen_inv')
 
+    # --- MOTOR MATEMÁTICO INVERSO ACTUALIZADO ---
+    pvp_ajustado = pvp_target * ajuste_mercado
+    
     envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
-    fijo_inv = 3800.0 if pvp_target < 33000 and pvp_target > 0 else 0.0
-    envio_real_inv = envio_v_inv if pvp_target >= 33000 else 0.0
+    fijo_inv = 3800.0 if pvp_ajustado < 33000 and pvp_ajustado > 0 else 0.0
+    envio_real_inv = envio_v_inv if pvp_ajustado >= 33000 else 0.0
 
     t_finan_inv = FINANCIACION[plan_f_inv] / 100
     t_comi_inv = comi_p_inv / 100
     t_margen_inv = margen_obj_inv / 100
 
-    c_fina_inv = pvp_target * t_finan_inv
-    imp_iva_inv = (pvp_target - (pvp_target / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-    imp_iibb_inv = (pvp_target / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
-    margen_pesos_inv = pvp_target * t_margen_inv
+    c_fina_inv = pvp_ajustado * t_finan_inv
+    imp_iva_inv = (pvp_ajustado - (pvp_ajustado / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+    imp_iibb_inv = (pvp_ajustado / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+    margen_pesos_inv = pvp_ajustado * t_margen_inv
+    costo_oculto_pesos = pvp_ajustado * (ocultos_perc / 100)
 
     if "ME2" in tipo_me_inv:
-        c_meli_inv = pvp_target * t_comi_inv
+        c_meli_inv = pvp_ajustado * t_comi_inv
     else:
-        base_comisionable_inv = pvp_target - envio_real_inv
+        base_comisionable_inv = pvp_ajustado - envio_real_inv
         c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
 
-    costo_maximo = pvp_target - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv)
+    # Restamos comisiones, finanzas, envío, impuestos, margen e imprevistos ocultos
+    costo_max_teorico = pvp_ajustado - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv + costo_oculto_pesos)
+    
+    # Aplicamos el impacto financiero del proveedor (Pilar Plazos)
+    costo_maximo = costo_max_teorico / (1 + tasa_proveedor)
 
     if pvp_target == 0: costo_maximo = 0
 
+    # DISPLAY PRINCIPAL
     st.markdown(f"""
         <div class="dash-main-inverse">
             <div class="dash-label">Costo Máximo de Compra Admitido</div>
             <div class="dash-price" style="color: #10B981;">${max(0.0, costo_maximo):,.0f}</div>
-            <div class="dash-margin">ASEGURANDO TU {margen_obj_inv}% NETO EXIGIDO</div>
+            <div class="dash-margin">CUIDANDO TU {margen_obj_inv}% NETO + {ocultos_perc}% COBERTURA</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # EVALUADOR INTERNO
-    st.subheader("💡 Comparar contra costo real de Fábrica")
-    costo_real_proveedor = st.number_input("¿A cuánto te lo vende el proveedor REALMENTE? ($)", value=0.0, step=1000.0)
-    
-    if costo_real_proveedor > 0 and pvp_target > 0:
-        if costo_real_proveedor <= costo_maximo:
-            ahorro_extra = costo_maximo - costo_real_proveedor
-            margen_total_pesos = margen_pesos_inv + ahorro_extra
-            porcentaje_total_real = (margen_total_pesos / pvp_target) * 100
-            
-            st.success(f"¡Excelente compra! Estás pagando menos de tu costo máximo.")
-            st.info(f"👉 **¡Esa plata sobra y va al margen!** Tu margen neto real sube de {margen_obj_inv}% a **{porcentaje_total_real:.1f}%** (Ganancia total: ${margen_total_pesos:,.0f}).")
-        else:
-            perdida_extra = costo_real_proveedor - costo_maximo
-            st.error(f"Ojo: El proveedor está cobrando ${perdida_extra:,.0f} de más sobre tu límite. Tu margen neto va a caer por debajo del {margen_obj_inv}%.")
+    # PILAR 4: VOLUMEN Y PROYECCIÓN DE NEGOCIO
+    st.subheader("📊 Pilar de Volumen y Proyección Temporal")
+    col_v1, col_v2 = st.columns([1, 2])
+    with col_v1:
+        q_mensual = st.number_input("Ventas estimadas / mes", value=1, min_value=1)
+    with col_v2:
+        costo_real_prov = st.number_input("Costo Real de Fábrica Unitario ($)", value=0.0, step=1000.0)
 
-    with st.expander("📥 VER DESGLOSE DEL REPARTO DEL PVP"):
-        st.write(f"• **Tu Margen Exigido (Fijo):** ${margen_pesos_inv:,.2f}")
-        st.write(f"• **Comisión MeLi:** ${c_meli_inv:,.2f}")
-        st.write(f"• **Financiación:** ${c_fina_inv:,.2f}")
-        st.write(f"• **Envío:** ${envio_real_inv:,.2f}")
-        st.write(f"• **Impuestos (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
-
-st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
+    if pvp_target > 0 and costo_real_prov > 0:
+        inversion_stock = costo_real_prov * q_mensual
+        
+        # Recalculamos la ganancia real por unidad considerando lo que pagamos verdaderamente
+        ahorro_o_recargo = costo_maximo - costo_real_prov
+        ganancia_un_real = margen_pesos_inv + (ahorro_o_recargo * (1 + tasa_proveedor))
+        ganancia_total_mes = ganancia_un_real * q_mensual
+        roi_real = (ganancia_
