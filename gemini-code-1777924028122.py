@@ -130,8 +130,8 @@ if not st.session_state.autenticado:
 # =========================================================
 st.markdown("""
     <div class="header-app">
-        <h2>CENTRO ESTANT | Sales Intelligence</h2>
-        <p>Consola de Gestión Comercial e Ingeniería de Costos para Mercado Libre</p>
+        <h2>NQ| Sales Intelligence</h2>
+        <p>Consola de Gestión Comercial e Ingeniería de Costos para vendedores de Mercado Libre</p>
     </div>
 """, unsafe_allow_html=True)
 
