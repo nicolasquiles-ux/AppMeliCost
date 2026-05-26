@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence V14.2", layout="centered")
+st.set_page_config(page_title="Centro Estant | Sales Intelligence V15", layout="centered")
 
 # =========================================================
 # DATOS MAESTROS ACTUALIZADOS VIGENTES 2026
@@ -26,47 +26,85 @@ FINANCIACION = {
     "12 Cuotas (19.20% Actual)": 19.20
 }
 
+# Diccionario de análisis estratégico de categorías
+DICT_CATEGORIAS = {
+    "Muebles listos para armar (RTA)": {"tipo": "Estratégico / Volumen", "full": "Altamente Recomendado", "nota": "Alta rotación, bulto optimizado para Full. Competencia firme pero leal."},
+    "Muebles pesados a medida / Armados": {"tipo": "Logística Compleja", "full": "No aplica (Solo ME1)", "nota": "Margen alto pero requiere flete especial. Nicho protegido de revendedores chicos."},
+    "Bazar y Organización de Hogar": {"tipo": "Multirrubro de Alta Rotación", "full": "Obligatorio (Full)", "nota": "Ticket bajo/medio. Ideal para meter volumen y romper estacionalidad."},
+    "Herramientas y Jardín": {"tipo": "Estacional / Técnico", "full": "Recomendado", "nota": "Márgenes estables. Muy interesante para compras mayoristas cerradas."},
+    "Categoría General (Genérico / Trillado)": {"tipo": "Riesgo de Margen Quemado", "full": "Opcional", "nota": "Guerra de precios agresiva. Evaluar con slider de margen estricto."}
+}
+
 CLAVE_CORRECTA = "CENTRO_PRO_2026"
 
-# --- CSS: DISEÑO SOBRIO Y PROFESIONAL ---
+# --- CSS: DISEÑO MODERNO Y CONTROL DE COMPONENTES ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #F4F7F9; }
+    .stApp { background-color: #F8FAFC; }
 
-    .stNumberInput input, .stSelectbox div {
+    /* Encabezado */
+    .header-app {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px;
+        text-align: center; border-left: 6px solid #3B82F6;
+    }
+    .header-app h2 { margin: 0; font-weight: 900; letter-spacing: -1px; color: white !important; }
+    .header-app p { margin: 5px 0 0 0; font-size: 0.9rem; color: #94A3B8; }
+
+    /* Inputs estilizados */
+    .stNumberInput input, .stSelectbox div, .stMultiSelect div {
         background-color: white !important;
-        border: 1px solid #D1D9E0 !important;
+        border: 1px solid #E2E8F0 !important;
         border-radius: 8px !important;
         font-weight: 600 !important;
-        color: #1A202C !important;
+        color: #1E293B !important;
     }
 
+    /* Tarjetas de resultados */
     .dash-main {
-        background-color: #0F172A; color: white; padding: 30px;
+        background-color: #0F172A; color: white; padding: 25px;
         border-radius: 12px; text-align: center;
-        border-bottom: 5px solid #3B82F6; margin-bottom: 25px;
+        border-bottom: 5px solid #3B82F6; margin-top: 15px; margin-bottom: 15px;
     }
     .dash-main-inverse {
-        background-color: #1E293B; color: white; padding: 25px;
+        background-color: #0F172A; color: white; padding: 25px;
         border-radius: 12px; text-align: center;
-        border-bottom: 5px solid #10B981; margin-bottom: 25px;
+        border-bottom: 5px solid #10B981; margin-top: 15px; margin-bottom: 15px;
     }
-    .dash-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; }
-    .dash-price { font-size: 3.2rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
-    .dash-margin { background: #0F172A; display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.9rem; color: #10B981; font-weight: bold; }
+    .dash-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; font-weight: 600; }
+    .dash-price { font-size: 3rem; font-weight: 900; color: #FFFFFF; margin: 8px 0; }
+    .dash-margin { background: #1E293B; display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; color: #10B981; font-weight: bold; }
     
+    /* Caja de Volumen */
     .vol-box {
         background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 20px;
-        border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-top: 10px;
+    }
+    
+    /* Caja de Categoría */
+    .cat-box {
+        background-color: #EFF6FF; border: 1px solid #BFDBFE; padding: 15px;
+        border-radius: 8px; margin-bottom: 15px;
     }
 
-    .btn-wa {
-        background-color: #1E293B; color: white !important; padding: 12px;
-        border-radius: 8px; text-align: center; text-decoration: none;
-        display: block; font-weight: bold; margin-top: 20px; border: 1px solid #334155;
+    /* Botones Controlados */
+    .stButton button {
+        background-color: #1E293B !important; color: white !important;
+        border-radius: 8px !important; font-weight: bold !important;
+        border: none !important; padding: 8px 16px !important;
     }
+    .stButton button:hover { background-color: #334155 !important; }
+
+    /* Botón WhatsApp de tamaño mediano controlado */
+    .btn-wa-container { text-align: center; margin-top: 25px; }
+    .btn-wa {
+        background-color: #0F172A; color: white !important; padding: 10px 20px;
+        border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;
+        border: 1px solid #334155; display: inline-block;
+    }
+    .btn-wa:hover { background-color: #1E293B; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -75,52 +113,69 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.markdown("<h2 style='text-align: center; color: #0F172A;'>Control de Gestión</h2>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 40px 0;'><h2 style='color: #0F172A; font-weight:900;'>CONTROL DE GESTIÓN</h2></div>", unsafe_allow_html=True)
     with st.container():
-        clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Ingrese Clave de Operador")
-        if st.button("AUTENTICAR", use_container_width=True):
-            if clave_input == CLAVE_CORRECTA:
-                st.session_state.autenticado = True
-                st.rerun()
-            else: st.error("Acceso Denegado")
+        col_log1, col_log2, col_log3 = st.columns([1,2,1])
+        with col_log2:
+            clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Clave de Operador")
+            if st.button("INGRESAR AL SISTEMA", use_container_width=True):
+                if clave_input == CLAVE_CORRECTA:
+                    st.session_state.autenticado = True
+                    st.rerun()
+                else: st.error("Acceso Denegado")
     st.stop()
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("Ajustes de Perfil")
-    repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
-    tipo_iva = st.radio("Condición Fiscal", ["Responsable Inscripto", "Monotributista"])
-    iibb_perc = st.number_input("% IIBB", value=3.5)
-    st.divider()
-    if st.button("SALIR DEL SISTEMA"):
-        st.session_state.autenticado = False
-        st.rerun()
+# =========================================================
+# ENCABEZADO DE LA APLICACIÓN (SIEMPRE VISIBLE)
+# =========================================================
+st.markdown("""
+    <div class="header-app">
+        <h2>CENTRO ESTANT | Sales Intelligence</h2>
+        <p>Consola de Gestión Comercial e Ingeniería de Costos para Mercado Libre</p>
+    </div>
+""", unsafe_allow_html=True)
 
-# --- PESTAÑAS ---
-tab1, tab2 = st.tabs(["➡️ CALCULAR PVP SUGERIDO", "⬅️ ANALIZAR COSTO OBJETIVO INTELIGENTE"])
+# =========================================================
+# SECCIÓN CRÍTICA FISCAL Y REPUTACIÓN (SIEMPRE VISIBLE ARRIBA)
+# =========================================================
+st.markdown("<h5 style='color: #0F172A; margin-bottom: 5px;'>📌 Configuración Impositiva y Cuenta</h5>", unsafe_allow_html=True)
+col_top1, col_top2, col_top3 = st.columns(3)
+with col_top1:
+    tipo_iva = st.radio("Condición Fiscal:", ["Responsable Inscripto", "Monotributista"], horizontal=True)
+with col_top2:
+    iibb_perc = st.number_input("% Ingresos Brutos", value=3.5, step=0.5)
+with col_top3:
+    repu = st.selectbox("Reputación de Cuenta", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
 
+st.markdown("---")
+
+# Factores de impacto impositivo directo
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
 
-# DICCIONARIOS DE PILARES (Declarados globalmente de forma segura)
-dict_mercado = {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90}
-dict_proveedor = {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06}
+# --- PESTAÑAS PRINCIPALES DE OPERACIÓN ---
+tab1, tab2 = st.tabs(["➡️ DIRECTO: CALCULAR PVP SUGERIDO", "⬅️ INVERSO: ANALIZAR COSTO REAL DE COMPRA"])
 
 # =========================================================
-# PESTAÑA 1: CAMINO DIRECTO
+# SOLAPA 1: PRECIO DE VENTA SUGERIDO (CON DESGLOSE)
 # =========================================================
 with tab1:
-    st.markdown("<h4 style='color: #0F172A;'>¿A cuánto tengo que vender?</h4>", unsafe_allow_html=True)
-    costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
-    tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
-    peso_cat = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_directo")
+    st.markdown("<h4 style='color: #0F172A; font-weight:700;'>¿A cuánto tengo que vender para cubrir todo?</h4>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
-    with col1: comi_p = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
-    with col2: plan_f = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_dir')
-    margen_obj = st.slider("% MARGEN NETO DESEADO", 5, 40, 15, key='margen_dir')
+    col_s1_1, col_s1_2 = st.columns(2)
+    with col_s1_1:
+        costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
+        tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
+    with col_s1_2:
+        peso_cat = st.selectbox("PESO / AFORADO DEL PRODUCTO", list(TABLA_ME1.keys()), key="peso_directo")
+        margen_obj = st.slider("% MARGEN NETO QUE QUERÉS LIMPIO", 5, 40, 15, key='margen_dir')
 
+    col1, col2 = st.columns(2)
+    with col1: comi_p = st.selectbox("% COMISIÓN PLATAFORMA", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
+    with col2: plan_f = st.selectbox("FINANCIACIÓN AL CLIENTE", list(FINANCIACION.keys()), index=3, key='finan_dir')
+
+    # Cálculos base
     envio_v = TABLA_ME1[peso_cat] * bonif
     t_finan = FINANCIACION[plan_f] / 100
     t_comi = comi_p / 100
@@ -132,50 +187,76 @@ with tab1:
 
     st.markdown(f"""
         <div class="dash-main">
-            <div class="dash-label">Precio de Venta Sugerido</div>
+            <div class="dash-label">Precio de Venta al Público Sugerido</div>
             <div class="dash-price">${pvp_sug:,.0f}</div>
-            <div style="color: #3B82F6; font-weight: bold;">OBJETIVO NETO: {margen_obj}%</div>
+            <div class="dash-margin">Margen Neto Asegurado: {margen_obj}%</div>
         </div>
     """, unsafe_allow_html=True)
 
+    # NUEVO DESGLOSE COMPLETO EN PESOS PARA SOLAPA 1
+    if pvp_sug > 0:
+        with st.expander("📥 VER DESGLOSE DETALLADO DE ESTE PVP", expanded=True):
+            p_meli = pvp_sug * t_comi if "ME2" in tipo_me else (pvp_sug - envio_v) * t_comi
+            p_finan = pvp_sug * t_finan
+            p_iva = (pvp_sug - (pvp_sug / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+            p_iibb = (pvp_sug / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+            p_margen = pvp_sug * t_margen
+            
+            st.write(f"• **Costo del Producto (Fábrica):** ${costo_in:,.2f}")
+            st.write(f"• **Tu Ganancia Neta Limpia ({margen_obj}%):** ${p_margen:,.2f}")
+            st.write(f"• **Comisión Mercado Libre ({comi_p}%):** ${p_meli:,.2f}")
+            st.write(f"• **Costo de Financiación Escogido:** ${p_finan:,.2f}")
+            st.write(f"• **Envío Neto de Correo:** ${envio_v:,.2f}")
+            st.write(f"• **Impuestos Retenidos (IVA + IIBB):** ${(p_iva + p_iibb):,.2f}")
+
 # =========================================================
-# PESTAÑA 2: CAMINO INVERSO (BLINDADO)
+# SOLAPA 2: CAMINO INVERSO CON ANÁLISIS DE CATEGORÍA
 # =========================================================
 with tab2:
-    st.markdown("<h4 style='color: #0F172A;'>Evaluación Avanzada de Costo Máximo</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #0F172A; font-weight:700;'>¿Cuánto es lo MÁXIMO que puedo pagarle al proveedor?</h4>", unsafe_allow_html=True)
     
+    # NUEVO EVALUADOR DE CATEGORÍA ANTES DE EMPEZAR
+    cat_seleccionada = st.selectbox("📂 CATEGORÍA DE PRODUCTO A EVALUAR", list(DICT_CATEGORIAS.keys()))
+    info_cat = DICT_CATEGORIAS[cat_seleccionada]
+    
+    st.markdown(f"""
+        <div class="cat-box">
+            <strong>Tipo de Nicho:</strong> {info_cat['tipo']} | <strong>Logística Full:</strong> {info_cat['full']}<br>
+            <span style='font-size:0.85rem; color:#1E3A8A;'>💡 <em>{info_cat['nota']}</em></span>
+        </div>
+    """, unsafe_allow_html=True)
+
     col_in1, col_in2 = st.columns(2)
     with col_in1:
-        pvp_target = st.number_input("PVP OBJETIVO (MERCADO) ($)", value=0.0, step=1000.0, key="pvp_inv")
+        pvp_target = st.number_input("PVP OBJETIVO DE LA COMPETENCIA ($)", value=0.0, step=1000.0, key="pvp_inv")
     with col_in2:
-        margen_obj_inv = st.slider("% MARGEN NETO EXIGIDO", 5, 40, 15, key='margen_inv')
+        margen_obj_inv = st.slider("% MARGEN NETO MINIMO REQUERIDO", 5, 40, 15, key='margen_inv')
 
-    # Inicialización de valores por defecto obligatorios antes de cualquier expander
+    # Valores por defecto automáticos para evitar errores en renderizado
     ajuste_mercado = 1.0
     tasa_proveedor = 0.0
     ocultos_perc = 1.5
 
-    with st.expander("⚙️ AJUSTES DE PILARES (HISTORIAL, PLAZOS Y COSTOS OCULTOS)", expanded=False):
-        st.markdown("**Pilar 1 & 2: Elasticidad del Mercado y Plazos del Proveedor**")
-        
-        opcion_mercado = st.selectbox("Descuento por Fluctuación de Mercado (Historial)", list(dict_mercado.keys()), key="op_mercado")
+    dict_mercado = {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90}
+    dict_proveedor = {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06}
+
+    with st.expander("⚙️ PILARES AVANZADOS (HISTORIAL Y GASTOS OCULTOS)", expanded=False):
+        opcion_mercado = st.selectbox("Fluctuación de Mercado / Competencia", list(dict_mercado.keys()), key="op_mercado")
         ajuste_mercado = dict_mercado[opcion_mercado]
         
-        opcion_proveedor = st.selectbox("Financiación del Proveedor (Plazo de pago)", list(dict_proveedor.keys()), key="op_proveedor")
+        opcion_proveedor = st.selectbox("Condición de Pago a Fábrica", list(dict_proveedor.keys()), key="op_proveedor")
         tasa_proveedor = dict_proveedor[opcion_proveedor]
         
-        st.markdown("---")
-        st.markdown("**Pilar 3: Costos Ocultos de Estructura**")
-        ocultos_perc = st.slider("% Fondo de Cobertura (Roturas, Mermas y Devoluciones)", 0.0, 5.0, 1.5, step=0.5, key="ocultos_slider")
+        ocultos_perc = st.slider("% Cobertura de Estructura (Roturas / Mermas)", 0.0, 5.0, 1.5, step=0.5, key="ocultos_slider")
 
     tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inv")
-    peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inv")
+    peso_cat_inv = st.selectbox("PESO / AFORADO DEL PRODUCTO", list(TABLA_ME1.keys()), key="peso_inv")
     
     col3, col4 = st.columns(2)
-    with col3: comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
-    with col4: plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_inv')
+    with col3: comi_p_inv = st.selectbox("% COMISIÓN PLATAFORMA", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
+    with col4: plan_f_inv = st.selectbox("FINANCIACIÓN AL CLIENTE", list(FINANCIACION.keys()), index=3, key='finan_inv')
 
-    # --- ENCAPSULAMIENTO SEGURO DEL MOTOR MATEMÁTICO ---
+    # --- MOTOR MATEMÁTICO INVERSO ---
     pvp_ajustado = float(pvp_target) * float(ajuste_mercado)
     
     envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
@@ -205,19 +286,19 @@ with tab2:
 
     st.markdown(f"""
         <div class="dash-main-inverse">
-            <div class="dash-label">Costo Máximo de Compra Admitido</div>
+            <div class="dash-label">Costo Máximo Admisible en Fábrica</div>
             <div class="dash-price" style="color: #10B981;">${max(0.0, costo_maximo):,.0f}</div>
-            <div class="dash-margin">CUIDANDO TU {margen_obj_inv}% NETO + {ocultos_perc}% COBERTURA</div>
+            <div class="dash-margin">Asegurando Ganancia del {margen_obj_inv}%</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # PILAR 4: VOLUMEN Y PROYECCIÓN DE NEGOCIO
-    st.subheader("📊 Pilar de Volumen y Proyección Temporal")
+    # PILAR DE PROYECCIÓN POR VOLUMEN Y COMPARATIVA REAL
+    st.subheader("📊 Simulación de Lote y Retorno de Inversión")
     col_v1, col_v2 = st.columns([1, 2])
     with col_v1:
-        q_mensual = st.number_input("Ventas estimadas / mes", value=1, min_value=1, key="q_mes")
+        q_mensual = st.number_input("Ventas proyectadas / mes", value=1, min_value=1, key="q_mes")
     with col_v2:
-        costo_real_prov = st.number_input("Costo Real de Fábrica Unitario ($)", value=0.0, step=1000.0, key="c_real_prov")
+        costo_real_prov = st.number_input("Costo Real Cotizado por Fábrica ($)", value=0.0, step=1000.0, key="c_real_prov")
 
     if pvp_target > 0 and costo_real_prov > 0:
         inversion_stock = costo_real_prov * q_mensual
@@ -228,36 +309,40 @@ with tab2:
         
         st.markdown(f"""
         <div class="vol-box">
-            <p style='margin:0; font-size:0.85rem; color:#64748B; text-transform:uppercase; letter-spacing:1px;'>Proyección Mensual Comercial</p>
+            <p style='margin:0; font-size:0.85rem; color:#64748B; text-transform:uppercase; letter-spacing:1px;'>Balance Mensual de Compra</p>
             <div style='display:flex; justify-content:space-around; margin-top:15px;'>
                 <div>
-                    <span style='font-size:0.8rem; color:#64748B;'>Inversión en Stock</span><br>
-                    <strong style='font-size:1.4rem; color:#0F172A;'>${inversion_stock:,.0f}</strong>
+                    <span style='font-size:0.8rem; color:#64748B;'>Capital a Invertir</span><br>
+                    <strong style='font-size:1.3rem; color:#0F172A;'>${inversion_stock:,.0f}</strong>
                 </div>
                 <div>
                     <span style='font-size:0.8rem; color:#64748B;'>Ganancia Neta Total</span><br>
-                    <strong style='font-size:1.4rem; color:#10B981;'>${ganancia_total_mes:,.0f}</strong>
+                    <strong style='font-size:1.3rem; color:#10B981;'>${ganancia_total_mes:,.0f}</strong>
                 </div>
                 <div>
-                    <span style='font-size:0.8rem; color:#64748B;'>Retorno (ROI)</span><br>
-                    <strong style='font-size:1.4rem; color:#3B82F6;'>{roi_real:.1f}%</strong>
+                    <span style='font-size:0.8rem; color:#64748B;'>ROI del Lote</span><br>
+                    <strong style='font-size:1.3rem; color:#3B82F6;'>{roi_real:.1f}%</strong>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
         if costo_real_prov <= costo_maximo:
-            st.success(f"💪 El costo real está dentro del límite. El excedente impositivo/comercial va directo a tu billetera.")
+            st.success(f"💪 Viable: Estás comprando por debajo del límite teórico.")
         else:
-            st.error(f"⚠️ Alerta: Estás pagando por encima del costo máximo. Tu ROI y margen neto se verán reducidos.")
+            st.error(f"⚠️ Alerta: Costo excesivo. La ganancia real caerá por debajo de tu objetivo neto.")
 
-    with st.expander("📥 DESGLOSE COMPLETO POR UNIDAD AJUSTADA"):
-        st.write(f"• **PVP Ajustado por Historial:** ${pvp_ajustado:,.2f}")
-        st.write(f"• **Comisión Mercado Libre:** ${c_meli_inv:,.2f}")
-        st.write(f"• **Costo Financiero (Cuotas):** ${c_fina_inv:,.2f}")
-        st.write(f"• **Envío Neto Consolidado:** ${envio_real_inv:,.2f}")
-        st.write(f"• **Impuestos Calculados (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
-        st.write(f"• **Fondo Oculto por Roturas ({ocultos_perc}%):** ${costo_oculto_pesos:,.2f}")
-        if fijo_inv > 0: st.write(f"• **Costo Fijo Base (<$33k):** ${fijo_inv:,.2f}")
+    with st.expander("📥 VER REPARTO COMPLETO DE LA COMPRA INVERSA"):
+        st.write(f"• **PVP del Competidor (Base de cálculo):** ${pvp_ajustado:,.2f}")
+        st.write(f"• **Retención de IVA e IIBB:** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
+        st.write(f"• **Margen Fijo Reservado:** ${margen_pesos_inv:,.2f}")
+        st.write(f"• **Logística de Correo Unificada:** ${envio_real_inv:,.2f}")
+        st.write(f"• **Comisiones por Venta:** ${c_meli_inv:,.2f}")
+        st.write(f"• **Amortización de Roturas/Devoluciones:** ${costo_oculto_pesos:,.2f}")
 
-st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
+# Botón técnico mediano y centrado
+st.markdown("""
+    <div class="btn-wa-container">
+        <a href="https://wa.me/5491165808113" class="btn-wa">⚙️ SOPORTE TÉCNICO INTERNO</a>
+    </div>
+""", unsafe_allow_html=True)
