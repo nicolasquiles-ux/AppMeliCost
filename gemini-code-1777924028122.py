@@ -192,9 +192,17 @@ with tab2:
     with col_inv_b:
         margen_exi = st.slider("% Margen Neto Exigido", 5, 40, 15)
 
+    # DICCIONARIOS EXPLICITOS DE DATOS
+    dict_mercado = {"Normal": 1.0, "Baja 5%": 0.95, "Inflado 10%": 0.9}
+    dict_proveedor = {"Contado": 0.0, "30 días (+3%)": 0.03, "60 días (+6%)": 0.06}
+
     with st.expander("🛠️ Pilares Avanzados de Compra"):
-        d_merc = st.selectbox("Fluctuación de Mercado", {"Normal": 1.0, "Baja 5%": 0.95, "Inflado 10%": 0.9})
-        d_prov = st.selectbox("Pago a Fábrica", {"Contado": 0.0, "30 días (+3%)": 0.03, "60 días (+6%)": 0.06})
+        opc_m = st.selectbox("Fluctuación de Mercado", list(dict_mercado.keys()))
+        d_merc_val = dict_mercado[opc_m]
+        
+        opc_p = st.selectbox("Pago a Fábrica", list(dict_proveedor.keys()))
+        d_prov_val = dict_proveedor[opc_p]
+        
         ocultos = st.slider("% Cobertura Estructura/Roturas", 0.0, 5.0, 1.5)
 
     tipo_me_inv = st.radio("Envío ", ["ME2", "ME1"], horizontal=True, key="me_inv_i")
@@ -204,7 +212,8 @@ with tab2:
     with col_inv_c: com_inv = st.selectbox("% Comisión Plataforma", [10, 12, 14, 15, 16.5, 28], index=2, key="c_inv_i")
     with col_inv_d: plan_inv = st.selectbox("Financiación Cliente", list(FINANCIACION.keys()), index=3, key="f_inv_i")
 
-    pvp_aj = float(pvp_target) * float(d_merc)
+    # --- MOTOR MATEMÁTICO INVERSO SIN ERRORES ---
+    pvp_aj = float(pvp_target) * float(d_merc_val)
     env_v_i = TABLA_ME1[peso_cat_inv] * bonif
     fijo_i = 3800.0 if pvp_aj < 33000 and pvp_aj > 0 else 0.0
     env_real_i = env_v_i if pvp_aj >= 33000 else 0.0
@@ -217,7 +226,9 @@ with tab2:
     ocu_i = pvp_aj * (ocultos / 100)
     marg_p_i = pvp_aj * t_marg_i
 
-    costo_max = (pvp_aj - (c_meli_i + c_finan_i + iva_i + iibb_i + env_real_i + fijo_i + marg_p_i + ocu_i)) / (1 + d_prov)
+    costo_max = (pvp_aj - (c_meli_i + c_finan_i + iva_i + iibb_i + env_real_i + fijo_i + marg_p_i + ocu_i)) / (1.0 + float(d_prov_val))
+
+    if pvp_target == 0: costo_max = 0
 
     st.markdown(f"""
         <div class='card-res-inv'>
@@ -246,4 +257,4 @@ with tab2:
             </div>
         """, unsafe_allow_html=True)
 
-st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v16.0 | Argentina 2026</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v16.1 | Argentina 2026</p></div>", unsafe_allow_html=True)
