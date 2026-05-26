@@ -171,4 +171,79 @@ with tab1:
         with st.expander("📊 Ver Desglose NQ de Rentabilidad"):
             p_meli = pvp_sug * t_comi if "ME2" in tipo_me else (pvp_sug - envio_v) * t_comi
             p_finan = pvp_sug * t_finan
-            p_iva = (pvp_sug - (pvp
+            p_iva = (pvp_sug - (pvp_sug / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+            p_iibb = (pvp_sug / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+            p_margen = pvp_sug * t_margen
+            st.write(f"• **Fábrica:** ${costo_in:,.0f} | **Ganancia Neta:** ${p_margen:,.0f}")
+            st.write(f"• **Comisión:** ${p_meli:,.0f} | **Financiación:** ${p_finan:,.0f}")
+            st.write(f"• **Logística:** ${envio_v:,.0f} | **Impuestos:** ${(p_iva + p_iibb):,.0f}")
+
+# =========================================================
+# SOLAPA 2: COSTO OBJETIVO (Inverso)
+# =========================================================
+with tab2:
+    cat_sel = st.selectbox("Categoría Estratégica", list(DICT_CATEGORIAS.keys()))
+    info_cat = DICT_CATEGORIAS[cat_sel]
+    st.info(f"💡 {info_cat['nota']} | Full: {info_cat['full']}")
+
+    col_inv_a, col_inv_b = st.columns(2)
+    with col_inv_a:
+        pvp_target = st.number_input("PVP Competencia ($)", value=0.0, step=1000.0)
+    with col_inv_b:
+        margen_exi = st.slider("% Margen Neto Exigido", 5, 40, 15)
+
+    with st.expander("🛠️ Pilares Avanzados de Compra"):
+        d_merc = st.selectbox("Fluctuación de Mercado", {"Normal": 1.0, "Baja 5%": 0.95, "Inflado 10%": 0.9})
+        d_prov = st.selectbox("Pago a Fábrica", {"Contado": 0.0, "30 días (+3%)": 0.03, "60 días (+6%)": 0.06})
+        ocultos = st.slider("% Cobertura Estructura/Roturas", 0.0, 5.0, 1.5)
+
+    tipo_me_inv = st.radio("Envío ", ["ME2", "ME1"], horizontal=True, key="me_inv_i")
+    peso_cat_inv = st.selectbox("Categoría Peso ", list(TABLA_ME1.keys()), key="peso_inv_i")
+    
+    col_inv_c, col_inv_d = st.columns(2)
+    with col_inv_c: com_inv = st.selectbox("% Comisión Plataforma", [10, 12, 14, 15, 16.5, 28], index=2, key="c_inv_i")
+    with col_inv_d: plan_inv = st.selectbox("Financiación Cliente", list(FINANCIACION.keys()), index=3, key="f_inv_i")
+
+    pvp_aj = float(pvp_target) * float(d_merc)
+    env_v_i = TABLA_ME1[peso_cat_inv] * bonif
+    fijo_i = 3800.0 if pvp_aj < 33000 and pvp_aj > 0 else 0.0
+    env_real_i = env_v_i if pvp_aj >= 33000 else 0.0
+    
+    t_marg_i = margen_exi / 100
+    c_meli_i = pvp_aj * (com_inv/100) if tipo_me_inv == "ME2" else (pvp_aj - env_real_i) * (com_inv/100)
+    c_finan_i = pvp_aj * (FINANCIACION[plan_inv]/100)
+    iva_i = (pvp_aj - (pvp_aj / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+    iibb_i = (pvp_aj / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+    ocu_i = pvp_aj * (ocultos / 100)
+    marg_p_i = pvp_aj * t_marg_i
+
+    costo_max = (pvp_aj - (c_meli_i + c_finan_i + iva_i + iibb_i + env_real_i + fijo_i + marg_p_i + ocu_i)) / (1 + d_prov)
+
+    st.markdown(f"""
+        <div class='card-res-inv'>
+            <div class='label-res'>Costo Máximo de Compra Admitido</div>
+            <div class='price-res' style='color: #10B981;'>${max(0.0, costo_max):,.0f}</div>
+            <span class='badge-res' style='color: #10B981; background: #ECFDF5;'>MARGEN ASEGURADO: {margen_exi}%</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### 📊 Simulación de Volumen NQ")
+    col_v1, col_v2 = st.columns(2)
+    with col_v1: q_mes = st.number_input("Unidades / Mes", value=10, min_value=1)
+    with col_v2: c_real = st.number_input("Costo Cotizado por Fábrica ($)", value=0.0, step=1000.0)
+
+    if pvp_target > 0 and c_real > 0:
+        inv_tot = c_real * q_mes
+        gan_un = marg_p_i + (costo_max - c_real)
+        gan_tot = gan_un * q_mes
+        roi = (gan_tot / inv_tot) * 100 if inv_tot > 0 else 0
+        
+        st.markdown(f"""
+            <div style='background: white; padding: 20px; border-radius: 12px; border: 1px solid #E5E7EB; display: flex; justify-content: space-around; text-align: center;'>
+                <div><span style='color: #6B7280; font-size: 0.8rem;'>Inversión Stock</span><br><strong>${inv_tot:,.0f}</strong></div>
+                <div><span style='color: #6B7280; font-size: 0.8rem;'>Ganancia Total</span><br><strong style='color: #10B981;'>${gan_tot:,.0f}</strong></div>
+                <div><span style='color: #6B7280; font-size: 0.8rem;'>ROI Bruto</span><br><strong style='color: #4F46E5;'>{roi:.1f}%</strong></div>
+            </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v16.0 | Argentina 2026</p></div>", unsafe_allow_html=True)
