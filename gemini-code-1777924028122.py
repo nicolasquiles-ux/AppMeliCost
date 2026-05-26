@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence V14", layout="centered")
+st.set_page_config(page_title="Centro Estant | Sales Intelligence V14.2", layout="centered")
 
 # =========================================================
 # DATOS MAESTROS ACTUALIZADOS VIGENTES 2026
@@ -57,7 +57,6 @@ st.markdown("""
     .dash-price { font-size: 3.2rem; font-weight: 900; color: #FFFFFF; margin: 10px 0; }
     .dash-margin { background: #0F172A; display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.9rem; color: #10B981; font-weight: bold; }
     
-    /* Bloque de Volumen */
     .vol-box {
         background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 20px;
         border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
@@ -104,6 +103,10 @@ bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
 
+# DICCIONARIOS DE PILARES (Declarados globalmente de forma segura)
+dict_mercado = {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90}
+dict_proveedor = {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06}
+
 # =========================================================
 # PESTAÑA 1: CAMINO DIRECTO
 # =========================================================
@@ -136,31 +139,35 @@ with tab1:
     """, unsafe_allow_html=True)
 
 # =========================================================
-# PESTAÑA 2: CAMINO INVERSO CON LOS 4 PILARES INTEGRADOS
+# PESTAÑA 2: CAMINO INVERSO (BLINDADO)
 # =========================================================
 with tab2:
     st.markdown("<h4 style='color: #0F172A;'>Evaluación Avanzada de Costo Máximo</h4>", unsafe_allow_html=True)
     
-    # Datos Base de Entrada
     col_in1, col_in2 = st.columns(2)
     with col_in1:
         pvp_target = st.number_input("PVP OBJETIVO (MERCADO) ($)", value=0.0, step=1000.0, key="pvp_inv")
     with col_in2:
         margen_obj_inv = st.slider("% MARGEN NETO EXIGIDO", 5, 40, 15, key='margen_inv')
 
-    # CONFIGURACIÓN SIMPLIFICADA DE LOS 4 PILARES
+    # Inicialización de valores por defecto obligatorios antes de cualquier expander
+    ajuste_mercado = 1.0
+    tasa_proveedor = 0.0
+    ocultos_perc = 1.5
+
     with st.expander("⚙️ AJUSTES DE PILARES (HISTORIAL, PLAZOS Y COSTOS OCULTOS)", expanded=False):
         st.markdown("**Pilar 1 & 2: Elasticidad del Mercado y Plazos del Proveedor**")
-        ajuste_mercado = st.selectbox("Descuento por Fluctuación de Mercado (Historial)", 
-                                      {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90})
-        tasa_proveedor = st.selectbox("Financiación del Proveedor (Plazo de pago)", 
-                                      {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06})
+        
+        opcion_mercado = st.selectbox("Descuento por Fluctuación de Mercado (Historial)", list(dict_mercado.keys()), key="op_mercado")
+        ajuste_mercado = dict_mercado[opcion_mercado]
+        
+        opcion_proveedor = st.selectbox("Financiación del Proveedor (Plazo de pago)", list(dict_proveedor.keys()), key="op_proveedor")
+        tasa_proveedor = dict_proveedor[opcion_proveedor]
         
         st.markdown("---")
         st.markdown("**Pilar 3: Costos Ocultos de Estructura**")
-        ocultos_perc = st.slider("% Fondo de Cobertura (Roturas, Mermas y Devoluciones)", 0.0, 5.0, 1.5, step=0.5)
+        ocultos_perc = st.slider("% Fondo de Cobertura (Roturas, Mermas y Devoluciones)", 0.0, 5.0, 1.5, step=0.5, key="ocultos_slider")
 
-    # Estructura de logística base
     tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inv")
     peso_cat_inv = st.selectbox("PESO / AFORADO", list(TABLA_ME1.keys()), key="peso_inv")
     
@@ -168,8 +175,8 @@ with tab2:
     with col3: comi_p_inv = st.selectbox("% COMISIÓN MELI", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
     with col4: plan_f_inv = st.selectbox("PLAN DE CUOTAS", list(FINANCIACION.keys()), index=3, key='finan_inv')
 
-    # --- MOTOR MATEMÁTICO INVERSO ACTUALIZADO ---
-    pvp_ajustado = pvp_target * ajuste_mercado
+    # --- ENCAPSULAMIENTO SEGURO DEL MOTOR MATEMÁTICO ---
+    pvp_ajustado = float(pvp_target) * float(ajuste_mercado)
     
     envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
     fijo_inv = 3800.0 if pvp_ajustado < 33000 and pvp_ajustado > 0 else 0.0
@@ -191,15 +198,11 @@ with tab2:
         base_comisionable_inv = pvp_ajustado - envio_real_inv
         c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
 
-    # Restamos comisiones, finanzas, envío, impuestos, margen e imprevistos ocultos
     costo_max_teorico = pvp_ajustado - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv + costo_oculto_pesos)
-    
-    # Aplicamos el impacto financiero del proveedor (Pilar Plazos)
-    costo_maximo = costo_max_teorico / (1 + tasa_proveedor)
+    costo_maximo = costo_max_teorico / (1.0 + float(tasa_proveedor))
 
     if pvp_target == 0: costo_maximo = 0
 
-    # DISPLAY PRINCIPAL
     st.markdown(f"""
         <div class="dash-main-inverse">
             <div class="dash-label">Costo Máximo de Compra Admitido</div>
@@ -212,14 +215,12 @@ with tab2:
     st.subheader("📊 Pilar de Volumen y Proyección Temporal")
     col_v1, col_v2 = st.columns([1, 2])
     with col_v1:
-        q_mensual = st.number_input("Ventas estimadas / mes", value=1, min_value=1)
+        q_mensual = st.number_input("Ventas estimadas / mes", value=1, min_value=1, key="q_mes")
     with col_v2:
-        costo_real_prov = st.number_input("Costo Real de Fábrica Unitario ($)", value=0.0, step=1000.0)
+        costo_real_prov = st.number_input("Costo Real de Fábrica Unitario ($)", value=0.0, step=1000.0, key="c_real_prov")
 
     if pvp_target > 0 and costo_real_prov > 0:
         inversion_stock = costo_real_prov * q_mensual
-        
-        # Recalculamos la ganancia real por unidad considerando lo que pagamos verdaderamente
         ahorro_o_recargo = costo_maximo - costo_real_prov
         ganancia_un_real = margen_pesos_inv + (ahorro_o_recargo * (1 + tasa_proveedor))
         ganancia_total_mes = ganancia_un_real * q_mensual
