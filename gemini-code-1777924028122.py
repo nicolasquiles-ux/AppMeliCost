@@ -17,7 +17,6 @@ TABLA_ME1 = {
     "Mas de 180 Kg": 112060.0
 }
 
-# Configuración basada en los valores reales actualizados de tu imagen
 FINANCIACION_PRESETS = {
     "1 Pago (0%)": 0.0,
     "3 Cuotas (8.40%)": 8.40,
@@ -36,7 +35,7 @@ nq_gold = "#BFA100"
 gray_bg = "#F3F5F7"       
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO (Evita por completo el SyntaxError)
+# INYECCIÓN DE CSS SEGURO (Template string libre de llaves conflictivas)
 # =========================================================
 css_template = """
 <style>
@@ -179,13 +178,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL MATRIZ FISCAL
+# CONTROL MATRIZ FISCAL (Afecta principalmente a Solapa 2)
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
     c_tax1, c_tax2, c_tax3 = st.columns([2,1,1])
     with c_tax1:
-        tipo_iva = st.radio("Configuración Impositiva", ["Responsable Inscripto", "Monotributista"], horizontal=True)
+        tipo_iva = st.radio("Configuración Impositiva Real", ["Responsable Inscripto", "Monotributista"], horizontal=True)
     with c_tax2:
         iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=3.5, step=0.1)
     with c_tax3:
@@ -231,8 +230,12 @@ with tab1:
         t_comi_inv = 14 / 100 
         p_meli_inv = pvp_target * t_comi_inv
         p_finan_inv = pvp_target * t_finan_val_inv
-        p_iva_inv = (pvp_target - (pvp_target / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-        p_iibb_inv = (pvp_target / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+        
+        # --- CAMBIO ESTRATÉGICO NICO ---
+        # Forzamos que el desglose inverso descuente SIEMPRE el IVA y calcule IIBB sobre neto (Modelo RI).
+        # Esto genera la simulación restrictiva que pediste: si sos Monotributista tu ganancia real final terminará siendo mayor.
+        p_iva_inv = (pvp_target - (pvp_target / 1.21))
+        p_iibb_inv = (pvp_target / 1.21) * t_iibb
         p_margen_inv = pvp_target * (margen_exi / 100)
 
         costo_max_admitido = pvp_target - (p_meli_inv + p_finan_inv + p_iva_inv + p_iibb_inv + envio_real_inv + fijo_inv + p_margen_inv)
@@ -240,21 +243,21 @@ with tab1:
         st.markdown(f"""
             <div class="results-main-container">
                 <div class="cost-breakdown-list">
-                    <div class="cost-item"><span class="cost-label">Comisión Plataforma (14%)</span><span class="cost-value">${p_meli_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Costo Financiero Elegido</span><span class="cost-value">${p_finan_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Retención IVA (21%)</span><span class="cost-value">${p_iva_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Comisión MeLi (14%)</span><span class="cost-value">${p_meli_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo Financiero Plan</span><span class="cost-value">${p_finan_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Reserva IVA (Colchón RI 21%)</span><span class="cost-value">${p_iva_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Ingresos Brutos Simulado</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Logística Final Asignada</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
                 </div>
                 <div class="banner-strict">
                     <div class="label-banner">PVP de Referencia</div>
                     <div class="price-main">${pvp_target:,.0f}</div>
-                    <div class="badge-banner">Margen del {margen_exi}% Protegido</div>
+                    <div class="badge-banner">Colchón RI Activo 🛡️</div>
                 </div>
                 <div class="banner-loose">
                     <div class="label-banner">Costo Máximo en Fábrica</div>
                     <div class="price-main" style="color: #FFFFFF;">${max(0.0, costo_max_admitido):,.2f}</div>
-                    <div class="badge-banner" style="background-color: rgba(0,0,0,0.2);">Límite de Compra NQ</div>
+                    <div class="badge-banner" style="background-color: rgba(0,0,0,0.2);">Margen Mínimo: {margen_exi}%</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -288,7 +291,7 @@ with tab2:
         t_comi_dir = 14 / 100
         t_marg_dir = margen_deseado / 100
         
-        # Divisor considerando retenciones e impuestos aplicables sobre el precio bruto final
+        # El divisor de la venta real sí responde al botón impositivo de arriba
         divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva - t_finan_val_dir)
         
         if divisor > 0:
@@ -306,20 +309,20 @@ with tab2:
                         <div class="cost-item"><span class="cost-label">Costo de Fábrica Base</span><span class="cost-value">${costo_fabrica:,.2f}</span></div>
                         <div class="cost-item"><span class="cost-label">Comisión por Venta</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
                         <div class="cost-item"><span class="cost-label">Cargo por Financiación</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">IVA Liquidado</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Ingresos Brutos</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
+                        <div class="cost-item"><span class="cost-label">IVA Liquidado Real</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
+                        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({tipo_iva})</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
                     </div>
                     <div class="banner-strict" style="background-color: #2B3E4F;">
                         <div class="label-banner">Ganancia Líquida Unitaria</div>
                         <div class="price-main">${p_neto_dir:,.2f}</div>
-                        <div class="badge-banner">Retorno Neto: {margen_deseado}%</div>
+                        <div class="badge-banner">Retorno Neto Real: {margen_deseado}%</div>
                     </div>
                     <div class="banner-strict">
                         <div class="label-banner">Precio de Venta Recomendado</div>
                         <div class="price-main">${pvp_sugerido:,.2f}</div>
-                        <div class="badge-banner" style="background-color: rgba(255,255,255,0.25);">PVP Objetivo NQ</div>
+                        <div class="badge-banner" style="background-color: rgba(255,255,255,0.25);">PVP Sugerido NQ</div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.1 | Argentina 2026</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.2 | Argentina 2026</p></div>", unsafe_allow_html=True)
