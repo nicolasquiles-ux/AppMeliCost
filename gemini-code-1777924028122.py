@@ -223,4 +223,40 @@ with tab2:
         ahorro_o_recargo = costo_maximo - costo_real_prov
         ganancia_un_real = margen_pesos_inv + (ahorro_o_recargo * (1 + tasa_proveedor))
         ganancia_total_mes = ganancia_un_real * q_mensual
-        roi_real = (ganancia_
+        roi_real = (ganancia_total_mes / inversion_stock) * 100 if inversion_stock > 0 else 0
+        
+        st.markdown(f"""
+        <div class="vol-box">
+            <p style='margin:0; font-size:0.85rem; color:#64748B; text-transform:uppercase; letter-spacing:1px;'>Proyección Mensual Comercial</p>
+            <div style='display:flex; justify-content:space-around; margin-top:15px;'>
+                <div>
+                    <span style='font-size:0.8rem; color:#64748B;'>Inversión en Stock</span><br>
+                    <strong style='font-size:1.4rem; color:#0F172A;'>${inversion_stock:,.0f}</strong>
+                </div>
+                <div>
+                    <span style='font-size:0.8rem; color:#64748B;'>Ganancia Neta Total</span><br>
+                    <strong style='font-size:1.4rem; color:#10B981;'>${ganancia_total_mes:,.0f}</strong>
+                </div>
+                <div>
+                    <span style='font-size:0.8rem; color:#64748B;'>Retorno (ROI)</span><br>
+                    <strong style='font-size:1.4rem; color:#3B82F6;'>{roi_real:.1f}%</strong>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if costo_real_prov <= costo_maximo:
+            st.success(f"💪 El costo real está dentro del límite. El excedente impositivo/comercial va directo a tu billetera.")
+        else:
+            st.error(f"⚠️ Alerta: Estás pagando por encima del costo máximo. Tu ROI y margen neto se verán reducidos.")
+
+    with st.expander("📥 DESGLOSE COMPLETO POR UNIDAD AJUSTADA"):
+        st.write(f"• **PVP Ajustado por Historial:** ${pvp_ajustado:,.2f}")
+        st.write(f"• **Comisión Mercado Libre:** ${c_meli_inv:,.2f}")
+        st.write(f"• **Costo Financiero (Cuotas):** ${c_fina_inv:,.2f}")
+        st.write(f"• **Envío Neto Consolidado:** ${envio_real_inv:,.2f}")
+        st.write(f"• **Impuestos Calculados (IVA+IIBB):** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
+        st.write(f"• **Fondo Oculto por Roturas ({ocultos_perc}%):** ${costo_oculto_pesos:,.2f}")
+        if fijo_inv > 0: st.write(f"• **Costo Fijo Base (<$33k):** ${fijo_inv:,.2f}")
+
+st.markdown('<a href="https://wa.me/5491165808113" class="btn-wa">CONSULTA TÉCNICA WHATSAPP</a>', unsafe_allow_html=True)
