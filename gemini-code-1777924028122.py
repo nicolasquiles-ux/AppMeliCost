@@ -1,10 +1,10 @@
 import streamlit as st
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Centro Estant | Sales Intelligence V15", layout="centered")
+st.set_page_config(page_title="NQ | Intelligence Dashboard", layout="centered")
 
 # =========================================================
-# DATOS MAESTROS ACTUALIZADOS VIGENTES 2026
+# DATOS MAESTROS VIGENTES 2026
 # =========================================================
 TABLA_ME1 = {
     "Hasta 0,3 Kg": 6080.0, "0,3 a 0,5 Kg": 6600.0, "0,5 a 1 Kg": 7470.0,
@@ -26,323 +26,149 @@ FINANCIACION = {
     "12 Cuotas (19.20% Actual)": 19.20
 }
 
-# Diccionario de análisis estratégico de categorías
 DICT_CATEGORIAS = {
-    "Muebles listos para armar (RTA)": {"tipo": "Estratégico / Volumen", "full": "Altamente Recomendado", "nota": "Alta rotación, bulto optimizado para Full. Competencia firme pero leal."},
-    "Muebles pesados a medida / Armados": {"tipo": "Logística Compleja", "full": "No aplica (Solo ME1)", "nota": "Margen alto pero requiere flete especial. Nicho protegido de revendedores chicos."},
-    "Bazar y Organización de Hogar": {"tipo": "Multirrubro de Alta Rotación", "full": "Obligatorio (Full)", "nota": "Ticket bajo/medio. Ideal para meter volumen y romper estacionalidad."},
-    "Herramientas y Jardín": {"tipo": "Estacional / Técnico", "full": "Recomendado", "nota": "Márgenes estables. Muy interesante para compras mayoristas cerradas."},
-    "Categoría General (Genérico / Trillado)": {"tipo": "Riesgo de Margen Quemado", "full": "Opcional", "nota": "Guerra de precios agresiva. Evaluar con slider de margen estricto."}
+    "Muebles RTA (Cajas optimizadas)": {"tipo": "Volumen", "full": "Recomendado", "nota": "NQ Score: Alta rotación."},
+    "Muebles Pesados (ME1)": {"tipo": "Especialista", "full": "No", "nota": "NQ Score: Margen protegido."},
+    "Bazar y Organización": {"tipo": "Multirrubro", "full": "Obligatorio", "nota": "NQ Score: Competencia alta."},
+    "Herramientas / Jardín": {"tipo": "Técnico", "full": "Opcional", "nota": "NQ Score: Estacional."},
+    "Categoría General": {"tipo": "Genérico", "full": "Variable", "nota": "NQ Score: Evaluar margen."}
 }
 
-CLAVE_CORRECTA = "CENTRO_PRO_2026"
+CLAVE_CORRECTA = "NQ_PRO_2026"
 
-# --- CSS: DISEÑO MODERNO Y CONTROL DE COMPONENTES ---
+# --- CSS: ESTÉTICA NUBIMETRICS / NQ ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #F8FAFC; }
-
-    /* Encabezado */
-    .header-app {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-        color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px;
-        text-align: center; border-left: 6px solid #3B82F6;
-    }
-    .header-app h2 { margin: 0; font-weight: 900; letter-spacing: -1px; color: white !important; }
-    .header-app p { margin: 5px 0 0 0; font-size: 0.9rem; color: #94A3B8; }
-
-    /* Inputs estilizados */
-    .stNumberInput input, .stSelectbox div, .stMultiSelect div {
-        background-color: white !important;
-        border: 1px solid #E2E8F0 !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        color: #1E293B !important;
-    }
-
-    /* Tarjetas de resultados */
-    .dash-main {
-        background-color: #0F172A; color: white; padding: 25px;
-        border-radius: 12px; text-align: center;
-        border-bottom: 5px solid #3B82F6; margin-top: 15px; margin-bottom: 15px;
-    }
-    .dash-main-inverse {
-        background-color: #0F172A; color: white; padding: 25px;
-        border-radius: 12px; text-align: center;
-        border-bottom: 5px solid #10B981; margin-top: 15px; margin-bottom: 15px;
-    }
-    .dash-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #94A3B8; font-weight: 600; }
-    .dash-price { font-size: 3rem; font-weight: 900; color: #FFFFFF; margin: 8px 0; }
-    .dash-margin { background: #1E293B; display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; color: #10B981; font-weight: bold; }
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
     
-    /* Caja de Volumen */
-    .vol-box {
-        background-color: #FFFFFF; border: 1px solid #E2E8F0; padding: 20px;
-        border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-top: 10px;
+    html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .stApp { background-color: #F9FAFB; }
+
+    /* Header NQ */
+    .nq-header {
+        display: flex; align-items: center; justify-content: center;
+        padding: 25px; background: white; border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 30px;
     }
+    .nq-logo {
+        background: #4F46E5; color: white; padding: 10px 18px;
+        border-radius: 12px; font-weight: 800; font-size: 1.5rem;
+        margin-right: 15px; letter-spacing: -1px;
+    }
+    .nq-title { color: #111827; font-weight: 700; font-size: 1.2rem; margin: 0; }
     
-    /* Caja de Categoría */
-    .cat-box {
-        background-color: #EFF6FF; border: 1px solid #BFDBFE; padding: 15px;
-        border-radius: 8px; margin-bottom: 15px;
+    /* Píldoras de Impuestos */
+    .tax-bar {
+        background: #F3F4F6; padding: 15px; border-radius: 12px;
+        margin-bottom: 25px; border: 1px solid #E5E7EB;
     }
 
-    /* Botones Controlados */
+    /* Cards de Resultados Estilo Nubimetrics */
+    .card-res {
+        background: white; border-radius: 16px; padding: 30px;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); text-align: center;
+        border-top: 4px solid #4F46E5; margin: 20px 0;
+    }
+    .card-res-inv {
+        background: white; border-radius: 16px; padding: 30px;
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); text-align: center;
+        border-top: 4px solid #10B981; margin: 20px 0;
+    }
+    .label-res { color: #6B7280; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+    .price-res { color: #111827; font-size: 3.5rem; font-weight: 800; margin: 10px 0; }
+    .badge-res { background: #EEF2FF; color: #4F46E5; padding: 5px 15px; border-radius: 99px; font-size: 0.9rem; font-weight: 700; }
+
+    /* Inputs */
+    .stNumberInput input, .stSelectbox div {
+        border-radius: 10px !important; border: 1px solid #D1D5DB !important;
+    }
+    
+    /* Botones */
     .stButton button {
-        background-color: #1E293B !important; color: white !important;
-        border-radius: 8px !important; font-weight: bold !important;
-        border: none !important; padding: 8px 16px !important;
+        background: #4F46E5 !important; color: white !important;
+        border-radius: 10px !important; width: 100%; border: none !important;
+        padding: 10px !important; font-weight: 700 !important;
     }
-    .stButton button:hover { background-color: #334155 !important; }
-
-    /* Botón WhatsApp de tamaño mediano controlado */
-    .btn-wa-container { text-align: center; margin-top: 25px; }
-    .btn-wa {
-        background-color: #0F172A; color: white !important; padding: 10px 20px;
-        border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem;
-        border: 1px solid #334155; display: inline-block;
-    }
-    .btn-wa:hover { background-color: #1E293B; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- LOGIN ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.markdown("<div style='text-align: center; padding: 40px 0;'><h2 style='color: #0F172A; font-weight:900;'>CONTROL DE GESTIÓN</h2></div>", unsafe_allow_html=True)
-    with st.container():
-        col_log1, col_log2, col_log3 = st.columns([1,2,1])
-        with col_log2:
-            clave_input = st.text_input("Acceso Protegido", type="password", placeholder="Clave de Operador")
-            if st.button("INGRESAR AL SISTEMA", use_container_width=True):
-                if clave_input == CLAVE_CORRECTA:
-                    st.session_state.autenticado = True
-                    st.rerun()
-                else: st.error("Acceso Denegado")
+    st.markdown("<div style='text-align:center; margin-top:100px;'><span class='nq-logo'>NQ</span></div>", unsafe_allow_html=True)
+    col_l1, col_l2, col_l3 = st.columns([1,2,1])
+    with col_l2:
+        clave = st.text_input("Access Key", type="password", placeholder="Operador NQ")
+        if st.button("UNLOCK DASHBOARD"):
+            if clave == CLAVE_CORRECTA:
+                st.session_state.autenticado = True
+                st.rerun()
+            else: st.error("Acceso denegado")
     st.stop()
 
-# =========================================================
-# ENCABEZADO DE LA APLICACIÓN (SIEMPRE VISIBLE)
-# =========================================================
+# --- HEADER NQ ---
 st.markdown("""
-    <div class="header-app">
-        <h2>NQ| Sales Intelligence</h2>
-        <p>Consola de Gestión Comercial e Ingeniería de Costos para vendedores de Mercado Libre</p>
+    <div class='nq-header'>
+        <span class='nq-logo'>NQ</span>
+        <div class='nq-title'>INTELLIGENCE | Sales & Market Analysis</div>
     </div>
 """, unsafe_allow_html=True)
 
-# =========================================================
-# SECCIÓN CRÍTICA FISCAL Y REPUTACIÓN (SIEMPRE VISIBLE ARRIBA)
-# =========================================================
-st.markdown("<h5 style='color: #0F172A; margin-bottom: 5px;'>📌 Configuración Impositiva y Cuenta</h5>", unsafe_allow_html=True)
-col_top1, col_top2, col_top3 = st.columns(3)
-with col_top1:
-    tipo_iva = st.radio("Condición Fiscal:", ["Responsable Inscripto", "Monotributista"], horizontal=True)
-with col_top2:
-    iibb_perc = st.number_input("% Ingresos Brutos", value=3.5, step=0.5)
-with col_top3:
-    repu = st.selectbox("Reputación de Cuenta", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
+# --- MATRIZ FISCAL SIEMPRE VISIBLE ---
+with st.container():
+    st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
+    c_tax1, c_tax2, c_tax3 = st.columns([2,1,1])
+    with c_tax1:
+        tipo_iva = st.radio("Condición Fiscal del Vendedor", ["Responsable Inscripto", "Monotributista"], horizontal=True)
+    with c_tax2:
+        iibb_perc = st.number_input("% IIBB", value=3.5, step=0.1)
+    with c_tax3:
+        repu = st.selectbox("Reputación", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("---")
-
-# Factores de impacto impositivo directo
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
 
-# --- PESTAÑAS PRINCIPALES DE OPERACIÓN ---
-tab1, tab2 = st.tabs(["➡️ DIRECTO: CALCULAR PVP SUGERIDO", "⬅️ INVERSO: ANALIZAR COSTO REAL DE COMPRA"])
+# --- TABS ---
+tab1, tab2 = st.tabs(["📊 CALCULAR PVP SUGERIDO", "🔍 ANALIZAR COSTO OBJETIVO"])
 
 # =========================================================
-# SOLAPA 1: PRECIO DE VENTA SUGERIDO (CON DESGLOSE)
+# SOLAPA 1: PVP (Directo)
 # =========================================================
 with tab1:
-    st.markdown("<h4 style='color: #0F172A; font-weight:700;'>¿A cuánto tengo que vender para cubrir todo?</h4>", unsafe_allow_html=True)
-    
-    col_s1_1, col_s1_2 = st.columns(2)
-    with col_s1_1:
-        costo_in = st.number_input("COSTO UNITARIO DE COMPRA ($)", value=0.0, step=1000.0, key="c_directo")
-        tipo_me = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_directo")
-    with col_s1_2:
-        peso_cat = st.selectbox("PESO / AFORADO DEL PRODUCTO", list(TABLA_ME1.keys()), key="peso_directo")
-        margen_obj = st.slider("% MARGEN NETO QUE QUERÉS LIMPIO", 5, 40, 15, key='margen_dir')
+    col_s1_a, col_s1_b = st.columns(2)
+    with col_s1_a:
+        costo_in = st.number_input("Costo de Fábrica ($)", value=0.0, step=1000.0)
+        tipo_me = st.radio("Envío", ["ME2 (Normal/Full)", "ME1 (Pesados)"], horizontal=True)
+    with col_s1_b:
+        peso_cat = st.selectbox("Categoría Peso Correo", list(TABLA_ME1.keys()))
+        margen_obj = st.slider("% Margen Neto Deseado", 5, 40, 15)
 
-    col1, col2 = st.columns(2)
-    with col1: comi_p = st.selectbox("% COMISIÓN PLATAFORMA", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_dir')
-    with col2: plan_f = st.selectbox("FINANCIACIÓN AL CLIENTE", list(FINANCIACION.keys()), index=3, key='finan_dir')
+    col_s1_c, col_s1_d = st.columns(2)
+    with col_s1_c: comi_p = st.selectbox("% Comisión MeLi", [10, 12, 14, 15, 16.5, 28], index=2)
+    with col_s1_d: plan_f = st.selectbox("Cuotas al Cliente", list(FINANCIACION.keys()), index=3)
 
-    # Cálculos base
     envio_v = TABLA_ME1[peso_cat] * bonif
     t_finan = FINANCIACION[plan_f] / 100
     t_comi = comi_p / 100
     t_margen = margen_obj / 100
     divisor = (1 - t_comi - t_margen - t_iibb - t_iva - t_finan)
     
-    if "ME2" in tipo_me: pvp_sug = (costo_in + envio_v) / divisor if divisor > 0 else 0
-    else: pvp_sug = (costo_in / divisor) + envio_v if divisor > 0 else 0
+    pvp_sug = (costo_in + envio_v) / divisor if "ME2" in tipo_me else (costo_in / divisor) + envio_v if divisor > 0 else 0
 
     st.markdown(f"""
-        <div class="dash-main">
-            <div class="dash-label">Precio de Venta al Público Sugerido</div>
-            <div class="dash-price">${pvp_sug:,.0f}</div>
-            <div class="dash-margin">Margen Neto Asegurado: {margen_obj}%</div>
+        <div class='card-res'>
+            <div class='label-res'>Precio de Venta Sugerido</div>
+            <div class='price-res'>${pvp_sug:,.0f}</div>
+            <span class='badge-res'>OBJETIVO NETO: {margen_obj}%</span>
         </div>
     """, unsafe_allow_html=True)
 
-    # NUEVO DESGLOSE COMPLETO EN PESOS PARA SOLAPA 1
     if pvp_sug > 0:
-        with st.expander("📥 VER DESGLOSE DETALLADO DE ESTE PVP", expanded=True):
+        with st.expander("📊 Ver Desglose NQ de Rentabilidad"):
             p_meli = pvp_sug * t_comi if "ME2" in tipo_me else (pvp_sug - envio_v) * t_comi
             p_finan = pvp_sug * t_finan
-            p_iva = (pvp_sug - (pvp_sug / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-            p_iibb = (pvp_sug / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
-            p_margen = pvp_sug * t_margen
-            
-            st.write(f"• **Costo del Producto (Fábrica):** ${costo_in:,.2f}")
-            st.write(f"• **Tu Ganancia Neta Limpia ({margen_obj}%):** ${p_margen:,.2f}")
-            st.write(f"• **Comisión Mercado Libre ({comi_p}%):** ${p_meli:,.2f}")
-            st.write(f"• **Costo de Financiación Escogido:** ${p_finan:,.2f}")
-            st.write(f"• **Envío Neto de Correo:** ${envio_v:,.2f}")
-            st.write(f"• **Impuestos Retenidos (IVA + IIBB):** ${(p_iva + p_iibb):,.2f}")
-
-# =========================================================
-# SOLAPA 2: CAMINO INVERSO CON ANÁLISIS DE CATEGORÍA
-# =========================================================
-with tab2:
-    st.markdown("<h4 style='color: #0F172A; font-weight:700;'>¿Cuánto es lo MÁXIMO que puedo pagarle al proveedor?</h4>", unsafe_allow_html=True)
-    
-    # NUEVO EVALUADOR DE CATEGORÍA ANTES DE EMPEZAR
-    cat_seleccionada = st.selectbox("📂 CATEGORÍA DE PRODUCTO A EVALUAR", list(DICT_CATEGORIAS.keys()))
-    info_cat = DICT_CATEGORIAS[cat_seleccionada]
-    
-    st.markdown(f"""
-        <div class="cat-box">
-            <strong>Tipo de Nicho:</strong> {info_cat['tipo']} | <strong>Logística Full:</strong> {info_cat['full']}<br>
-            <span style='font-size:0.85rem; color:#1E3A8A;'>💡 <em>{info_cat['nota']}</em></span>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col_in1, col_in2 = st.columns(2)
-    with col_in1:
-        pvp_target = st.number_input("PVP OBJETIVO DE LA COMPETENCIA ($)", value=0.0, step=1000.0, key="pvp_inv")
-    with col_in2:
-        margen_obj_inv = st.slider("% MARGEN NETO MINIMO REQUERIDO", 5, 40, 15, key='margen_inv')
-
-    # Valores por defecto automáticos para evitar errores en renderizado
-    ajuste_mercado = 1.0
-    tasa_proveedor = 0.0
-    ocultos_perc = 1.5
-
-    dict_mercado = {"0% (Precio Estable)": 1.0, "5% (Prevenir Baja)": 0.95, "10% (Precio Inflado Competencia)": 0.90}
-    dict_proveedor = {"Contado (0% Recargo)": 0.0, "30 días (+3% Recargo)": 0.03, "60 días (+6% Recargo)": 0.06}
-
-    with st.expander("⚙️ PILARES AVANZADOS (HISTORIAL Y GASTOS OCULTOS)", expanded=False):
-        opcion_mercado = st.selectbox("Fluctuación de Mercado / Competencia", list(dict_mercado.keys()), key="op_mercado")
-        ajuste_mercado = dict_mercado[opcion_mercado]
-        
-        opcion_proveedor = st.selectbox("Condición de Pago a Fábrica", list(dict_proveedor.keys()), key="op_proveedor")
-        tasa_proveedor = dict_proveedor[opcion_proveedor]
-        
-        ocultos_perc = st.slider("% Cobertura de Estructura (Roturas / Mermas)", 0.0, 5.0, 1.5, step=0.5, key="ocultos_slider")
-
-    tipo_me_inv = st.radio("SISTEMA DE ENVÍO", ["ME2 (Colecta/Full - Comisiona)", "ME1 (Muebles Pesados - No Comisiona)"], horizontal=True, key="me_inv")
-    peso_cat_inv = st.selectbox("PESO / AFORADO DEL PRODUCTO", list(TABLA_ME1.keys()), key="peso_inv")
-    
-    col3, col4 = st.columns(2)
-    with col3: comi_p_inv = st.selectbox("% COMISIÓN PLATAFORMA", [10, 12, 14, 15, 16.5, 28], index=2, key='comi_inv')
-    with col4: plan_f_inv = st.selectbox("FINANCIACIÓN AL CLIENTE", list(FINANCIACION.keys()), index=3, key='finan_inv')
-
-    # --- MOTOR MATEMÁTICO INVERSO ---
-    pvp_ajustado = float(pvp_target) * float(ajuste_mercado)
-    
-    envio_v_inv = TABLA_ME1[peso_cat_inv] * bonif
-    fijo_inv = 3800.0 if pvp_ajustado < 33000 and pvp_ajustado > 0 else 0.0
-    envio_real_inv = envio_v_inv if pvp_ajustado >= 33000 else 0.0
-
-    t_finan_inv = FINANCIACION[plan_f_inv] / 100
-    t_comi_inv = comi_p_inv / 100
-    t_margen_inv = margen_obj_inv / 100
-
-    c_fina_inv = pvp_ajustado * t_finan_inv
-    imp_iva_inv = (pvp_ajustado - (pvp_ajustado / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-    imp_iibb_inv = (pvp_ajustado / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
-    margen_pesos_inv = pvp_ajustado * t_margen_inv
-    costo_oculto_pesos = pvp_ajustado * (ocultos_perc / 100)
-
-    if "ME2" in tipo_me_inv:
-        c_meli_inv = pvp_ajustado * t_comi_inv
-    else:
-        base_comisionable_inv = pvp_ajustado - envio_real_inv
-        c_meli_inv = max(0.0, base_comisionable_inv * t_comi_inv)
-
-    costo_max_teorico = pvp_ajustado - (c_meli_inv + c_fina_inv + imp_iva_inv + imp_iibb_inv + envio_real_inv + fijo_inv + margen_pesos_inv + costo_oculto_pesos)
-    costo_maximo = costo_max_teorico / (1.0 + float(tasa_proveedor))
-
-    if pvp_target == 0: costo_maximo = 0
-
-    st.markdown(f"""
-        <div class="dash-main-inverse">
-            <div class="dash-label">Costo Máximo Admisible en Fábrica</div>
-            <div class="dash-price" style="color: #10B981;">${max(0.0, costo_maximo):,.0f}</div>
-            <div class="dash-margin">Asegurando Ganancia del {margen_obj_inv}%</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # PILAR DE PROYECCIÓN POR VOLUMEN Y COMPARATIVA REAL
-    st.subheader("📊 Simulación de Lote y Retorno de Inversión")
-    col_v1, col_v2 = st.columns([1, 2])
-    with col_v1:
-        q_mensual = st.number_input("Ventas proyectadas / mes", value=1, min_value=1, key="q_mes")
-    with col_v2:
-        costo_real_prov = st.number_input("Costo Real Cotizado por Fábrica ($)", value=0.0, step=1000.0, key="c_real_prov")
-
-    if pvp_target > 0 and costo_real_prov > 0:
-        inversion_stock = costo_real_prov * q_mensual
-        ahorro_o_recargo = costo_maximo - costo_real_prov
-        ganancia_un_real = margen_pesos_inv + (ahorro_o_recargo * (1 + tasa_proveedor))
-        ganancia_total_mes = ganancia_un_real * q_mensual
-        roi_real = (ganancia_total_mes / inversion_stock) * 100 if inversion_stock > 0 else 0
-        
-        st.markdown(f"""
-        <div class="vol-box">
-            <p style='margin:0; font-size:0.85rem; color:#64748B; text-transform:uppercase; letter-spacing:1px;'>Balance Mensual de Compra</p>
-            <div style='display:flex; justify-content:space-around; margin-top:15px;'>
-                <div>
-                    <span style='font-size:0.8rem; color:#64748B;'>Capital a Invertir</span><br>
-                    <strong style='font-size:1.3rem; color:#0F172A;'>${inversion_stock:,.0f}</strong>
-                </div>
-                <div>
-                    <span style='font-size:0.8rem; color:#64748B;'>Ganancia Neta Total</span><br>
-                    <strong style='font-size:1.3rem; color:#10B981;'>${ganancia_total_mes:,.0f}</strong>
-                </div>
-                <div>
-                    <span style='font-size:0.8rem; color:#64748B;'>ROI del Lote</span><br>
-                    <strong style='font-size:1.3rem; color:#3B82F6;'>{roi_real:.1f}%</strong>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if costo_real_prov <= costo_maximo:
-            st.success(f"💪 Viable: Estás comprando por debajo del límite teórico.")
-        else:
-            st.error(f"⚠️ Alerta: Costo excesivo. La ganancia real caerá por debajo de tu objetivo neto.")
-
-    with st.expander("📥 VER REPARTO COMPLETO DE LA COMPRA INVERSA"):
-        st.write(f"• **PVP del Competidor (Base de cálculo):** ${pvp_ajustado:,.2f}")
-        st.write(f"• **Retención de IVA e IIBB:** ${(imp_iva_inv + imp_iibb_inv):,.2f}")
-        st.write(f"• **Margen Fijo Reservado:** ${margen_pesos_inv:,.2f}")
-        st.write(f"• **Logística de Correo Unificada:** ${envio_real_inv:,.2f}")
-        st.write(f"• **Comisiones por Venta:** ${c_meli_inv:,.2f}")
-        st.write(f"• **Amortización de Roturas/Devoluciones:** ${costo_oculto_pesos:,.2f}")
-
-# Botón técnico mediano y centrado
-st.markdown("""
-    <div class="btn-wa-container">
-        <a href="https://wa.me/5491165808113" class="btn-wa">⚙️ SOPORTE TÉCNICO INTERNO</a>
-    </div>
-""", unsafe_allow_html=True)
+            p_iva = (pvp_sug - (pvp
