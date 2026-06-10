@@ -27,6 +27,8 @@ FINANCIACION_PRESETS = {
 }
 
 CLAVE_CORRECTA = "NQ_PRO_2026"
+UMBRAL_ENVIO_GRATIS = 35000.0
+CARGO_FIJO_MELI = 3800.0
 
 # Colores corporativos NQ
 nq_main_color = "#2B3E4F" 
@@ -35,7 +37,7 @@ nq_gold = "#BFA100"
 gray_bg = "#F3F5F7"       
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO Y RESPONSIVO (Fix pantallas chicas)
+# INYECCIÓN DE CSS SEGURO Y RESPONSIVO REFORZADO
 # =========================================================
 css_template = """
 <style>
@@ -73,15 +75,16 @@ html, body, [class*="css"] {
 /* --- BANNER DE RESULTADOS TRIPLE RESPONSIVO --- */
 .results-main-container {
     display: flex;
-    flex-wrap: wrap; /* Evita el colapso horizontal en mobile */
-    gap: 10px;
-    border-radius: 16px; overflow: hidden;
+    flex-wrap: wrap;
+    gap: 12px;
     margin-top: 25px;
+    width: 100%;
 }
 .cost-breakdown-list {
-    flex: 1 1 300px; background-color: #FFFFFF; padding: 25px;
+    flex: 1 1 320px; background-color: #FFFFFF; padding: 25px;
     display: flex; flex-direction: column; justify-content: center; gap: 10px;
     border: 1px solid #E5E7EB; border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
 }
 .cost-item { 
     display: flex; justify-content: space-between; font-size: 0.95rem; 
@@ -91,10 +94,11 @@ html, body, [class*="css"] {
 .cost-value { color: #111827; font-weight: 700; text-align: right; }
 
 .banner-card {
-    flex: 1 1 220px; color: white; padding: 25px;
+    flex: 1 1 260px; color: white; padding: 25px;
     display: flex; flex-direction: column; justify-content: center;
     align-items: center; text-align: center; gap: 6px;
     border-radius: 16px; min-height: 160px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
 }
 .bg-pvp { background-color: NQ_MAIN_COLOR; }
 .bg-costo { background-color: NQ_GOLD; }
@@ -144,14 +148,14 @@ st.markdown("""
             <span class="nq-logo">NQ</span>
             <div class="nq-title-group">
                 <div class="nq-title-country">NQ Argentina</div>
-                <div class="nq-dashboard">NQ | Sales Intelligence Matrix v17.5</div>
+                <div class="nq-dashboard">NQ | Sales Intelligence Matrix v17.7</div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL MATRIZ FISCAL (Ajustado por defecto al 5.0% de IIBB solicitado)
+# CONTROL MATRIZ FISCAL
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
@@ -165,20 +169,134 @@ with st.container():
     st.markdown("</div>", unsafe_allow_html=True)
 
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
-t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
 
-# Variables fijas solicitadas finas
-t_ganancias_fijo = 0.05  # 5% Ganancias
-t_estructura_fijo = 0.02 # 2% Personal/Depósito
+# Variables fijas estructurales
+t_ganancias_fijo = 0.05
+t_estructura_fijo = 0.02
+t_iva_cushion = 0.17355 # Colchón RI de protección financiera NQ
 
 # --- TABS DE OPERACIÓN ---
-tab1, tab2 = st.tabs(["📊 ANALIZAR COSTO OBJETIVO (Inverso)", "☝️ CALCULAR PVP SUGERIDO (Directo)"])
+tab1, tab2 = st.tabs(["☝️ CALCULAR PVP RECOMENDADO (Directo)", "📊 ANALIZAR COSTO OBJETIVO (Inverso)"])
 
 # =========================================================
-# SOLAPA 1: ANÁLISIS COSTO OBJETIVO (PVP -> FÁBRICA)
+# SOLAPA 1: CALCULAR PVP SUGERIDO MÁXIMO (FÁBRICA -> VENTA)
 # =========================================================
 with tab1:
+    st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    c_dir_1, c_dir_2, c_dir_3, c_dir_4, c_dir_5 = st.columns([1.2, 1.2, 1, 1.5, 1])
+
+    with c_dir_1:
+        costo_fabrica_neto = st.number_input("Costo de Lista Fábrica (SIN IVA) ($)", value=0.0, step=1000.0, key="c_fab_k")
+    with c_dir_2:
+        margen_deseado = st.slider("% Margen Neto Objetivo ", 5, 40, 15, key="m_des_k")
+    with c_dir_3:
+        tipo_me_dir = st.selectbox("Logística ", ["ME2 (Normal/Full)", "ME1 (Pesados)"], key="t_me_dir_k")
+    with c_dir_4:
+        plan_selected_dir = st.selectbox("Plan de Financiamiento ", list(FINANCIACION_PRESETS.keys()), index=2, key="plan_dir_k")
+        if plan_selected_dir == "Personalizado (Manual)":
+            t_finan_val_dir = st.number_input("% Tasa Custom ", value=10.0, step=0.1, key="custom_fin_dir") / 100
+        else:
+            t_finan_val_dir = FINANCIACION_PRESETS[plan_selected_dir] / 100
+    with c_dir_5:
+        peso_cat_dir = st.selectbox("Peso Correo ", list(TABLA_ME1.keys()), key="peso_dir_k")
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+if costo_fabrica_neto > 0:
+    envio_v_dir = TABLA_ME1[peso_cat_dir] * bonif
+    t_comi_dir = 14 / 100
+    t_marg_dir = margen_deseado / 100
+    costo_fabrica_con_iva = costo_fabrica_neto * 1.21
+    
+    # Divisor financiero base
+    divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva_cushion - t_finan_val_dir - t_ganancias_fijo - t_estructura_fijo)
+    
+    if divisor > 0:
+        # Lógica iterativa para el quiebre de $35.000
+        # Probamos hipótesis 1: Supera el umbral (lleva flete real obligatorio)
+        if "ME2" in tipo_me_dir:
+            pvp_test = (costo_fabrica_neto + envio_v_dir) / divisor
+            if pvp_test >= UMBRAL_ENVIO_GRATIS:
+                pvp_sugerido = pvp_test
+                envio_aplicado_dir = envio_v_dir
+                fijo_aplicado_dir = 0.0
+            else:
+                # Hipótesis 2: No llega a $35.000 (flete $0 para vos, entra cargo fijo)
+                pvp_sugerido = (costo_fabrica_neto + CARGO_FIJO_MELI) / divisor
+                envio_aplicado_dir = 0.0
+                fijo_aplicado_dir = CARGO_FIJO_MELI
+        else:
+            # ME1 Pesados (El flete se suma directo al final según configuración NQ)
+            pvp_test = (costo_fabrica_neto / divisor) + envio_v_dir
+            if pvp_test >= UMBRAL_ENVIO_GRATIS:
+                pvp_sugerido = pvp_test
+                envio_aplicado_dir = envio_v_dir
+                fijo_aplicado_dir = 0.0
+            else:
+                pvp_sugerido = ((costo_fabrica_neto + CARGO_FIJO_MELI) / divisor)
+                envio_aplicado_dir = 0.0
+                fijo_aplicado_dir = CARGO_FIJO_MELI
+
+        p_meli_dir = pvp_sugerido * t_comi_dir
+        p_finan_dir = pvp_sugerido * t_finan_val_dir
+        p_iva_dir = (pvp_sugerido - (pvp_sugerido / 1.21)) 
+        p_iibb_dir = (pvp_sugerido / 1.21) * t_iibb
+        p_ganancias_dir = (pvp_sugerido / 1.21) * t_ganancias_fijo
+        p_estructura_dir = pvp_sugerido * t_estructura_fijo
+        p_neto_dir = pvp_sugerido * t_marg_dir
+
+        if tipo_iva == "Monotributista":
+            ganancia_real_dir = p_neto_dir + p_iva_dir + p_ganancias_dir
+            rendimiento_real_dir = (ganancia_real_dir / pvp_sugerido) * 100
+            badge_dir = "Margen + Exenciones Retenidas 🎉"
+        else:
+            ganancia_real_dir = p_neto_dir
+            rendimiento_real_dir = float(margen_deseado)
+            badge_dir = "Estructura RI Standard"
+
+        st.markdown(f"""
+            <div class="results-main-container">
+                <div class="cost-breakdown-list">
+                    <div class="cost-item"><span class="cost-label">Costo Proveedor Neto (Sin IVA)</span><span class="cost-value">${costo_fabrica_neto:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo Proveedor Facturado (Con IVA)</span><span class="cost-value">${costo_fabrica_con_iva:,.2f}</span></div>
+                    <div class="cost-item" style="background-color: #EFF6FF; padding: 4px; border-radius:6px;"><span class="cost-label" style="color: #1E40AF; font-weight:700;">Costo Flete Real (Mi Cargo)</span><span class="cost-value" style="color: #1E40AF; font-weight:700;">${envio_aplicado_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo Fijo MeLi (Menor a $35k)</span><span class="cost-value">${fijo_aplicado_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Comisión MeLi (14%)</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Cargo Financiero Plan</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Impacto IVA Publicación</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Reserva Ganancias (5%)</span><span class="cost-value">${p_ganancias_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo Estructura Depósito (2%)</span><span class="cost-value">${p_estructura_dir:,.2f}</span></div>
+                </div>
+                <div class="banner-card bg-pvp">
+                    <div class="label-banner">Costo Fábrica Base</div>
+                    <div class="price-main">${costo_fabrica_neto:,.0f}</div>
+                    <div class="badge-banner">Neto Ingresado</div>
+                </div>
+                <div class="banner-card bg-costo">
+                    <div class="label-banner">PVP MÁXIMO SUGERIDO</div>
+                    <div class="price-main">${pvp_sugerido:,.2f}</div>
+                    <div class="badge-banner">Precio Publicación NQ</div>
+                </div>
+                <div class="banner-card bg-ganancia">
+                    <div class="label-banner">Ganancia Real Bolsillo</div>
+                    <div class="price-main">${ganancia_real_dir:,.2f}</div>
+                    <div class="donut-chart-container">
+                        <div class="donut-block" style="background: conic-gradient(#00BFBF {rendimiento_real_dir}%, rgba(255,255,255,0.2) 0);"></div>
+                        <div class="donut-text-group">
+                            <span class="donut-main-val">Rendimiento: {rendimiento_real_dir:.1f}%</span>
+                            <span class="donut-sub-val" style="color: white;">{badge_dir}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+# =========================================================
+# SOLAPA 2: ANÁLISIS COSTO OBJETIVO (PVP -> FÁBRICA)
+# =========================================================
+with tab2:
     st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
     c_inv_1, c_inv_2, c_inv_3, c_inv_4, c_inv_5 = st.columns([1.2, 1.2, 1, 1.5, 1])
     
@@ -200,28 +318,24 @@ with tab1:
     st.markdown("</div>", unsafe_allow_html=True)
 
     if pvp_target > 0:
-        envio_cost_inv = TABLA_ME1[peso_cat_inv] * bonif
-        fijo_inv = 3800.0 if pvp_target < 33000 else 0.0
-        envio_real_inv = envio_cost_inv if pvp_target >= 33000 else 0.0
+        # Si el PVP es >= 35000, calculás el flete real, si no, es $0 de flete pero entra cargo fijo
+        envio_real_inv = (TABLA_ME1[peso_cat_inv] * bonif) if pvp_target >= UMBRAL_ENVIO_GRATIS else 0.0
+        fijo_inv = CARGO_FIJO_MELI if pvp_target < UMBRAL_ENVIO_GRATIS else 0.0
 
         t_comi_inv = 14 / 100 
         p_meli_inv = pvp_target * t_comi_inv
         p_finan_inv = pvp_target * t_finan_val_inv
         
-        # Simulación de Colchón Inscripto
         p_iva_inv = (pvp_target - (pvp_target / 1.21))
         p_iibb_inv = (pvp_target / 1.21) * t_iibb
-        
-        # Nuevas deducciones finas solicitadas
         p_ganancias_inv = (pvp_target / 1.21) * t_ganancias_fijo
         p_estructura_inv = pvp_target * t_estructura_fijo
         p_margen_inv = pvp_target * (margen_exi / 100)
 
-        costo_max_admitido = pvp_target - (p_meli_inv + p_finan_inv + p_iva_inv + p_iibb_inv + p_ganancias_inv + p_estructura_inv + envio_real_inv + fijo_inv + p_margen_inv)
+        # Límite neto de compra al fabricante antes de IVA
+        costo_max_admitido_neto = pvp_target - (p_meli_inv + p_finan_inv + p_iva_inv + p_iibb_inv + p_ganancias_inv + p_estructura_inv + envio_real_inv + fijo_inv + p_margen_inv)
 
-        # Lógica de impacto Monotributista (Ganancia de bolsillo real)
         if tipo_iva == "Monotributista":
-            # No liquida IVA (21%) ni Ganancias corporativas de RI (5%)
             ganancia_real_pesos = p_margen_inv + p_iva_inv + p_ganancias_inv
             margen_real_porcentaje = (ganancia_real_pesos / pvp_target) * 100
             badge_ganancia = "Margen + Exenciones IVA/Gan 🎉"
@@ -239,7 +353,8 @@ with tab1:
                     <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Impuesto Ganancias (5%)</span><span class="cost-value">${p_ganancias_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Estructura Depósito (2%)</span><span class="cost-value">${p_estructura_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Logística Final</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
+                    <div class="cost-item" style="background-color: #EFF6FF; padding: 4px; border-radius:6px;"><span class="cost-label" style="color: #1E40AF; font-weight:700;">Costo Flete Real (Mi Cargo)</span><span class="cost-value" style="color: #1E40AF; font-weight:700;">${envio_real_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo Fijo MeLi (Menor a $35k)</span><span class="cost-value">${fijo_inv:,.2f}</span></div>
                 </div>
                 <div class="banner-card bg-pvp">
                     <div class="label-banner">PVP Mercado</div>
@@ -247,9 +362,9 @@ with tab1:
                     <div class="badge-banner">Precio Comp.</div>
                 </div>
                 <div class="banner-card bg-costo">
-                    <div class="label-banner">Costo Máx Fábrica</div>
-                    <div class="price-main">${max(0.0, costo_max_admitido):,.2f}</div>
-                    <div class="badge-banner">Límite Seguro 🛡️</div>
+                    <div class="label-banner">Costo Máx Fábrica (SIN IVA)</div>
+                    <div class="price-main">${max(0.0, costo_max_admitido_neto):,.2f}</div>
+                    <div class="badge-banner">Límite Compra Neto 🛡️</div>
                 </div>
                 <div class="banner-card bg-ganancia">
                     <div class="label-banner">Ganancia Real Bolsillo</div>
@@ -265,76 +380,4 @@ with tab1:
             </div>
         """, unsafe_allow_html=True)
 
-# =========================================================
-# SOLAPA 2: CALCULAR PVP SUGERIDO (FÁBRICA -> VENTA)
-# =========================================================
-with tab2:
-    st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-    c_dir_1, c_dir_2, c_dir_3, c_dir_4, c_dir_5 = st.columns([1.2, 1.2, 1, 1.5, 1])
-
-    with c_dir_1:
-        costo_fabrica = st.number_input("Costo de Lista Fábrica ($)", value=0.0, step=1000.0, key="c_fab_k")
-    with c_dir_2:
-        margen_deseado = st.slider("% Margen Neto Objetivo", 5, 40, 15, key="m_des_k")
-    with c_dir_3:
-        tipo_me_dir = st.selectbox("Logística ", ["ME2 (Normal/Full)", "ME1 (Pesados)"], key="t_me_dir_k")
-    with c_dir_4:
-        plan_selected_dir = st.selectbox("Plan de Financiamiento ", list(FINANCIACION_PRESETS.keys()), index=2, key="plan_dir_k")
-        if plan_selected_dir == "Personalizado (Manual)":
-            t_finan_val_dir = st.number_input("% Tasa Custom ", value=10.0, step=0.1, key="custom_fin_dir") / 100
-        else:
-            t_finan_val_dir = FINANCIACION_PRESETS[plan_selected_dir] / 100
-    with c_dir_5:
-        peso_cat_dir = st.selectbox("Peso Correo ", list(TABLA_ME1.keys()), key="peso_dir_k")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if costo_fabrica > 0:
-        envio_v_dir = TABLA_ME1[peso_cat_dir] * bonif
-        t_comi_dir = 14 / 100
-        t_marg_dir = margen_deseado / 100
-        
-        # Divisor directo incluyendo las capas extras solicitadas
-        divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva - t_finan_val_dir - t_ganancias_fijo - t_estructura_fijo)
-        
-        if divisor > 0:
-            pvp_sugerido = (costo_fabrica + envio_v_dir) / divisor if "ME2" in tipo_me_dir else (costo_fabrica / divisor) + envio_v_dir
-            
-            p_meli_dir = pvp_sugerido * t_comi_dir
-            p_finan_dir = pvp_sugerido * t_finan_val_dir
-            p_iva_dir = (pvp_sugerido - (pvp_sugerido / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
-            p_iibb_dir = (pvp_sugerido / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
-            p_ganancias_dir = (pvp_sugerido / 1.21 if tipo_iva == "Responsable Inscripto" else pvp_sugerido) * t_ganancias_fijo
-            p_estructura_dir = pvp_sugerido * t_estructura_fijo
-            p_neto_dir = pvp_sugerido * t_marg_dir
-
-            st.markdown(f"""
-                <div class="results-main-container">
-                    <div class="cost-breakdown-list">
-                        <div class="cost-item"><span class="cost-label">Costo de Fábrica Base</span><span class="cost-value">${costo_fabrica:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Comisión por Venta</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Cargo por Financiación</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">IVA Liquidado Real</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Impuesto Ganancias (5%)</span><span class="cost-value">${p_ganancias_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Estructura Depósito (2%)</span><span class="cost-value">${p_estructura_dir:,.2f}</span></div>
-                    </div>
-                    <div class="banner-card bg-pvp">
-                        <div class="label-banner">Costo de Fábrica</div>
-                        <div class="price-main">${costo_fabrica:,.0f}</div>
-                        <div class="badge-banner">Inversión Inicial</div>
-                    </div>
-                    <div class="banner-card bg-costo" style="background-color: #2B3E4F;">
-                        <div class="label-banner">Ganancia Líquida</div>
-                        <div class="price-main">${p_neto_dir:,.2f}</div>
-                        <div class="badge-banner">Margen Real: {margen_deseado}%</div>
-                    </div>
-                    <div class="banner-card bg-ganancia">
-                        <div class="label-banner">PVP Sugerido</div>
-                        <div class="price-main">${pvp_sugerido:,.2f}</div>
-                        <div class="badge-banner">PVP Comercial NQ</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-
-st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.5 | Argentina 2026</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.7 | Argentina 2026</p></div>", unsafe_allow_html=True)
