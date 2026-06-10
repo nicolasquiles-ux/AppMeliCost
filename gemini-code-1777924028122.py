@@ -28,14 +28,14 @@ FINANCIACION_PRESETS = {
 
 CLAVE_CORRECTA = "NQ_PRO_2026"
 
-# Colores corporativos NQ / Nubimetrics Style
+# Colores corporativos NQ
 nq_main_color = "#2B3E4F" 
 nq_green = "#1E8449"       
 nq_gold = "#BFA100"        
 gray_bg = "#F3F5F7"       
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO (Limpio de llaves conflictivas)
+# INYECCIÓN DE CSS SEGURO Y RESPONSIVO (Fix pantallas chicas)
 # =========================================================
 css_template = """
 <style>
@@ -47,7 +47,7 @@ html, body, [class*="css"] {
 }
 .stApp { background-color: #FFFFFF; }
 
-/* --- HEADER NQ REAL-DATA --- */
+/* --- HEADER NQ --- */
 .nq-header-container {
     display: flex; align-items: center; justify-content: space-between;
     padding: 20px 30px; background-color: #FFFFFF;
@@ -63,25 +63,6 @@ html, body, [class*="css"] {
 .nq-title-group { display: flex; flex-direction: column; }
 .nq-title-country { color: #7F8C8D; font-size: 0.85rem; font-weight: 600; }
 .nq-dashboard { color: NQ_MAIN_COLOR; font-weight: 700; font-size: 1.3rem; margin-top: 2px; }
-.nq-title-date { color: #7F8C8D; font-size: 0.8rem; margin-top: 3px; }
-
-/* --- DONUT CHART SYSTEM --- */
-.donut-chart-container { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-.donut-block { 
-    width: 40px; height: 40px; border-radius: 50%; 
-    position: relative; 
-}
-.donut-block::after { 
-    content: ''; width: 24px; height: 24px; border-radius: 50%; 
-    position: absolute; top: 8px; left: 8px; 
-}
-/* Variantes de fondo para dona interna según contenedor */
-.banner-strict .donut-block::after { background: NQ_GREEN; }
-.banner-dark .donut-block::after { background: NQ_MAIN_COLOR; }
-
-.donut-text-group { display: flex; flex-direction: column; font-size: 0.85rem; }
-.donut-main-val { font-weight: 700; }
-.donut-sub-val { opacity: 0.85; font-size: 0.75rem; }
 
 /* --- SECCIONES DE CONTROL --- */
 .tax-bar {
@@ -89,42 +70,49 @@ html, body, [class*="css"] {
     margin-bottom: 25px; border: 1px solid #E5E7EB;
 }
 
-/* --- BANNER DE RESULTADOS NUBIMETRICS REAL-DATA --- */
+/* --- BANNER DE RESULTADOS TRIPLE RESPONSIVO --- */
 .results-main-container {
-    display: flex; border-radius: 16px; overflow: hidden;
-    margin-top: 25px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
-    border: 1px solid #E5E7EB;
+    display: flex;
+    flex-wrap: wrap; /* Evita el colapso horizontal en mobile */
+    gap: 10px;
+    border-radius: 16px; overflow: hidden;
+    margin-top: 25px;
 }
 .cost-breakdown-list {
-    flex: 1.2; background-color: #FFFFFF; padding: 25px;
-    display: flex; flex-direction: column; justify-content: center; gap: 12px;
+    flex: 1 1 300px; background-color: #FFFFFF; padding: 25px;
+    display: flex; flex-direction: column; justify-content: center; gap: 10px;
+    border: 1px solid #E5E7EB; border-radius: 16px;
 }
 .cost-item { 
-    display: flex; justify-content: space-between; font-size: 0.9rem; 
+    display: flex; justify-content: space-between; font-size: 0.95rem; 
     border-bottom: 1px solid #F3F4F6; padding-bottom: 6px;
 }
-.cost-label { color: #6B7280; font-weight: 600; }
+.cost-label { color: #4B5563; font-weight: 600; }
 .cost-value { color: #111827; font-weight: 700; text-align: right; }
 
-.banner-strict {
-    flex: 1.4; background-color: NQ_GREEN; color: white; padding: 30px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
+.banner-card {
+    flex: 1 1 220px; color: white; padding: 25px;
+    display: flex; flex-direction: column; justify-content: center;
+    align-items: center; text-align: center; gap: 6px;
+    border-radius: 16px; min-height: 160px;
 }
-.banner-loose {
-    flex: 1.4; background-color: NQ_GOLD; color: white; padding: 30px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
-}
-.banner-dark {
-    flex: 1.4; background-color: NQ_MAIN_COLOR; color: white; padding: 30px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px;
+.bg-pvp { background-color: NQ_MAIN_COLOR; }
+.bg-costo { background-color: NQ_GOLD; }
+.bg-ganancia { background-color: NQ_GREEN; }
+
+.label-banner { color: rgba(255,255,255,0.9); font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.price-main { color: white; font-size: 2.2rem; font-weight: 800; margin: 2px 0; }
+.badge-banner {
+    background: rgba(255,255,255,0.25); color: white;
+    padding: 5px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; margin-top: 4px;
 }
 
-.label-banner { color: rgba(255,255,255,0.85); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.price-main { color: white; font-size: 2.4rem; font-weight: 800; margin: 2px 0; }
-.badge-banner {
-    background: rgba(255,255,255,0.2); color: white;
-    padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; margin-top: 4px;
-}
+/* Donut Chart inside Banner */
+.donut-chart-container { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.donut-block { width: 35px; height: 35px; border-radius: 50%; position: relative; }
+.donut-block::after { content: ''; width: 21px; height: 21px; border-radius: 50%; position: absolute; top: 7px; left: 7px; background: NQ_GREEN; }
+.donut-text-group { display: flex; flex-direction: column; font-size: 0.8rem; text-align: left; }
+.donut-main-val { font-weight: 700; color: white; }
 </style>
 """.replace("NQ_MAIN_COLOR", nq_main_color).replace("NQ_GREEN", nq_green).replace("NQ_GOLD", nq_gold).replace("GRAY_BG", gray_bg)
 
@@ -148,7 +136,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # =========================================================
-# ENCABEZADO CORPORATIVO (Limpio y Profesional)
+# ENCABEZADO CORPORATIVO
 # =========================================================
 st.markdown("""
     <div class="nq-header-container">
@@ -156,15 +144,14 @@ st.markdown("""
             <span class="nq-logo">NQ</span>
             <div class="nq-title-group">
                 <div class="nq-title-country">NQ Argentina</div>
-                <div class="nq-dashboard">NQ | Sales Intelligence Matrix</div>
-                <div class="nq-title-date">Operador Autenticado | Simulación de Costos Real-Time</div>
+                <div class="nq-dashboard">NQ | Sales Intelligence Matrix v17.5</div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL MATRIZ FISCAL (Afecta a Solapa 2 Directa)
+# CONTROL MATRIZ FISCAL (Ajustado por defecto al 5.0% de IIBB solicitado)
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
@@ -172,7 +159,7 @@ with st.container():
     with c_tax1:
         tipo_iva = st.radio("Configuración Impositiva Real", ["Responsable Inscripto", "Monotributista"], horizontal=True)
     with c_tax2:
-        iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=3.5, step=0.1)
+        iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=5.0, step=0.1)
     with c_tax3:
         repu = st.selectbox("Nivel de Reputación Cuenta", ["Verde (50% desc)", "Amarilla (40% desc)", "Roja (0% desc)"])
     st.markdown("</div>", unsafe_allow_html=True)
@@ -180,6 +167,10 @@ with st.container():
 bonif = 0.5 if "Verde" in repu else 0.6 if "Amarilla" in repu else 1.0
 t_iva = 0.1735 if tipo_iva == "Responsable Inscripto" else 0.0
 t_iibb = iibb_perc / 100
+
+# Variables fijas solicitadas finas
+t_ganancias_fijo = 0.05  # 5% Ganancias
+t_estructura_fijo = 0.02 # 2% Personal/Depósito
 
 # --- TABS DE OPERACIÓN ---
 tab1, tab2 = st.tabs(["📊 ANALIZAR COSTO OBJETIVO (Inverso)", "☝️ CALCULAR PVP SUGERIDO (Directo)"])
@@ -217,12 +208,27 @@ with tab1:
         p_meli_inv = pvp_target * t_comi_inv
         p_finan_inv = pvp_target * t_finan_val_inv
         
-        # Estrategia Nico: Forzamos siempre el IVA de Responsable Inscripto para armar el "colchón impositivo"
+        # Simulación de Colchón Inscripto
         p_iva_inv = (pvp_target - (pvp_target / 1.21))
         p_iibb_inv = (pvp_target / 1.21) * t_iibb
+        
+        # Nuevas deducciones finas solicitadas
+        p_ganancias_inv = (pvp_target / 1.21) * t_ganancias_fijo
+        p_estructura_inv = pvp_target * t_estructura_fijo
         p_margen_inv = pvp_target * (margen_exi / 100)
 
-        costo_max_admitido = pvp_target - (p_meli_inv + p_finan_inv + p_iva_inv + p_iibb_inv + envio_real_inv + fijo_inv + p_margen_inv)
+        costo_max_admitido = pvp_target - (p_meli_inv + p_finan_inv + p_iva_inv + p_iibb_inv + p_ganancias_inv + p_estructura_inv + envio_real_inv + fijo_inv + p_margen_inv)
+
+        # Lógica de impacto Monotributista (Ganancia de bolsillo real)
+        if tipo_iva == "Monotributista":
+            # No liquida IVA (21%) ni Ganancias corporativas de RI (5%)
+            ganancia_real_pesos = p_margen_inv + p_iva_inv + p_ganancias_inv
+            margen_real_porcentaje = (ganancia_real_pesos / pvp_target) * 100
+            badge_ganancia = "Margen + Exenciones IVA/Gan 🎉"
+        else:
+            ganancia_real_pesos = p_margen_inv
+            margen_real_porcentaje = float(margen_exi)
+            badge_ganancia = "Esquema RI Puro"
 
         st.markdown(f"""
             <div class="results-main-container">
@@ -230,24 +236,31 @@ with tab1:
                     <div class="cost-item"><span class="cost-label">Comisión MeLi (14%)</span><span class="cost-value">${p_meli_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Costo Financiero Plan</span><span class="cost-value">${p_finan_inv:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Reserva IVA (Colchón RI 21%)</span><span class="cost-value">${p_iva_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Ingresos Brutos Simulado</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Logística Asignada</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Impuesto Ganancias (5%)</span><span class="cost-value">${p_ganancias_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Estructura Depósito (2%)</span><span class="cost-value">${p_estructura_inv:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Logística Final</span><span class="cost-value">${envio_real_inv:,.2f}</span></div>
                 </div>
-                <div class="banner-strict">
-                    <div class="label-banner">PVP de Referencia</div>
+                <div class="banner-card bg-pvp">
+                    <div class="label-banner">PVP Mercado</div>
                     <div class="price-main">${pvp_target:,.0f}</div>
+                    <div class="badge-banner">Precio Comp.</div>
+                </div>
+                <div class="banner-card bg-costo">
+                    <div class="label-banner">Costo Máx Fábrica</div>
+                    <div class="price-main">${max(0.0, costo_max_admitido):,.2f}</div>
+                    <div class="badge-banner">Límite Seguro 🛡️</div>
+                </div>
+                <div class="banner-card bg-ganancia">
+                    <div class="label-banner">Ganancia Real Bolsillo</div>
+                    <div class="price-main">${ganancia_real_pesos:,.2f}</div>
                     <div class="donut-chart-container">
-                        <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_exi}%, rgba(255,255,255,0.2) 0);"></div>
-                        <div class="donut-text-group" style="text-align: left;">
-                            <span class="donut-main-val" style="color: white;">Objetivo: {margen_exi}%</span>
-                            <span class="donut-sub-val" style="color: rgba(255,255,255,0.85);">${p_margen_inv:,.0f} Neto Protegido</span>
+                        <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_real_porcentaje}%, rgba(255,255,255,0.2) 0);"></div>
+                        <div class="donut-text-group">
+                            <span class="donut-main-val">Rendimiento: {margen_real_porcentaje:.1f}%</span>
+                            <span class="donut-sub-val" style="color: white;">{badge_ganancia}</span>
                         </div>
                     </div>
-                </div>
-                <div class="banner-loose">
-                    <div class="label-banner">Costo Máximo Fábrica</div>
-                    <div class="price-main" style="color: #FFFFFF;">${max(0.0, costo_max_admitido):,.2f}</div>
-                    <div class="badge-banner" style="background-color: rgba(0,0,0,0.2);">Colchón Impositivo Activo 🛡️</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -281,7 +294,8 @@ with tab2:
         t_comi_dir = 14 / 100
         t_marg_dir = margen_deseado / 100
         
-        divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva - t_finan_val_dir)
+        # Divisor directo incluyendo las capas extras solicitadas
+        divisor = (1 - t_comi_dir - t_marg_dir - t_iibb - t_iva - t_finan_val_dir - t_ganancias_fijo - t_estructura_fijo)
         
         if divisor > 0:
             pvp_sugerido = (costo_fabrica + envio_v_dir) / divisor if "ME2" in tipo_me_dir else (costo_fabrica / divisor) + envio_v_dir
@@ -290,6 +304,8 @@ with tab2:
             p_finan_dir = pvp_sugerido * t_finan_val_dir
             p_iva_dir = (pvp_sugerido - (pvp_sugerido / 1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
             p_iibb_dir = (pvp_sugerido / (1.21 if tipo_iva == "Responsable Inscripto" else 1)) * t_iibb
+            p_ganancias_dir = (pvp_sugerido / 1.21 if tipo_iva == "Responsable Inscripto" else pvp_sugerido) * t_ganancias_fijo
+            p_estructura_dir = pvp_sugerido * t_estructura_fijo
             p_neto_dir = pvp_sugerido * t_marg_dir
 
             st.markdown(f"""
@@ -299,25 +315,26 @@ with tab2:
                         <div class="cost-item"><span class="cost-label">Comisión por Venta</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
                         <div class="cost-item"><span class="cost-label">Cargo por Financiación</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
                         <div class="cost-item"><span class="cost-label">IVA Liquidado Real</span><span class="cost-value">${p_iva_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({tipo_iva})</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
+                        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
+                        <div class="cost-item"><span class="cost-label">Impuesto Ganancias (5%)</span><span class="cost-value">${p_ganancias_dir:,.2f}</span></div>
+                        <div class="cost-item"><span class="cost-label">Estructura Depósito (2%)</span><span class="cost-value">${p_estructura_dir:,.2f}</span></div>
                     </div>
-                    <div class="banner-dark">
-                        <div class="label-banner">Ganancia Líquida Real</div>
+                    <div class="banner-card bg-pvp">
+                        <div class="label-banner">Costo de Fábrica</div>
+                        <div class="price-main">${costo_fabrica:,.0f}</div>
+                        <div class="badge-banner">Inversión Inicial</div>
+                    </div>
+                    <div class="banner-card bg-costo" style="background-color: #2B3E4F;">
+                        <div class="label-banner">Ganancia Líquida</div>
                         <div class="price-main">${p_neto_dir:,.2f}</div>
-                        <div class="donut-chart-container">
-                            <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_deseado}%, rgba(255,255,255,0.15) 0);"></div>
-                            <div class="donut-text-group" style="text-align: left;">
-                                <span class="donut-main-val" style="color: #00BFBF;">Retorno: {margen_deseado}%</span>
-                                <span class="donut-sub-val" style="color: rgba(255,255,255,0.85);">Limpios sobre PVP</span>
-                            </div>
-                        </div>
+                        <div class="badge-banner">Margen Real: {margen_deseado}%</div>
                     </div>
-                    <div class="banner-strict">
-                        <div class="label-banner">Precio Venta Recomendado</div>
+                    <div class="banner-card bg-ganancia">
+                        <div class="label-banner">PVP Sugerido</div>
                         <div class="price-main">${pvp_sugerido:,.2f}</div>
-                        <div class="badge-banner" style="background-color: rgba(255,255,255,0.25);">PVP Sugerido NQ</div>
+                        <div class="badge-banner">PVP Comercial NQ</div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.3 | Argentina 2026</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 30px;'><p style='color:#94A3B8; font-size:0.8rem;'>NQ Intelligence System v17.5 | Argentina 2026</p></div>", unsafe_allow_html=True)
