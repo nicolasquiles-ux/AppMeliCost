@@ -1,57 +1,56 @@
 import streamlit as st
 import pandas as pd
 
-# Incrementamos a v20.0 por la integración de la matriz logística y nuevas cuotas
-V_NUMBER = "20.0"
+# Incrementamos a v21.0: Blindaje de Matriz Logística y unificación de textos
+V_NUMBER = "21.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
 
 # =========================================================
-# DATOS MAESTROS VIGENTES 2026 - MATRIZ LOGÍSTICA ME2 HEAVY
+# DATOS MAESTROS VIGENTES 2026 - MATRIZ LOGÍSTICA OFICIAL ME2
 # =========================================================
 CLAVE_CORRECTA = "NQ_PRO_2026"
 CARGO_FIJO_MELI = 3800.0
 UMBRAL_ENVIO_GRATIS = 33000.0
 
-# Matriz real provista con descuentos aplicados según banda de PVP
+# Matriz limpia indexada idéntica a tu documento original
 NEW_SHIPPING_DATA = {
     "under_33k": {
-        "Hasta 0,3 kg": 7868.0, "0,3 a 0,5 kg": 8596.0, "0,5 a 1 kg": 9800.0,
-        "1 a 1,5 kg": 10122.0, "1,5 a 2 kg": 10458.0, "2 a 3 kg": 11550.0,
-        "3 a 4 kg": 12866.0, "4 a 5 kg": 14070.0, "5 a 8 kg": 15512.0,
-        "8 a 10 kg": 16926.0, "10 a 13 kg": 18270.0, "13 a 15 kg": 19684.0,
-        "15 a 20 kg": 23506.0, "20 a 25 kg (Racks/TV muebles)": 28182.0, "25 a 30 kg": 38780.0,
-        "30 a 40 kg": 44268.0, "40 a 50 kg": 46802.0, "50 a 60 kg": 51996.0,
-        "60 a 70 kg": 54068.0, "70 a 80 kg": 62524.0, "80 a 90 kg": 77308.0,
-        "90 a 100 kg": 89152.0, "100 a 120 kg": 97328.0, "120 a 140 kg": 109592.0,
-        "140 a 160 kg": 121870.0, "160 a 180 kg": 134120.0, "Más de 180 kg": 146398.0
+        "Hasta 0,3 kg": 7868.0, "De 0,3 a 0,5 kg": 8596.0, "De 0,5 a 1 kg": 9800.0,
+        "De 1 a 1,5 kg": 10122.0, "De 1,5 a 2 kg": 10458.0, "De 2 a 3 kg": 11550.0,
+        "De 3 a 4 kg": 12866.0, "De 4 a 5 kg": 14070.0, "De 5 a 8 kg": 15512.0,
+        "De 8 a 10 kg": 16926.0, "De 10 a 13 kg": 18270.0, "De 13 a 15 kg": 19684.0,
+        "De 15 a 20 kg": 23506.0, "De 20 a 25 kg": 28182.0, "De 25 a 30 kg": 38780.0,
+        "De 30 a 40 kg": 44268.0, "De 40 a 50 kg": 46802.0, "De 50 a 60 kg": 51996.0,
+        "De 60 a 70 kg": 54068.0, "De 70 a 80 kg": 62524.0, "De 80 a 90 kg": 77308.0,
+        "De 90 a 100 kg": 89152.0, "De 100 a 120 kg": 97328.0, "De 120 a 140 kg": 109592.0,
+        "De 140 a 160 kg": 121870.0, "De 160 a 180 kg": 134120.0, "Más de 180 kg": 146398.0
     },
     "33k_to_50k": {
-        "Hasta 0,3 kg": 5620.0, "0,3 a 0,5 kg": 6140.0, "0,5 a 1 kg": 7000.0,
-        "1 a 1,5 kg": 7230.0, "1,5 a 2 kg": 7470.0, "2 a 3 kg": 8250.0,
-        "3 a 4 kg": 9190.0, "4 a 5 kg": 10050.0, "5 a 8 kg": 11080.0,
-        "8 a 10 kg": 12090.0, "10 a 13 kg": 13050.0, "13 a 15 kg": 14060.0,
-        "15 a 20 kg": 16790.0, "20 a 25 kg (Racks/TV muebles)": 20130.0, "25 a 30 kg": 27700.0,
-        "30 a 40 kg": 31620.0, "40 a 50 kg": 33430.0, "50 a 60 kg": 37140.0,
-        "60 a 70 kg": 38620.0, "70 a 80 kg": 44660.0, "80 a 90 kg": 55220.0,
-        "90 a 100 kg": 63680.0, "100 a 120 kg": 69520.0, "120 a 140 kg": 78280.0,
-        "140 a 160 kg": 87050.0, "160 a 180 kg": 95800.0, "Más de 180 kg": 104570.0
+        "Hasta 0,3 kg": 5620.0, "De 0,3 a 0,5 kg": 6140.0, "De 0,5 a 1 kg": 7000.0,
+        "De 1 a 1,5 kg": 7230.0, "De 1,5 a 2 kg": 7470.0, "De 2 a 3 kg": 8250.0,
+        "De 3 a 4 kg": 9190.0, "De 4 a 5 kg": 10050.0, "De 5 a 8 kg": 11080.0,
+        "De 8 a 10 kg": 12090.0, "De 10 a 13 kg": 13050.0, "De 13 a 15 kg": 14060.0,
+        "De 15 a 20 kg": 16790.0, "De 20 a 25 kg": 20130.0, "De 25 a 30 kg": 27700.0,
+        "De 30 a 40 kg": 31620.0, "De 40 a 50 kg": 33430.0, "De 50 a 60 kg": 37140.0,
+        "De 60 a 70 kg": 38620.0, "De 70 a 80 kg": 44660.0, "De 80 a 90 kg": 55220.0,
+        "De 90 a 100 kg": 63680.0, "De 100 a 120 kg": 69520.0, "De 120 a 140 kg": 78280.0,
+        "De 140 a 160 kg": 87050.0, "De 160 a 180 kg": 95800.0, "Más de 180 kg": 104570.0
     },
     "over_50k": {
-        "Hasta 0,3 kg": 6080.0, "0,3 a 0,5 kg": 6600.0, "0,5 a 1 kg": 7470.0,
-        "1 a 1,5 kg": 7720.0, "1,5 a 2 kg": 7970.0, "2 a 3 kg": 8710.0,
-        "3 a 4 kg": 9860.0, "4 a 5 kg": 10760.0, "5 a 8 kg": 11830.0,
-        "8 a 10 kg": 12840.0, "10 a 13 kg": 13920.0, "13 a 15 kg": 14930.0,
-        "15 a 20 kg": 17830.0, "20 a 25 kg (Racks/TV muebles)": 21420.0, "25 a 30 kg": 29410.0,
-        "30 a 40 kg": 33570.0, "40 a 50 kg": 35490.0, "50 a 60 kg": 39610.0,
-        "60 a 70 kg": 41290.0, "70 a 80 kg": 47850.0, "80 a 90 kg": 59180.0,
-        "90 a 100 kg": 68230.0, "100 a 120 kg": 74490.0, "120 a 140 kg": 83890.0,
-        "140 a 160 kg": 93280.0, "160 a 180 kg": 102660.0, "Más de 180 kg": 112060.0
+        "Hasta 0,3 kg": 6080.0, "De 0,3 a 0,5 kg": 6600.0, "De 0,5 a 1 kg": 7470.0,
+        "De 1 a 1,5 kg": 7720.0, "De 1,5 a 2 kg": 7970.0, "De 2 a 3 kg": 8710.0,
+        "De 3 a 4 kg": 9860.0, "De 4 a 5 kg": 10760.0, "De 5 a 8 kg": 11830.0,
+        "De 8 a 10 kg": 12840.0, "De 10 a 13 kg": 13920.0, "De 13 a 15 kg": 14930.0,
+        "De 15 a 20 kg": 17830.0, "De 20 a 25 kg": 21420.0, "De 25 a 30 kg": 29410.0,
+        "De 30 a 40 kg": 33570.0, "De 40 a 50 kg": 35490.0, "De 50 a 60 kg": 39610.0,
+        "De 60 a 70 kg": 41290.0, "De 70 a 80 kg": 47850.0, "De 80 a 90 kg": 59180.0,
+        "De 90 a 100 kg": 68230.0, "De 100 a 120 kg": 74490.0, "De 120 a 140 kg": 83890.0,
+        "De 140 a 160 kg": 93280.0, "De 160 a 180 kg": 102660.0, "Más de 180 kg": 112060.0
     }
 }
 
-# Integración completa de las dos modalidades comerciales de cuotas
 FINANCIACION_OPCIONES = {
     "1 Pago (0%)": 0.0,
     "Cuotas Interés Bajo (5.00% fijo)": 5.0,
@@ -62,18 +61,17 @@ FINANCIACION_OPCIONES = {
     "Personalizado (Manual)": -1.0
 }
 
-# Estilos de marca NQ
 nq_main_color = "#2B3E4F"
 nq_green = "#1E8449"
 nq_gold = "#BFA100"
 gray_bg = "#F3F5F7"
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO Y RESPONSIVO REFORZADO NQ
+# INYECCIÓN DE CSS SEGURO NQ FORMATO ORIGINAL
 # =========================================================
 css_template = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;600;700;800&display=swap');
 html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FFFFFF; }
 .stApp { background-color: #FFFFFF; }
 .nq-header-container {
@@ -122,7 +120,7 @@ html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; backg
 
 st.markdown(css_template, unsafe_allow_html=True)
 
-# --- PANEL DE ACCESO SISTEMA ---
+# --- ACCESO OPERADOR ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
@@ -139,20 +137,7 @@ if not st.session_state.autenticado:
             else: st.error("Clave incorrecta")
     st.stop()
 
-# --- ENCABEZADO ---
-st.markdown(f"""
-    <div class="nq-header-container">
-        <div class="nq-branding">
-            <span class="nq-logo">NQ</span>
-            <div class="nq-title-group">
-                <div class="nq-title-country">NQ Argentina</div>
-                <div class="nq-dashboard">NQ | Sales Intelligence Matrix v{V_NUMBER}</div>
-            </div>
-        </div>
-    </div>
-""", unsafe_allow_html=True)
-
-# --- MATRIZ IMPOSITIVA GLOBAL ---
+# --- MATRIZ CONFIGURACIÓN GLOBAL ---
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
     c_tax1, c_tax2, c_tax3 = st.columns([2,1,1])
@@ -169,9 +154,9 @@ t_comi = comision_clasica_pct / 100
 t_ganancias_fijo = 0.05
 t_estructura_fijo = 0.02
 
+# Cargamos el listado de pesos estandarizado
 peso_list = list(NEW_SHIPPING_DATA["under_33k"].keys())
 
-# --- NAVEGACIÓN POR SOLAPAS INDEPENDIENTES ---
 tab1, tab2, tab3 = st.tabs([
     "📊 REALIDAD REAL (Compro a X vs Vendo a Y)", 
     "☝️ CALCULAR PVP RECOMENDADO (Fábrica -> Venta)", 
@@ -179,7 +164,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # =========================================================
-# SOLAPA 1: REALIDAD REAL
+# SOLAPA 1: REALIDAD REAL (DETERMINAR RENTA EXACTA)
 # =========================================================
 with tab1:
     st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
@@ -195,7 +180,7 @@ with tab1:
         peso_cat_x = st.selectbox("Peso Correo (Tabla)", peso_list, index=13, key="peso_x")
     with c_x5:
         banda_lookup_x = "under_33k" if y_pvp_venta < UMBRAL_ENVIO_GRATIS else ("33k_to_50k" if y_pvp_venta < 50000 else "over_50k")
-        envio_tabla_x = NEW_SHIPPING_DATA[banda_lookup_x].get(peso_cat_x, 0.0)
+        envio_tabla_x = NEW_SHIPPING_DATA.get(banda_lookup_x, {}).get(peso_cat_x, 0.0)
         flete_real_x = st.number_input("Flete Cobrado Real ($)", value=float(envio_tabla_x), step=500.0, key="flete_x")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -215,7 +200,6 @@ with tab1:
             badge_style, cond_text = ("bg-ganancia" if rendimiento >= 0 else "bg-loss"), "Monotributo (Absorbe IVA)"
             ext_html = f"<div class='cost-item'><span class='cost-label'>IVA Compra No Recuperable</span><span class='cost-value'>${x_costo_fabrica * 0.21:,.2f}</span></div>"
         else:
-            # Corrección: Cargo fijo y envío neto en RI simétrico
             pvp_neto = y_pvp_venta / 1.21
             p_meli_neto = p_meli / 1.21
             p_finan_neto = p_finan / 1.21
@@ -253,7 +237,7 @@ with tab1:
         """, unsafe_allow_html=True)
 
 # =========================================================
-# SOLAPA 2: CALCULAR PVP SUGERIDO MÁXIMO
+# SOLAPA 2: CALCULAR PVP SUGERIDO MÁXIMO (FÁBRICA -> VENTA)
 # =========================================================
 with tab2:
     st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
@@ -272,36 +256,37 @@ with tab2:
     if costo_fabrica_neto > 0:
         t_marg = margen_deseado / 100
         divisor_bruto = (1 - t_comi - t_marg - (t_iibb / 1.21) - t_finan_dir - t_estructura_fijo)
-        # Corrección del divisor: Remoción de la sobredimensión (*1.21) en t_marg
         divisor_neto = (1 - t_comi - t_marg - t_iibb - t_ganancias_fijo - t_finan_dir - (t_estructura_fijo * 1.21))
 
         final_pvp = 0.0
         applied_flete = 0.0
         txt_cond = ""
 
+        # BLINDAJE DE BÚSQUEDA ITERATIVA (Evita KeyErrors usando .get secuencial)
+        bandas_ordenadas = ["under_33k", "33k_to_50k", "over_50k"]
+
         if tipo_iva == "Monotributista":
             costo_compra_bruto = costo_fabrica_neto * 1.21
-            # Iteración sobre matriz logística real
-            for band, flete in [("under_33k", NEW_SHIPPING_DATA["under_33k"].get(peso_cat_dir, 0.0)),
-                                 ("33k_to_50k", NEW_SHIPPING_DATA["33k_to_50k"].get(peso_cat_dir, 0.0)),
-                                 ("over_50k", NEW_SHIPPING_DATA["over_50k"].get(peso_cat_dir, 0.0))]:
+            for band in bandas_ordenadas:
+                flete_test = NEW_SHIPPING_DATA.get(band, {}).get(peso_cat_dir, 0.0)
                 fijo_test = CARGO_FIJO_MELI if band == "under_33k" else 0.0
-                flete_test = flete if band != "under_33k" else 0.0
-                pvp_calc = (costo_compra_bruto + flete_test + fijo_test) / divisor_bruto if divisor_bruto > 0 else 0
+                flete_test_aplicado = flete_test if band != "under_33k" else 0.0
+                
+                pvp_calc = (costo_compra_bruto + flete_test_aplicado + fijo_test) / divisor_bruto if divisor_bruto > 0 else 0
                 if (band == "under_33k" and pvp_calc < UMBRAL_ENVIO_GRATIS) or \
                    (band == "33k_to_50k" and UMBRAL_ENVIO_GRATIS <= pvp_calc < 50000) or \
                    (band == "over_50k" and pvp_calc >= 50000):
                     final_pvp = pvp_calc
-                    applied_flete = flete_test
+                    applied_flete = flete_test_aplicado
                     txt_cond = f"Convergencia {band}"
                     break
         else:
-            # Responsable Inscripto (Cálculo Neto Sincronizado)
-            for band, flete in [("under_33k", NEW_SHIPPING_DATA["under_33k"].get(peso_cat_dir, 0.0)),
-                                 ("33k_to_50k", NEW_SHIPPING_DATA["33k_to_50k"].get(peso_cat_dir, 0.0)),
-                                 ("over_50k", NEW_SHIPPING_DATA["over_50k"].get(peso_cat_dir, 0.0))]:
+            # Responsable Inscripto (Cálculo Seguro)
+            for band in bandas_ordenadas:
                 fijo_neto_test = (CARGO_FIJO_MELI / 1.21) if band == "under_33k" else 0.0
-                flete_neto_test = (flete / 1.21) if band != "under_33k" else 0.0
+                flete_test = NEW_SHIPPING_DATA.get(band, {}).get(peso_cat_dir, 0.0)
+                flete_neto_test = (flete_test / 1.21) if band != "under_33k" else 0.0
+                
                 pvp_neto_calc = (costo_fabrica_neto + flete_neto_test + fijo_neto_test) / divisor_neto if divisor_neto > 0 else 0
                 pvp_calc = pvp_neto_calc * 1.21
                 if (band == "under_33k" and pvp_calc < UMBRAL_ENVIO_GRATIS) or \
@@ -312,35 +297,44 @@ with tab2:
                     txt_cond = f"Convergencia {band}"
                     break
 
-        if final_pvp > 0:
-            p_meli_dir = final_pvp * t_comi
-            p_finan_dir = final_pvp * t_finan_dir
-            p_iibb_dir = (final_pvp / 1.21) * t_iibb
-            p_estructura_dir = final_pvp * t_estructura_fijo
-            fijo_real_dir = CARGO_FIJO_MELI if final_pvp < UMBRAL_ENVIO_GRATIS else 0.0
-            ganancia_real_dir = (final_pvp / 1.21) * t_marg if tipo_iva == "Responsable Inscripto" else final_pvp * t_marg
+        # Fallback de seguridad si hay brechas de redondeo
+        if final_pvp == 0.0:
+            flete_test = NEW_SHIPPING_DATA.get("over_50k", {}).get(peso_cat_dir, 0.0)
+            if tipo_iva == "Monotributista":
+                final_pvp = (costo_compra_bruto + flete_test) / divisor_bruto if divisor_bruto > 0 else 0
+            else:
+                final_pvp = ((costo_fabrica_neto + (flete_test / 1.21)) / divisor_neto) * 1.21 if divisor_neto > 0 else 0
+            applied_flete = flete_test
+            txt_cond = "Estimación Escala >50k"
 
-            st.markdown(f"""
-                <div class="results-main-container">
-                    <div class="cost-breakdown-list">
-                        <div class="cost-item"><span class="cost-label">Comisión Requerida ({comision_clasica_pct}%)</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Costo de Cuotas Activado</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
-                        <div class="cost-item" style="background-color:#EFF6FF;"><span class="cost-label" style="color:#1E40AF; font-weight:700;">Flete Mercado Envíos Determinado🚚</span><span class="cost-value" style="color:#1E40AF; font-weight:700;">${applied_flete:,.2f}</span></div>
-                        {f"<div class='cost-item'><span class='cost-label'>Cargo Fijo Asignado</span><span class='cost-value'>${fijo_real_dir:,.2f}</span></div>" if fijo_real_dir > 0 else ""}
-                        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
-                        <div class="cost-item"><span class="cost-label">Estructura Interna (2%)</span><span class="cost-value">${p_estructura_dir:,.2f}</span></div>
-                    </div>
-                    <div class="banner-card bg-pvp"><div class="label-banner">COSTO BASE PROVEEDOR</div><div class="price-main">${costo_fabrica_neto:,.0f}</div><div class="badge-banner">Sin IVA</div></div>
-                    <div class="banner-card bg-costo"><div class="label-banner">PVP RECOMENDADO</div><div class="price-main">${final_pvp:,.2f}</div><div class="badge-banner">{txt_cond} 🛡️</div></div>
-                    <div class="banner-card bg-ganancia">
-                        <div class="label-banner">MARGINALIDAD PREVISTA</div><div class="price-main">${ganancia_real_dir:,.2f}</div>
-                        <div class="donut-chart-container">
-                            <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_deseado}%, rgba(255,255,255,0.2) 0);"></div>
-                            <div class="donut-text-group"><span class="donut-main-val">Objetivo: {margen_deseado}%</span><span style="color:white; font-size:11px;">Estructura limpia</span></div>
-                        </div>
+        p_meli_dir = final_pvp * t_comi
+        p_finan_dir = final_pvp * t_finan_dir
+        p_iibb_dir = (final_pvp / 1.21) * t_iibb
+        p_estructura_dir = final_pvp * t_estructura_fijo
+        fijo_real_dir = CARGO_FIJO_MELI if final_pvp < UMBRAL_ENVIO_GRATIS else 0.0
+        ganancia_real_dir = (final_pvp / 1.21) * t_marg if tipo_iva == "Responsable Inscripto" else final_pvp * t_marg
+
+        st.markdown(f"""
+            <div class="results-main-container">
+                <div class="cost-breakdown-list">
+                    <div class="cost-item"><span class="cost-label">Comisión Requerida ({comision_clasica_pct}%)</span><span class="cost-value">${p_meli_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Costo de Cuotas Activado</span><span class="cost-value">${p_finan_dir:,.2f}</span></div>
+                    <div class="cost-item" style="background-color:#EFF6FF;"><span class="cost-label" style="color:#1E40AF; font-weight:700;">Flete Mercado Envíos Determinado🚚</span><span class="cost-value" style="color:#1E40AF; font-weight:700;">${applied_flete:,.2f}</span></div>
+                    {f"<div class='cost-item'><span class='cost-label'>Cargo Fijo Asignado</span><span class='cost-value'>${fijo_real_dir:,.2f}</span></div>" if fijo_real_dir > 0 else ""}
+                    <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb_dir:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Estructura Interna (2%)</span><span class="cost-value">${p_estructura_dir:,.2f}</span></div>
+                </div>
+                <div class="banner-card bg-pvp"><div class="label-banner">COSTO BASE PROVEEDOR</div><div class="price-main">${costo_fabrica_neto:,.0f}</div><div class="badge-banner">Sin IVA</div></div>
+                <div class="banner-card bg-costo"><div class="label-banner">PVP RECOMENDADO</div><div class="price-main">${final_pvp:,.2f}</div><div class="badge-banner">{txt_cond} 🛡️</div></div>
+                <div class="banner-card bg-ganancia">
+                    <div class="label-banner">MARGINALIDAD PREVISTA</div><div class="price-main">${ganancia_real_dir:,.2f}</div>
+                    <div class="donut-chart-container">
+                        <div class="donut-block" style="background: conic-gradient(#00BFBF {margen_deseado}%, rgba(255,255,255,0.2) 0);"></div>
+                        <div class="donut-text-group"><span class="donut-main-val">Objetivo: {margen_deseado}%</span><span style="color:white; font-size:11px;">Estructura limpia</span></div>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+            </div>
+        """, unsafe_allow_html=True)
 
 # =========================================================
 # SOLAPA 3: ANÁLISIS COSTO OBJETIVO (PVP -> FÁBRICA)
@@ -361,7 +355,7 @@ with tab3:
 
     if pvp_target > 0:
         banda_lookup_inv = "under_33k" if pvp_target < UMBRAL_ENVIO_GRATIS else ("33k_to_50k" if pvp_target < 50000 else "over_50k")
-        envio_real_inv = NEW_SHIPPING_DATA[banda_lookup_inv].get(peso_cat_inv, 0.0) if pvp_target >= UMBRAL_ENVIO_GRATIS else 0.0
+        envio_real_inv = NEW_SHIPPING_DATA.get(banda_lookup_inv, {}).get(peso_cat_inv, 0.0) if pvp_target >= UMBRAL_ENVIO_GRATIS else 0.0
         fijo_inv = CARGO_FIJO_MELI if pvp_target < UMBRAL_ENVIO_GRATIS else 0.0
 
         p_meli_inv = pvp_target * t_comi
@@ -392,7 +386,7 @@ with tab3:
                     <div class="cost-item"><span class="cost-label">Margen Objetivo Reservado ({margen_exi}%)</span><span class="cost-value">${p_margen:,.2f}</span></div>
                 </div>
                 <div class="banner-card bg-pvp"><div class="label-banner">PVP BLANCO DE COMPETENCIA</div><div class="price-main">${pvp_target:,.0f}</div><div class="badge-banner">Precio en góndola</div></div>
-                <div class="banner-card bg-costo"><div class="label-banner">COSTO LÍMITE FÁBRICA</div><div class="price-main">${max(0.0, costo_max_admitido_neto):,.2f}</div><div class="badge-banner">Máximo Neto a pagar 🛡nt</div></div>
+                <div class="banner-card bg-costo"><div class="label-banner">COSTO LÍMITE FÁBRICA</div><div class="price-main">${max(0.0, costo_max_admitido_neto):,.2f}</div><div class="badge-banner">Máximo Neto a pagar 🛡️</div></div>
                 <div class="banner-card bg-ganancia">
                     <div class="label-banner">GANANCIA OBJETIVO MÍNIMA</div><div class="price-main">${p_margen:,.2f}</div>
                     <div class="badge-banner">{sub_lbl}</div>
