@@ -6,7 +6,6 @@ st.set_page_config(page_title="NQ | Sales Intelligence Dashboard", layout="wide"
 # =========================================================
 # DATOS MAESTROS VIGENTES 2026 (NQ Database - Sincerada para Pesados)
 # =========================================================
-# Nueva matriz logística integrada de 3 columnas según el rango del PVP publicado
 TABLA_ME2_2026 = {
     "Hasta 0,3 kg": [7868.0, 5620.0, 6080.0],
     "De 0,3 a 0,5 kg": [8596.0, 6140.0, 6600.0],
@@ -37,7 +36,6 @@ TABLA_ME2_2026 = {
     "Más de 180 kg": [146398.0, 104570.0, 112060.0]
 }
 
-# Configuración real de opciones de financiación provistas por el usuario
 FINANCIACION_PRESETS = {
     "1 Pago (0%)": 0.0,
     "Cuotas Interés Bajo (3 a 12 C. - 5.00%)": 5.0,
@@ -198,13 +196,12 @@ tab1, tab2, tab3 = st.tabs([
     "🎯 ANALIZAR COSTO OBJETIVO (Venta -> Fábrica)"
 ])
 
-# Obtener lista ordenada de categorías de peso para los selectores
 peso_list = list(TABLA_ME2_2026.keys())
 
-# Función helper para extraer el costo dinámico de flete según el PVP asignado
+# Función para extraer flete dinámico basado en el precio real de venta
 def buscar_flete_dinamico(pvp_evaluado, peso_categoria):
     if pvp_evaluado < UMBRAL_ENVIO_GRATIS:
-        col_idx = 0  # Productos nuevos de menos de $33.000 (30% desc)
+        col_idx = 0  # Menos de $33.000 (30% desc)
     elif pvp_evaluado < 50000:
         col_idx = 1  # De $33.000 a $49.999 (50% desc)
     else:
@@ -216,7 +213,7 @@ def buscar_flete_dinamico(pvp_evaluado, peso_categoria):
 # =========================================================
 with tab1:
     st.markdown(f"<div style='background-color: {gray_bg}; padding: 25px; border-radius: 12px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-    c_x1, c_x2, c_x3, c_x4, c_x5 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5])
+    c_x1, c_x2, c_x3, c_x4 = st.columns([1.5, 1.5, 1.5, 1.5])
     
     with c_x1:
         x_costo_fabrica = st.number_input("Costo Fábrica SIN IVA (X) ($)", value=54200.0, step=1000.0, key="x_cost_k")
@@ -226,15 +223,12 @@ with tab1:
         plan_selected_x = st.selectbox("Plan Financiamiento", list(FINANCIACION_PRESETS.keys()), index=3, key="plan_x_k")
         t_finan_val_x = st.number_input("% Tasa Custom", value=10.0, step=0.1, key="custom_fin_x") / 100 if plan_selected_x == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_x] / 100
     with c_x4:
-        peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_x_k")
-    with c_x5:
-        flete_sugerido_x = buscar_flete_dinamico(y_pvp_venta, peso_cat_x) if y_pvp_venta >= UMBRAL_ENVIO_GRATIS else 0.0
-        flete_real_x = st.number_input("Flete Real Forzado ($)", value=float(flete_sugerido_x), step=500.0, key="flete_real_x_k")
+        peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=3, key="peso_x_k")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
     if x_costo_fabrica > 0 and y_pvp_venta > 0:
-        envio_aplicado_x = flete_real_x if y_pvp_venta >= UMBRAL_ENVIO_GRATIS else 0.0
+        envio_aplicado_x = buscar_flete_dinamico(y_pvp_venta, peso_cat_x) if y_pvp_venta >= UMBRAL_ENVIO_GRATIS else 0.0
         fijo_aplicado_x = CARGO_FIJO_MELI if y_pvp_venta < UMBRAL_ENVIO_GRATIS else 0.0
         
         p_meli = y_pvp_venta * t_comi_base
@@ -268,7 +262,7 @@ with tab1:
                 <div class="cost-breakdown-list">
                     <div class="cost-item"><span class="cost-label">Costo Fábrica Ingresado (Neto)</span><span class="cost-value">${x_costo_fabrica:,.2f}</span></div>
                     <div class="cost-item"><span class="cost-label">Comisión MeLi Seleccionada ({comision_vender_input}%)</span><span class="cost-value">${p_meli:,.2f}</span></div>
-                    <div class="cost-item"><span class="cost-label">Cargo Financiero Plan ({plan_selected_x.split('(')[0].strip()})</span><span class="cost-value">${p_finan:,.2f}</span></div>
+                    <div class="cost-item"><span class="cost-label">Cargo Financiero Plan</span><span class="cost-value">${p_finan:,.2f}</span></div>
                     <div class="cost-item" style="background-color: #EFF6FF; padding: 4px; border-radius:6px;"><span class="cost-label" style="color: #1E40AF; font-weight:700;">Costo Flete Mercado Envíos 🚚</span><span class="cost-value" style="color: #1E40AF; font-weight:700;">${envio_aplicado_x:,.2f}</span></div>
                     {f"<div class='cost-item'><span class='cost-label'>Costo Fijo Unidad (<${UMBRAL_ENVIO_GRATIS:,.0f})</span><span class='cost-value'>${fijo_aplicado_x:,.2f}</span></div>" if fijo_aplicado_x > 0 else ""}
                     <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc}%)</span><span class="cost-value">${p_iibb:,.2f}</span></div>
@@ -314,13 +308,14 @@ with tab2:
         plan_selected_dir = st.selectbox("Plan Financiamiento Proyectado", list(FINANCIACION_PRESETS.keys()), index=3, key="plan_dir_k")
         t_finan_val_dir = st.number_input("% Tasa Custom Proy.", value=10.0, step=0.1, key="custom_fin_dir") / 100 if plan_selected_dir == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_dir] / 100
     with c_dir_4:
-        peso_cat_dir = st.selectbox("Peso Correo Tabla Proy.", peso_list, index=13, key="peso_dir_k")
+        peso_cat_dir = st.selectbox("Peso Correo Tabla Proy.", peso_list, index=3, key="peso_dir_k")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
     if costo_fabrica_neto > 0:
         t_marg_dir = margen_deseado / 100
         
+        # Divisores porcentuales fijos
         divisor_bruto = (1 - t_comi_base - t_marg_dir - (t_iibb/1.21) - t_finan_val_dir - t_estructura_fijo)
         divisor_neto = (1 - t_comi_base - t_marg_dir - t_iibb - t_ganancias_fijo - t_finan_val_dir - (t_estructura_fijo * 1.21))
 
@@ -328,15 +323,17 @@ with tab2:
         flete_final_dir = 0.0
         txt_condition_dir = ""
 
-        # Recorremos secuencialmente las columnas de fletes (under_33k=idx 0, 33k_to_50k=idx 1, over_50k=idx 2)
-        if tipo_iva == "Monotributista":
-            costo_base_compra = costo_fabrica_neto * 1.21
-            for idx, band_lbl in [(0, "Escala <33k"), (1, "Escala 33k-50k"), (2, "Escala >50k")]:
-                flete_test = TABLA_ME2_2026.get(peso_cat_dir, [0.0, 0.0, 0.0])[idx]
+        # Evaluamos secuencialmente los 3 tramos de flete posibles
+        for idx, band_lbl in [(0, "Escala <33k"), (1, "Escala 33k-50k"), (2, "Escala >50k")]:
+            flete_test = TABLA_ME2_2026.get(peso_cat_dir, [0.0, 0.0, 0.0])[idx]
+            
+            if tipo_iva == "Monotributista":
+                costo_base_compra = costo_fabrica_neto * 1.21
                 fijo_test = CARGO_FIJO_MELI if idx == 0 else 0.0
                 flete_test_aplicado = flete_test if idx != 0 else 0.0
                 
                 pvp_calc = (costo_base_compra + flete_test_aplicado + fijo_test) / divisor_bruto if divisor_bruto > 0 else 0.0
+                # Validamos si el resultado cae dentro del rango de la columna evaluada
                 if (idx == 0 and pvp_calc < UMBRAL_ENVIO_GRATIS) or \
                    (idx == 1 and UMBRAL_ENVIO_GRATIS <= pvp_calc < 50000) or \
                    (idx == 2 and pvp_calc >= 50000):
@@ -344,10 +341,7 @@ with tab2:
                     flete_final_dir = flete_test_aplicado
                     txt_condition_dir = band_lbl
                     break
-        else:
-            # Responsable Inscripto (Bucle Neto Puro Integrado)
-            for idx, band_lbl in [(0, "Escala <33k"), (1, "Escala 33k-50k"), (2, "Escala >50k")]:
-                flete_test = TABLA_ME2_2026.get(peso_cat_dir, [0.0, 0.0, 0.0])[idx]
+            else:
                 fijo_neto_test = (CARGO_FIJO_MELI / 1.21) if idx == 0 else 0.0
                 flete_neto_test = (flete_test / 1.21) if idx != 0 else 0.0
                 
@@ -357,17 +351,17 @@ with tab2:
                    (idx == 1 and UMBRAL_ENVIO_GRATIS <= pvp_calc < 50000) or \
                    (idx == 2 and pvp_calc >= 50000):
                     pvp_sugerido = pvp_calc
-                    flete_final_dir = flete_neto_test * 1.21 if idx != 0 else 0.0
+                    flete_final_dir = flete_test if idx != 0 else 0.0
                     txt_condition_dir = band_lbl
                     break
 
-        # Fallback de seguridad en caso de discontinuidad matemática
+        # Si por asimetría matemática no cae exactamente en ninguna, forzamos el escenario de envío completo (>50k)
         if pvp_sugerido == 0.0:
             flete_fallback = TABLA_ME2_2026.get(peso_cat_dir, [0.0, 0.0, 0.0])[2]
             if tipo_iva == "Monotributista":
-                pvp_sugerido = (costo_base_compra + flete_fallback) / divisor_bruto if divisor_bruto > 0 else 0.0
+                pvp_sugerido = (costo_base_compra + flete_fallback) / divisor_bruto
             else:
-                pvp_sugerido = ((costo_fabrica_neto + (flete_fallback / 1.21)) / divisor_neto) * 1.21 if divisor_neto > 0 else 0.0
+                pvp_sugerido = ((costo_fabrica_neto + (flete_fallback / 1.21)) / divisor_neto) * 1.21
             flete_final_dir = flete_fallback
             txt_condition_dir = "Escala >50k (Forzado)"
 
@@ -428,7 +422,7 @@ with tab3:
         plan_selected_inv = st.selectbox("Plan de Financiamiento Competencia", list(FINANCIACION_PRESETS.keys()), index=3, key="plan_inv_k")
         t_finan_val_inv = st.number_input("% Tasa Custom Comp.", value=10.0, step=0.1, key="custom_fin_inv") / 100 if plan_selected_inv == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_inv] / 100
     with c_inv_4:
-        peso_cat_inv = st.selectbox("Peso Correo Tabla Comp.", peso_list, index=13, key="peso_inv_k")
+        peso_cat_inv = st.selectbox("Peso Correo Tabla Comp.", peso_list, index=3, key="peso_inv_k")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
