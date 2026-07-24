@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Versión del sistema
-V_NUMBER = "20.0"
+V_NUMBER = "21.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -39,12 +39,15 @@ TABLA_ME2_2026 = {
     "Más de 180 kg": [146398.0, 104570.0, 112060.0]
 }
 
+# Tasas actualizadas con la información enviada
 FINANCIACION_PRESETS = {
     "Clásica / 1 Pago (0%)": 0.0,
-    "3 Cuotas Premium (8.40%)": 8.40,
-    "6 Cuotas Premium (12.30%)": 12.30,
-    "9 Cuotas Premium (15.70%)": 15.70,
-    "12 Cuotas Premium (19.20%)": 19.20,
+    "2 Cuotas Premium (9.49%)": 9.49,
+    "3 Cuotas Premium (12.19%)": 12.19,
+    "6 Cuotas Premium (19.09%)": 19.09,
+    "9 Cuotas Premium (27.29%)": 27.29,
+    "12 Cuotas Premium (32.29%)": 32.29,
+    "18 Cuotas Premium (41.59%)": 41.59,
     "Personalizado (Manual)": -1.0
 }
 
@@ -197,7 +200,6 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
     pvp_neto = pvp / (1 + t_iva_prod)
     costo_total = pvp - ganancia_neta
     
-    # Fila de IVA si es Responsable Inscripto
     iva_row_html = ""
     if tipo_iva == "Responsable Inscripto":
         iva_row_html = f"""
@@ -207,7 +209,6 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
         </div>
         """
 
-    # Estilos dinámicos para la ganancia
     color_bg = '#ECFDF5' if ganancia_neta >= 0 else '#FEF2F2'
     color_txt = '#065F46' if ganancia_neta >= 0 else '#991B1B'
 
@@ -234,9 +235,8 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
         </div>
     </div>
     """
-    
-    # Limpiamos los saltos de línea para evitar que Streamlit lo interprete como código plano
     return "".join([line.strip() for line in html.splitlines()])
+
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs([
     "📊 REALIDAD REAL (Compro a X y Vendo a Y)", 
@@ -259,7 +259,6 @@ with tab1:
         peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_x_k")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Cálculos de Solapa 1
         flete_bruto = buscar_flete_dinamico(y_pvp_venta, peso_cat_x)
         fijo_bruto = CARGO_FIJO_MELI if y_pvp_venta < UMBRAL_ENVIO_GRATIS else 0.0
         
@@ -274,7 +273,6 @@ with tab1:
             ganancia_real = y_pvp_venta - (costo_fabrica_inc + comi_bruta + flete_bruto + fijo_bruto + iibb_m + est_m)
             iva_pagar_m = 0.0
         else:
-            # Modelo Exacto del Archivo Excel (Responsable Inscripto)
             iva_venta = y_pvp_venta - pvp_neto
             iva_compra = x_costo_fabrica * t_iva_prod
             iva_comi = comi_bruta - (comi_bruta / 1.21)
@@ -330,7 +328,6 @@ with tab2:
                     denom = 1 - (t_comi_base + t_finan_tab2 + (t_iibb / (1 + t_iva_prod)) + t_estructura_fijo + margen_deseado_tab2)
                     if denom > 0: pvp_calc = (costo_inc + flete_bruto2 + fijo_bruto2) / denom
                 else:
-                    # Derivación despejada RI según planilla Excel
                     factor_neto = 1 / (1 + t_iva_prod)
                     comi_f = (t_comi_base + t_finan_tab2)
                     denom = factor_neto - comi_f - (t_iibb * factor_neto) - (t_ganancias_fijo * factor_neto) - t_estructura_fijo - margen_deseado_tab2
@@ -396,7 +393,6 @@ with tab3:
                 costo_max_fabrica = costo_max_inc / (1 + t_iva_prod)
                 iva_pagar3 = 0.0
             else:
-                # Inversión matemática exacta basada en planilla de Responsable Inscripto
                 costo_max_fabrica = pvp_neto3 - comi_bruta3 - flete_bruto3 - fijo_bruto3 - iibb_m3 - gan_m3 - est_m3 - ganancia_neta3
                 iva_v3 = pvp_target - pvp_neto3
                 iva_c3 = costo_max_fabrica * t_iva_prod
