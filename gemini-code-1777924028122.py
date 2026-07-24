@@ -195,10 +195,22 @@ def buscar_flete_dinamico(pvp_evaluado, peso_categoria):
 
 def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, iva_pagar_m, ganancia_neta, margen_pct):
     pvp_neto = pvp / (1 + t_iva_prod)
-    iva_venta = pvp - pvp_neto
-    iva_compra = costo_fabrica_neto * t_iva_prod
     costo_total = pvp - ganancia_neta
     
+    # Fila de IVA si es Responsable Inscripto
+    iva_row_html = ""
+    if tipo_iva == "Responsable Inscripto":
+        iva_row_html = f"""
+        <div class="cost-item" style="background-color: #FEF3C7; padding: 4px 6px; border-radius: 4px;">
+            <span class="cost-label" style="color: #92400E;">IVA Neto a Pagar (Posición)</span>
+            <span class="cost-value" style="color: #92400E;">${iva_pagar_m:,.2f}</span>
+        </div>
+        """
+
+    # Estilos dinámicos para la ganancia
+    color_bg = '#ECFDF5' if ganancia_neta >= 0 else '#FEF2F2'
+    color_txt = '#065F46' if ganancia_neta >= 0 else '#991B1B'
+
     html = f"""
     <div class="cost-breakdown-card">
         <div class="cost-card-header">📋 Desglose Analítico de Costos</div>
@@ -211,27 +223,20 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
         <div class="cost-item"><span class="cost-label">IIBB ({iibb_perc:.1f}%)</span><span class="cost-value">${iibb_m:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Imp. a las Ganancias (5%)</span><span class="cost-value">${gan_m:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Costo Estructura (2%)</span><span class="cost-value">${est_m:,.2f}</span></div>
-    """
-    if tipo_iva == "Responsable Inscripto":
-        html += f"""
-        <div class="cost-item" style="background-color: #FEF3C7; padding: 4px 6px; border-radius: 4px;">
-            <span class="cost-label" style="color: #92400E;">IVA Neto a Pagar (Posición)</span>
-            <span class="cost-value" style="color: #92400E;">${iva_pagar_m:,.2f}</span>
-        </div>
-        """
-    html += f"""
+        {iva_row_html}
         <div class="cost-item" style="margin-top: 10px; border-top: 2px solid #E5E7EB; padding-top: 8px;">
             <span class="cost-label" style="font-weight: 800; color: #111827;">COSTO TOTAL OPERATIVO</span>
             <span class="cost-value" style="font-weight: 800; color: #111827;">${costo_total:,.2f}</span>
         </div>
-        <div class="cost-item" style="background-color: {'#ECFDF5' if ganancia_neta >= 0 else '#FEF2F2'}; padding: 6px; border-radius: 6px; margin-top: 6px;">
-            <span class="cost-label" style="font-weight: 800; color: {'#065F46' if ganancia_neta >= 0 else '#991B1B'};">GANANCIA NETO FINAL</span>
-            <span class="cost-value" style="font-weight: 800; color: {'#065F46' if ganancia_neta >= 0 else '#991B1B'};">${ganancia_neta:,.2f} ({margen_pct:.2f}%)</span>
+        <div class="cost-item" style="background-color: {color_bg}; padding: 6px; border-radius: 6px; margin-top: 6px;">
+            <span class="cost-label" style="font-weight: 800; color: {color_txt};">GANANCIA NETO FINAL</span>
+            <span class="cost-value" style="font-weight: 800; color: {color_txt};">${ganancia_neta:,.2f} ({margen_pct:.2f}%)</span>
         </div>
     </div>
     """
-    return html
-
+    
+    # Limpiamos los saltos de línea para evitar que Streamlit lo interprete como código plano
+    return "".join([line.strip() for line in html.splitlines()])
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs([
     "📊 REALIDAD REAL (Compro a X y Vendo a Y)", 
