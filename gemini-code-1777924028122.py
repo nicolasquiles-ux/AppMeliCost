@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Versión del sistema
-V_NUMBER = "24.0"
+V_NUMBER = "25.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -175,7 +175,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL FISCAL Y ESTRUCTURA GENERAL
+# CONTROL FISCAL Y CONFIGURACIÓN GENERAL
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
@@ -201,16 +201,28 @@ factor_reputacion = REPUTACION_DESCUENTOS[reputacion_sel]
 
 peso_list = list(TABLA_ME2_BASE.keys())
 
-def buscar_flete_dinamico(pvp_evaluado, peso_categoria):
-    if pvp_evaluado < UMBRAL_ENVIO_GRATIS:
-        return 0.0
-    elif pvp_evaluado < 50000:
-        base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[1]
+def calcular_flete_segun_modalidad(pvp_evaluado, peso_categoria, modalidad, costo_moto, reembolso_flex, cargo_full_unit, cargo_full_storage):
+    if modalidad == "Mercado Envíos Flex":
+        # Saldo directo de Flex (Si el costo real supera al reembolso, es un mayor gasto)
+        return max(0.0, costo_moto - reembolso_flex)
+    elif modalidad == "Mercado Envíos Full":
+        # Flete correo base + cargos de procesamiento e ingreso a depósito
+        flete_base = 0.0
+        if pvp_evaluado >= UMBRAL_ENVIO_GRATIS:
+            base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[2] if pvp_evaluado >= 50000 else TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[1]
+            flete_base = base * factor_reputacion
+        return flete_base + cargo_full_unit + cargo_full_storage
     else:
-        base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[2]
-    return base * factor_reputacion
+        # ME2 Tradicional
+        if pvp_evaluado < UMBRAL_ENVIO_GRATIS:
+            return 0.0
+        elif pvp_evaluado < 50000:
+            base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[1]
+        else:
+            base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[2]
+        return base * factor_reputacion
 
-def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_neta, margen_pct):
+def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_neta, margen_pct, modalidad_log):
     pvp_neto = pvp / (1 + t_iva_prod)
     costo_total = pvp - ganancia_neta
     
@@ -239,9 +251,9 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
         <span class="section-header-tag">2. Costo de Producto</span>
         <div class="cost-item"><span class="cost-label-bold">Costo Fábrica (Sin IVA)</span><span class="cost-value">${costo_fabrica_neto:,.2f}</span></div>
         
-        <span class="section-header-tag">3. Gastos Mercado Libre</span>
+        <span class="section-header-tag">3. Gastos Mercado Libre ({modalidad_log})</span>
         <div class="cost-item"><span class="cost-label">Comisión ML + Financiación</span><span class="cost-value">${comi_m_bruta:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Flete Mercado Envíos</span><span class="cost-value">${flete_bruto:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Flete Logística ({modalidad_log})</span><span class="cost-value">${flete_bruto:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Cargo Fijo por Unidad</span><span class="cost-value">${cargo_fijo_bruto:,.2f}</span></div>
         
         <span class="section-header-tag">4. Carga Impositiva & Operativa</span>
@@ -265,7 +277,6 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
 
 def render_indicadores_nativos(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta, pvp):
     st.markdown("<h4 style='color:#2B3E4F; font-size:1.05rem; font-weight:800; margin-top:15px;'>📊 Composición Porcentual sobre el PVP</h4>", unsafe_allow_html=True)
-    
     if pvp <= 0: return
 
     pct_fabrica = (costo_fabrica / pvp) * 100
@@ -277,7 +288,7 @@ def render_indicadores_nativos(costo_fabrica, comi_bruta, flete_bruto, cargo_fij
     st.write(f"🏭 **Costo de Producto (Fábrica):** {pct_fabrica:.1f}%")
     st.progress(min(max(pct_fabrica / 100, 0.0), 1.0))
 
-    st.write(f"🟡 **Mercado Libre (Comisión + Envíos):** {pct_meli:.1f}%")
+    st.write(f"🟡 **Mercado Libre (Comisión + Logística):** {pct_meli:.1f}%")
     st.progress(min(max(pct_meli / 100, 0.0), 1.0))
 
     st.write(f"🏛️ **Carga Fiscal (IIBB + Ganancias + IVA):** {pct_impuestos:.1f}%")
@@ -290,10 +301,11 @@ def render_indicadores_nativos(costo_fabrica, comi_bruta, flete_bruto, cargo_fij
     st.progress(min(max(pct_ganancia / 100, 0.0), 1.0))
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📊 REALIDAD REAL (Compro a X y Vendo a Y)", 
     "☝️ CALCULAR PVP RECOMENDADO (Fábrica -> Venta)", 
-    "🎯 ANALIZAR COSTO OBJETIVO (Venta -> Fábrica)"
+    "🎯 ANALIZAR COSTO OBJETIVO (Venta -> Fábrica)",
+    "🕵️ INGENIERÍA INVERSA (Analizar Competidor)"
 ])
 
 # =========================================================
@@ -308,11 +320,22 @@ with tab1:
         y_pvp_venta = st.number_input("PVP Publicado en MeLi (Y) ($)", value=115000.0, step=1000.0, key="y_pvp_k")
         plan_selected_x = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_x_k")
         t_finan_val_x = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="custom_fin_x") / 100 if plan_selected_x == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_x] / 100
+        
+        modalidad_log_1 = st.selectbox("Modalidad Logística", ["Mercado Envíos Tradicional (ME2)", "Mercado Envíos Flex", "Mercado Envíos Full"], index=0, key="log_1")
         peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_x_k")
+        
+        costo_moto_1, reemb_flex_1, full_unit_1, full_stor_1 = 0.0, 0.0, 0.0, 0.0
+        if modalidad_log_1 == "Mercado Envíos Flex":
+            reemb_flex_1 = st.number_input("Reembolso MeLi Flex ($)", value=4500.0, step=500.0, key="flex_re_1")
+            costo_moto_1 = st.number_input("Costo Real Moto/Cadetería ($)", value=5000.0, step=500.0, key="flex_cm_1")
+        elif modalidad_log_1 == "Mercado Envíos Full":
+            full_unit_1 = st.number_input("Cargo Ingreso/Handling Full ($)", value=800.0, step=100.0, key="full_u_1")
+            full_stor_1 = st.number_input("Cargo Almacenamiento Prolongado ($)", value=0.0, step=100.0, key="full_s_1")
+
         mkt_ads_perc_1 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_1") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
-        flete_bruto = buscar_flete_dinamico(y_pvp_venta, peso_cat_x)
+        flete_bruto = calcular_flete_segun_modalidad(y_pvp_venta, peso_cat_x, modalidad_log_1, costo_moto_1, reemb_flex_1, full_unit_1, full_stor_1)
         fijo_bruto = CARGO_FIJO_MELI if y_pvp_venta < UMBRAL_ENVIO_GRATIS else 0.0
         
         comi_bruta = y_pvp_venta * (t_comi_base + t_finan_val_x)
@@ -357,7 +380,7 @@ with tab1:
         render_indicadores_nativos(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, y_pvp_venta)
 
     with col_right:
-        st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
+        st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real, modalidad_log_1), unsafe_allow_html=True)
 
 # =========================================================
 # SOLAPA 2: PVP RECOMENDADO
@@ -371,14 +394,25 @@ with tab2:
         margen_deseado_tab2 = st.number_input("% Margen Neto Deseado", value=10.0, step=0.5, key="m_tab2") / 100
         plan_selected_tab2 = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_tab2")
         t_finan_tab2 = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="c_fin_tab2") / 100 if plan_selected_tab2 == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_tab2] / 100
+        
+        modalidad_log_2 = st.selectbox("Modalidad Logística", ["Mercado Envíos Tradicional (ME2)", "Mercado Envíos Flex", "Mercado Envíos Full"], index=0, key="log_2")
         peso_cat_tab2 = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_tab2")
+        
+        costo_moto_2, reemb_flex_2, full_unit_2, full_stor_2 = 0.0, 0.0, 0.0, 0.0
+        if modalidad_log_2 == "Mercado Envíos Flex":
+            reemb_flex_2 = st.number_input("Reembolso MeLi Flex ($)", value=4500.0, step=500.0, key="flex_re_2")
+            costo_moto_2 = st.number_input("Costo Real Moto/Cadetería ($)", value=5000.0, step=500.0, key="flex_cm_2")
+        elif modalidad_log_2 == "Mercado Envíos Full":
+            full_unit_2 = st.number_input("Cargo Ingreso/Handling Full ($)", value=800.0, step=100.0, key="full_u_2")
+            full_stor_2 = st.number_input("Cargo Almacenamiento Prolongado ($)", value=0.0, step=100.0, key="full_s_2")
+
         mkt_ads_perc_2 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_2") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
         if costo_f_tab2 > 0:
             pvp_calc = costo_f_tab2 * 2.0
             for _ in range(10):
-                flete_bruto2 = buscar_flete_dinamico(pvp_calc, peso_cat_tab2)
+                flete_bruto2 = calcular_flete_segun_modalidad(pvp_calc, peso_cat_tab2, modalidad_log_2, costo_moto_2, reemb_flex_2, full_unit_2, full_stor_2)
                 fijo_bruto2 = CARGO_FIJO_MELI if pvp_calc < UMBRAL_ENVIO_GRATIS else 0.0
 
                 if tipo_iva == "Monotributista":
@@ -421,7 +455,7 @@ with tab2:
 
     with col_right2:
         if costo_f_tab2 > 0:
-            st.markdown(render_desglose_html(costo_f_tab2, pvp_calc, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, margen_deseado_tab2*100), unsafe_allow_html=True)
+            st.markdown(render_desglose_html(costo_f_tab2, pvp_calc, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, margen_deseado_tab2*100, modalidad_log_2), unsafe_allow_html=True)
 
 # =========================================================
 # SOLAPA 3: ANALIZAR COSTO OBJETIVO
@@ -435,12 +469,23 @@ with tab3:
         margen_target = st.number_input("% Margen Neto Pretendido", value=10.0, step=0.5, key="m_obj") / 100
         plan_selected_obj = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_obj")
         t_finan_obj = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="c_fin_obj") / 100 if plan_selected_obj == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_obj] / 100
+        
+        modalidad_log_3 = st.selectbox("Modalidad Logística", ["Mercado Envíos Tradicional (ME2)", "Mercado Envíos Flex", "Mercado Envíos Full"], index=0, key="log_3")
         peso_cat_obj = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_obj")
+        
+        costo_moto_3, reemb_flex_3, full_unit_3, full_stor_3 = 0.0, 0.0, 0.0, 0.0
+        if modalidad_log_3 == "Mercado Envíos Flex":
+            reemb_flex_3 = st.number_input("Reembolso MeLi Flex ($)", value=4500.0, step=500.0, key="flex_re_3")
+            costo_moto_3 = st.number_input("Costo Real Moto/Cadetería ($)", value=5000.0, step=500.0, key="flex_cm_3")
+        elif modalidad_log_3 == "Mercado Envíos Full":
+            full_unit_3 = st.number_input("Cargo Ingreso/Handling Full ($)", value=800.0, step=100.0, key="full_u_3")
+            full_stor_3 = st.number_input("Cargo Almacenamiento Prolongado ($)", value=0.0, step=100.0, key="full_s_3")
+
         mkt_ads_perc_3 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_3") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
         if pvp_target > 0:
-            flete_bruto3 = buscar_flete_dinamico(pvp_target, peso_cat_obj)
+            flete_bruto3 = calcular_flete_segun_modalidad(pvp_target, peso_cat_obj, modalidad_log_3, costo_moto_3, reemb_flex_3, full_unit_3, full_stor_3)
             fijo_bruto3 = CARGO_FIJO_MELI if pvp_target < UMBRAL_ENVIO_GRATIS else 0.0
 
             comi_bruta3 = pvp_target * (t_comi_base + t_finan_obj)
@@ -480,4 +525,87 @@ with tab3:
 
     with col_right3:
         if pvp_target > 0:
-            st.markdown(render_desglose_html(costo_max_fabrica, pvp_target, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, margen_target*100), unsafe_allow_html=True)
+            st.markdown(render_desglose_html(costo_max_fabrica, pvp_target, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, margen_target*100, modalidad_log_3), unsafe_allow_html=True)
+
+# =========================================================
+# SOLAPA 4: INGENIERÍA INVERSA (ANALIZAR COMPETIDOR)
+# =========================================================
+with tab4:
+    col_left4, col_right4 = st.columns([1.1, 1.1])
+    
+    with col_left4:
+        st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#2B3E4F; font-size:1.0rem; font-weight:800; margin-bottom:10px;'>🕵️ Parámetros de la Publicación Competidora</h4>", unsafe_allow_html=True)
+        
+        pvp_competidor = st.number_input("PVP Publicado por el Competidor ($)", value=115000.0, step=1000.0, key="pvp_comp")
+        mi_costo_actual = st.number_input("Mi Costo Fábrica Actual SIN IVA ($)", value=70392.83, step=1000.0, key="mi_costo_comp")
+        
+        plan_comp = st.selectbox("Plan Cuotas del Competidor", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_comp_k")
+        t_finan_comp = st.number_input("% Tasa Custom Competidor", value=0.0, step=0.1, key="c_fin_comp") / 100 if plan_comp == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_comp] / 100
+        
+        reputacion_comp = st.selectbox("Reputación del Competidor", list(REPUTACION_DESCUENTOS.keys()), index=0, key="rep_comp_k")
+        factor_rep_comp = REPUTACION_DESCUENTOS[reputacion_comp]
+        
+        peso_cat_comp = st.selectbox("Peso Correo Estimado", peso_list, index=13, key="peso_comp_k")
+        margen_est_comp = st.number_input("% Margen Neto Estimado del Competidor", value=10.0, step=0.5, key="m_est_comp") / 100
+        ads_perc_comp = st.number_input("% Inversión Ads Estimada Competidor (ACOS)", value=0.0, step=0.5, key="ads_comp") / 100
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if pvp_competidor > 0:
+            # Flete del competidor
+            flete_comp = 0.0
+            if pvp_competidor >= UMBRAL_ENVIO_GRATIS:
+                base_c = TABLA_ME2_BASE.get(peso_cat_comp, [0.0, 0.0, 0.0])[2] if pvp_competidor >= 50000 else TABLA_ME2_BASE.get(peso_cat_comp, [0.0, 0.0, 0.0])[1]
+                flete_comp = base_c * factor_rep_comp
+
+            fijo_comp = CARGO_FIJO_MELI if pvp_competidor < UMBRAL_ENVIO_GRATIS else 0.0
+            comi_comp = pvp_competidor * (t_comi_base + t_finan_comp)
+            pvp_neto_comp = pvp_competidor / (1 + t_iva_prod)
+            iibb_comp = pvp_neto_comp * t_iibb
+            gan_comp = pvp_neto_comp * t_ganancias_fijo
+            est_comp = pvp_competidor * t_estructura_fijo
+            ads_comp = pvp_competidor * ads_perc_comp
+            ganancia_comp = pvp_competidor * margen_est_comp
+
+            if tipo_iva == "Monotributista":
+                costo_max_comp_inc = pvp_competidor - (ganancia_comp + comi_comp + flete_comp + fijo_comp + iibb_comp + est_comp + ads_comp)
+                cogs_teorico_comp = costo_max_comp_inc / (1 + t_iva_prod)
+                iva_pagar_comp = 0.0
+            else:
+                # Derivación exacta de ingeniería inversa para Responsable Inscripto
+                cogs_teorico_comp = pvp_neto_comp - comi_comp - flete_comp - fijo_comp - iibb_comp - gan_comp - est_comp - ads_comp - ganancia_comp
+                iva_v_c = pvp_competidor - pvp_neto_comp
+                iva_c_c = cogs_teorico_comp * t_iva_prod
+                iva_pagar_comp = iva_v_c - (iva_c_c + (comi_comp - comi_comp/1.21) + (flete_comp - flete_comp/1.21) + (fijo_comp - fijo_comp/1.21) + (ads_comp - ads_comp/1.21))
+
+            dif_costo_pct = ((cogs_teorico_comp - mi_costo_actual) / mi_costo_actual) * 100
+
+            st.markdown(f"""
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <div class="banner-card bg-costo" style="flex:1;">
+                    <span class="label-banner">COGS Teórico Competidor</span>
+                    <span class="price-main">${cogs_teorico_comp:,.2f}</span>
+                    <span class="badge-banner">Costo Compra Estimado SIN IVA</span>
+                </div>
+                <div class="banner-card bg-pvp" style="flex:1;">
+                    <span class="label-banner">Diferencia vs Mi Costo</span>
+                    <span class="price-main">{dif_costo_pct:+.1f}%</span>
+                    <span class="badge-banner">Comparativa Compra</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Diagnóstico Automático de Competitividad
+            st.markdown("<h4 style='color:#2B3E4F; font-size:1.0rem; font-weight:800; margin-top:15px;'>🚨 Diagnóstico Competitivo de Mercado</h4>", unsafe_allow_html=True)
+            if cogs_teorico_comp <= 0:
+                st.error("⚠️ **ALERTA DUMPING / VENTA A PÉRDIDA**: El precio publicado por el competidor no llega a cubrir las comisiones, fletes e impuestos básicos de Mercado Libre. Está vendiendo a pérdida o liquidando stock.")
+            elif mi_costo_actual > 0 and (mi_costo_actual - cogs_teorico_comp) / mi_costo_actual > 0.20:
+                st.warning("🚢 **ESCALA / IMPORTADOR DIRECTO**: El costo teórico del competidor es más de un 20% más bajo que tu costo de fábrica. Es probable que sea importador directo o fabricante a gran escala.")
+            elif mi_costo_actual > 0 and abs(mi_costo_actual - cogs_teorico_comp) / mi_costo_actual <= 0.08:
+                st.info("⚖️ **MISMA ESCALA DE COSTOS**: El competidor maneja una estructura de costos muy similar a la tuya (brecha menor al 8%). La diferencia de precio radica en el margen aceptado o en los beneficios de envío.")
+            else:
+                st.success("💡 **OPORTUNIDAD DE COMPETENCIA**: Tu costo de fábrica actual es competitivo respecto al costo estimado de la competencia. Tenés margen para igualar o mejorar su precio de venta.")
+
+    with col_right4:
+        if pvp_competidor > 0:
+            st.markdown(render_desglose_html(cogs_teorico_comp, pvp_competidor, comi_comp, flete_comp, fijo_comp, iibb_comp, gan_comp, est_comp, ads_comp, iva_pagar_comp, ganancia_comp, margen_est_comp*100, "Inversa Competidor"), unsafe_allow_html=True)
