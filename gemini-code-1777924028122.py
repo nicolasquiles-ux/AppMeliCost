@@ -1,8 +1,7 @@
 import streamlit as st
-import matplotlib.pyplot as plt
 
 # Versión del sistema
-V_NUMBER = "23.1"
+V_NUMBER = "24.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -66,7 +65,7 @@ nq_gold = "#BFA100"
 gray_bg = "#F8FAFC"        
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO Y ESTILOS VISTOSOS
+# INYECCIÓN DE CSS SEGURO
 # =========================================================
 css_template = f"""
 <style>
@@ -99,7 +98,6 @@ html, body, [class*="css"] {{
     margin-bottom: 20px; border: 1px solid #E2E8F0;
 }}
 
-/* TARJETA VISTOSA DE DESGLOSE */
 .cost-breakdown-card {{
     background: #FFFFFF; padding: 22px; border-radius: 16px;
     border: 1px solid #E2E8F0; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
@@ -107,7 +105,6 @@ html, body, [class*="css"] {{
 .cost-card-title {{
     font-size: 1.15rem; font-weight: 800; color: {nq_main_color};
     border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 14px;
-    display: flex; justify-content: space-between; align-items: center;
 }}
 .section-header-tag {{
     font-size: 0.75rem; font-weight: 800; text-transform: uppercase;
@@ -266,52 +263,31 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
     """
     return "".join([line.strip() for line in html.splitlines()])
 
-def render_grafico_dona(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta):
-    labels = []
-    values = []
+def render_indicadores_nativos(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta, pvp):
+    st.markdown("<h4 style='color:#2B3E4F; font-size:1.05rem; font-weight:800; margin-top:15px;'>📊 Composición Porcentual sobre el PVP</h4>", unsafe_allow_html=True)
     
-    items = [
-        ('Costo Fábrica', costo_fabrica),
-        ('Comisión+Finan.', comi_bruta),
-        ('Flete ML', flete_bruto),
-        ('Cargo Fijo', cargo_fijo),
-        ('IIBB', iibb),
-        ('Imp. Ganancias', ganancias),
-        ('Estructura', est),
-        ('Mercado Ads', ads)
-    ]
-    
-    if tipo_iva == "Responsable Inscripto" and iva_pagar > 0:
-        items.append(('IVA AFIP', iva_pagar))
-        
-    if ganancia_neta > 0:
-        items.append(('Ganancia Neta', ganancia_neta))
+    if pvp <= 0: return
 
-    for l, v in items:
-        if v > 0:
-            labels.append(l)
-            values.append(v)
+    pct_fabrica = (costo_fabrica / pvp) * 100
+    pct_meli = ((comi_bruta + flete_bruto + cargo_fijo) / pvp) * 100
+    pct_impuestos = ((iibb + ganancias + (iva_pagar if iva_pagar > 0 else 0)) / pvp) * 100
+    pct_operativa = ((est + ads) / pvp) * 100
+    pct_ganancia = (ganancia_neta / pvp) * 100 if ganancia_neta > 0 else 0.0
 
-    colors = ['#2B3E4F', '#00BFBF', '#3498DB', '#95A5A6', '#E67E22', '#D35400', '#7F8C8D', '#8E44AD', '#F39C12', '#2ECC71']
-    
-    fig, ax = plt.subplots(figsize=(5, 3.5), facecolor='none')
-    wedges, texts, autotexts = ax.pie(
-        values, 
-        labels=labels, 
-        autopct='%1.1f%%', 
-        pctdistance=0.75,
-        startangle=140, 
-        colors=colors[:len(values)],
-        textprops=dict(color="#0F172A", fontsize=7)
-    )
-    
-    centre_circle = plt.Circle((0, 0), 0.50, fc='white')
-    fig.gca().add_artist(centre_circle)
-    
-    plt.setp(autotexts, size=7, weight="bold")
-    ax.axis('equal')  
-    plt.tight_layout()
-    return fig
+    st.write(f"🏭 **Costo de Producto (Fábrica):** {pct_fabrica:.1f}%")
+    st.progress(min(max(pct_fabrica / 100, 0.0), 1.0))
+
+    st.write(f"🟡 **Mercado Libre (Comisión + Envíos):** {pct_meli:.1f}%")
+    st.progress(min(max(pct_meli / 100, 0.0), 1.0))
+
+    st.write(f"🏛️ **Carga Fiscal (IIBB + Ganancias + IVA):** {pct_impuestos:.1f}%")
+    st.progress(min(max(pct_impuestos / 100, 0.0), 1.0))
+
+    st.write(f"📢 **Operativa & Ads:** {pct_operativa:.1f}%")
+    st.progress(min(max(pct_operativa / 100, 0.0), 1.0))
+
+    st.write(f"🟢 **Ganancia Neta Limpia:** {pct_ganancia:.1f}%")
+    st.progress(min(max(pct_ganancia / 100, 0.0), 1.0))
 
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs([
@@ -378,8 +354,7 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
         
-        fig1 = render_grafico_dona(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real)
-        st.pyplot(fig1, use_container_width=True)
+        render_indicadores_nativos(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, y_pvp_venta)
 
     with col_right:
         st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
@@ -442,8 +417,7 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
             
-            fig2 = render_grafico_dona(costo_f_tab2, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2)
-            st.pyplot(fig2, use_container_width=True)
+            render_indicadores_nativos(costo_f_tab2, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, pvp_calc)
 
     with col_right2:
         if costo_f_tab2 > 0:
@@ -502,8 +476,7 @@ with tab3:
             </div>
             """, unsafe_allow_html=True)
 
-            fig3 = render_grafico_dona(costo_max_fabrica, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3)
-            st.pyplot(fig3, use_container_width=True)
+            render_indicadores_nativos(costo_max_fabrica, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, pvp_target)
 
     with col_right3:
         if pvp_target > 0:
