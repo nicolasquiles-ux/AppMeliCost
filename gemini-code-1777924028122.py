@@ -1,7 +1,8 @@
 import streamlit as st
+import plotly.graph_objects as go
 
 # Versión del sistema
-V_NUMBER = "22.0"
+V_NUMBER = "23.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -59,14 +60,13 @@ CLAVE_CORRECTA = "NQ_PRO_2026"
 UMBRAL_ENVIO_GRATIS = 33000.0
 CARGO_FIJO_MELI = 3800.0
 
-# Estética corporativa NQ
 nq_main_color = "#2B3E4F" 
 nq_green = "#1E8449"       
 nq_gold = "#BFA100"        
-gray_bg = "#F3F5F7"        
+gray_bg = "#F8FAFC"        
 
 # =========================================================
-# INYECCIÓN DE CSS SEGURO
+# INYECCIÓN DE CSS SEGURO Y ESTILOS VISTOSOS
 # =========================================================
 css_template = f"""
 <style>
@@ -80,44 +80,53 @@ html, body, [class*="css"] {{
 
 .nq-header-container {{
     display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 30px; background-color: #FFFFFF;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px;
-    border-radius: 12px; border: 1px solid #E5E7EB;
+    padding: 18px 25px; background-color: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 20px;
+    border-radius: 14px; border: 1px solid #E2E8F0;
 }}
 .nq-branding {{ display: flex; align-items: center; }}
 .nq-logo {{
     background: linear-gradient(135deg, #0055A0 0%, #00BFBF 100%);
-    color: white; padding: 12px 20px; border-radius: 12px; 
-    font-weight: 800; font-size: 1.6rem; margin-right: 18px; letter-spacing: -1px;
+    color: white; padding: 10px 18px; border-radius: 10px; 
+    font-weight: 800; font-size: 1.5rem; margin-right: 15px; letter-spacing: -1px;
 }}
 .nq-title-group {{ display: flex; flex-direction: column; }}
-.nq-title-country {{ color: #7F8C8D; font-size: 0.85rem; font-weight: 600; }}
-.nq-dashboard {{ color: {nq_main_color}; font-weight: 700; font-size: 1.3rem; margin-top: 2px; }}
+.nq-title-country {{ color: #64748B; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }}
+.nq-dashboard {{ color: {nq_main_color}; font-weight: 800; font-size: 1.25rem; }}
 
 .tax-bar {{
-    background-color: {gray_bg}; padding: 18px 25px; border-radius: 12px;
-    margin-bottom: 20px; border: 1px solid #E5E7EB;
+    background-color: {gray_bg}; padding: 16px 20px; border-radius: 12px;
+    margin-bottom: 20px; border: 1px solid #E2E8F0;
 }}
 
+/* TARJETA VISTOSA DE DESGLOSE */
 .cost-breakdown-card {{
-    background-color: #FFFFFF; padding: 22px; border-radius: 16px;
-    border: 1px solid #E5E7EB; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    background: #FFFFFF; padding: 22px; border-radius: 16px;
+    border: 1px solid #E2E8F0; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
 }}
-.cost-card-header {{
-    font-size: 1.1rem; font-weight: 800; color: {nq_main_color};
-    border-bottom: 2px solid {gray_bg}; padding-bottom: 10px; margin-bottom: 12px;
+.cost-card-title {{
+    font-size: 1.15rem; font-weight: 800; color: {nq_main_color};
+    border-bottom: 2px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+}}
+.section-header-tag {{
+    font-size: 0.75rem; font-weight: 800; text-transform: uppercase;
+    color: #64748B; background: #F1F5F9; padding: 3px 8px; border-radius: 6px;
+    margin-top: 10px; margin-bottom: 4px; display: inline-block;
 }}
 .cost-item {{ 
-    display: flex; justify-content: space-between; font-size: 0.90rem; 
-    border-bottom: 1px solid #F3F4F6; padding: 6px 0;
+    display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; 
+    border-bottom: 1px solid #F8FAFC; padding: 6px 0;
 }}
-.cost-label {{ color: #4B5563; font-weight: 600; }}
-.cost-value {{ color: #111827; font-weight: 700; text-align: right; }}
+.cost-label {{ color: #334155; font-weight: 600; }}
+.cost-label-bold {{ color: #0F172A; font-weight: 800; }}
+.cost-value {{ color: #0F172A; font-weight: 700; text-align: right; }}
+.cost-value-highlight {{ color: #0055A0; font-weight: 800; text-align: right; font-size: 0.95rem; }}
 
 .banner-card {{
-    color: white; padding: 20px; display: flex; flex-direction: column;
-    justify-content: center; align-items: center; text-align: center; gap: 4px;
-    border-radius: 16px; margin-bottom: 15px;
+    color: white; padding: 18px; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center; gap: 2px;
+    border-radius: 14px; margin-bottom: 15px;
     box-shadow: 0 8px 16px rgba(0,0,0,0.06);
 }}
 .bg-pvp {{ background-color: {nq_main_color}; }}
@@ -125,11 +134,11 @@ html, body, [class*="css"] {{
 .bg-ganancia {{ background-color: {nq_green}; }}
 .bg-loss {{ background-color: #C0392B; }}
 
-.label-banner {{ color: rgba(255,255,255,0.9); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }}
-.price-main {{ color: white; font-size: 2rem; font-weight: 800; margin: 2px 0; }}
+.label-banner {{ color: rgba(255,255,255,0.85); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }}
+.price-main {{ color: white; font-size: 1.8rem; font-weight: 800; margin: 2px 0; }}
 .badge-banner {{
-    background: rgba(255,255,255,0.25); color: white;
-    padding: 4px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 700;
+    background: rgba(255,255,255,0.22); color: white;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;
 }}
 </style>
 """
@@ -211,9 +220,9 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
     iva_row_html = ""
     if tipo_iva == "Responsable Inscripto":
         iva_row_html = f"""
-        <div class="cost-item" style="background-color: #FEF3C7; padding: 4px 6px; border-radius: 4px;">
-            <span class="cost-label" style="color: #92400E;">IVA Neto a Pagar (Posición AFIP)</span>
-            <span class="cost-value" style="color: #92400E;">${iva_pagar_m:,.2f}</span>
+        <div class="cost-item" style="background-color: #FEF3C7; padding: 6px 8px; border-radius: 6px; margin: 4px 0;">
+            <span class="cost-label-bold" style="color: #92400E;"><b>IVA Neto a Pagar (Posición AFIP)</b></span>
+            <span class="cost-value" style="color: #92400E; font-weight: 800;">${iva_pagar_m:,.2f}</span>
         </div>
         """
 
@@ -222,29 +231,70 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
 
     html = f"""
     <div class="cost-breakdown-card">
-        <div class="cost-card-header">📋 Desglose Analítico de Costos</div>
-        <div class="cost-item"><span class="cost-label">Precio de Venta Público (PVP)</span><span class="cost-value">${pvp:,.2f}</span></div>
+        <div class="cost-card-title">
+            <span>📋 DESGLOSE ANALÍTICO DE COSTOS</span>
+        </div>
+        
+        <span class="section-header-tag">1. Ingresos y Venta</span>
+        <div class="cost-item"><span class="cost-label-bold">PRECIO DE VENTA PÚBLICO (PVP)</span><span class="cost-value-highlight">${pvp:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Venta Neta (Sin IVA)</span><span class="cost-value">${pvp_neto:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Costo Fábrica (Sin IVA)</span><span class="cost-value">${costo_fabrica_neto:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Comisión ML + Financiamiento</span><span class="cost-value">${comi_m_bruta:,.2f}</span></div>
+        
+        <span class="section-header-tag">2. Costo de Producto</span>
+        <div class="cost-item"><span class="cost-label-bold">Costo Fábrica (Sin IVA)</span><span class="cost-value">${costo_fabrica_neto:,.2f}</span></div>
+        
+        <span class="section-header-tag">3. Gastos Mercado Libre</span>
+        <div class="cost-item"><span class="cost-label">Comisión ML + Financiación</span><span class="cost-value">${comi_m_bruta:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Flete Mercado Envíos</span><span class="cost-value">${flete_bruto:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Cargo Fijo por Unidad</span><span class="cost-value">${cargo_fijo_bruto:,.2f}</span></div>
+        
+        <span class="section-header-tag">4. Carga Impositiva & Operativa</span>
         <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc:.1f}%)</span><span class="cost-value">${iibb_m:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Impuesto a las Ganancias (5%)</span><span class="cost-value">${gan_m:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Mercado Ads (Publicidad)</span><span class="cost-value">${ads_m:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Costo Estructura / Depósito (2%)</span><span class="cost-value">${est_m:,.2f}</span></div>
         {iva_row_html}
-        <div class="cost-item" style="margin-top: 10px; border-top: 2px solid #E5E7EB; padding-top: 8px;">
-            <span class="cost-label" style="font-weight: 800; color: #111827;">COSTO TOTAL OPERATIVO</span>
-            <span class="cost-value" style="font-weight: 800; color: #111827;">${costo_total:,.2f}</span>
+        
+        <div class="cost-item" style="margin-top: 12px; border-top: 2px solid #CBD5E1; padding-top: 8px;">
+            <span class="cost-label-bold" style="font-size: 0.95rem;">COSTO TOTAL OPERATIVO</span>
+            <span class="cost-value-highlight" style="color: #0F172A;">${costo_total:,.2f}</span>
         </div>
-        <div class="cost-item" style="background-color: {color_bg}; padding: 6px; border-radius: 6px; margin-top: 6px;">
-            <span class="cost-label" style="font-weight: 800; color: {color_txt};">GANANCIA NETO FINAL</span>
-            <span class="cost-value" style="font-weight: 800; color: {color_txt};">${ganancia_neta:,.2f} ({margen_pct:.2f}%)</span>
+        <div class="cost-item" style="background-color: {color_bg}; padding: 8px 10px; border-radius: 8px; margin-top: 8px;">
+            <span class="cost-label-bold" style="color: {color_txt}; font-size: 0.95rem;">GANANCIA NETA FINAL</span>
+            <span class="cost-value" style="color: {color_txt}; font-weight: 800; font-size: 1.05rem;">${ganancia_neta:,.2f} ({margen_pct:.2f}%)</span>
         </div>
     </div>
     """
     return "".join([line.strip() for line in html.splitlines()])
+
+def render_grafico_dona(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta, pvp):
+    labels = ['Costo Fábrica', 'Comisión + Finan.', 'Flete ML', 'Cargo Fijo', 'IIBB', 'Imp. Ganancias', 'Estructura', 'Mercado Ads']
+    values = [costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads]
+    
+    if tipo_iva == "Responsable Inscripto" and iva_pagar > 0:
+        labels.append('IVA AFIP')
+        values.append(iva_pagar)
+        
+    if ganancia_neta > 0:
+        labels.append('Ganancia Neta')
+        values.append(ganancia_neta)
+        
+    fig = go.Figure(data=[go.Pie(
+        labels=labels, 
+        values=values, 
+        hole=.45,
+        textinfo='percent',
+        hoverinfo='label+value+percent',
+        marker=dict(colors=['#2B3E4F', '#00BFBF', '#3498DB', '#95A5A6', '#E67E22', '#D35400', '#7F8C8D', '#8E44AD', '#F39C12', '#2ECC71'])
+    )])
+    
+    fig.update_layout(
+        title=dict(text="<b>DISTRIBUCIÓN DE COSTOS SOBRE EL PVP</b>", font=dict(size=14, color="#2B3E4F")),
+        margin=dict(t=40, b=20, l=10, r=10),
+        height=280,
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.1)
+    )
+    return fig
 
 # --- TABS ---
 tab1, tab2, tab3 = st.tabs([
@@ -257,7 +307,7 @@ tab1, tab2, tab3 = st.tabs([
 # SOLAPA 1: REALIDAD REAL
 # =========================================================
 with tab1:
-    col_left, col_right = st.columns([1.2, 1])
+    col_left, col_right = st.columns([1.1, 1.1])
     
     with col_left:
         st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
@@ -310,6 +360,9 @@ with tab1:
             </div>
         </div>
         """, unsafe_allow_html=True)
+        
+        fig1 = render_grafico_dona(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, y_pvp_venta)
+        st.plotly_chart(fig1, use_container_width=True)
 
     with col_right:
         st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
@@ -318,7 +371,7 @@ with tab1:
 # SOLAPA 2: PVP RECOMENDADO
 # =========================================================
 with tab2:
-    col_left2, col_right2 = st.columns([1.2, 1])
+    col_left2, col_right2 = st.columns([1.1, 1.1])
     
     with col_left2:
         st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
@@ -371,6 +424,9 @@ with tab2:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            
+            fig2 = render_grafico_dona(costo_f_tab2, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, pvp_calc)
+            st.plotly_chart(fig2, use_container_width=True)
 
     with col_right2:
         if costo_f_tab2 > 0:
@@ -380,7 +436,7 @@ with tab2:
 # SOLAPA 3: ANALIZAR COSTO OBJETIVO
 # =========================================================
 with tab3:
-    col_left3, col_right3 = st.columns([1.2, 1])
+    col_left3, col_right3 = st.columns([1.1, 1.1])
     
     with col_left3:
         st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
@@ -428,6 +484,9 @@ with tab3:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+            fig3 = render_grafico_dona(costo_max_fabrica, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, pvp_target)
+            st.plotly_chart(fig3, use_container_width=True)
 
     with col_right3:
         if pvp_target > 0:
