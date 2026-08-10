@@ -1,8 +1,8 @@
 import streamlit as st
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
 # Versión del sistema
-V_NUMBER = "23.0"
+V_NUMBER = "23.1"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -266,34 +266,51 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
     """
     return "".join([line.strip() for line in html.splitlines()])
 
-def render_grafico_dona(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta, pvp):
-    labels = ['Costo Fábrica', 'Comisión + Finan.', 'Flete ML', 'Cargo Fijo', 'IIBB', 'Imp. Ganancias', 'Estructura', 'Mercado Ads']
-    values = [costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads]
+def render_grafico_dona(costo_fabrica, comi_bruta, flete_bruto, cargo_fijo, iibb, ganancias, est, ads, iva_pagar, ganancia_neta):
+    labels = []
+    values = []
+    
+    items = [
+        ('Costo Fábrica', costo_fabrica),
+        ('Comisión+Finan.', comi_bruta),
+        ('Flete ML', flete_bruto),
+        ('Cargo Fijo', cargo_fijo),
+        ('IIBB', iibb),
+        ('Imp. Ganancias', ganancias),
+        ('Estructura', est),
+        ('Mercado Ads', ads)
+    ]
     
     if tipo_iva == "Responsable Inscripto" and iva_pagar > 0:
-        labels.append('IVA AFIP')
-        values.append(iva_pagar)
+        items.append(('IVA AFIP', iva_pagar))
         
     if ganancia_neta > 0:
-        labels.append('Ganancia Neta')
-        values.append(ganancia_neta)
-        
-    fig = go.Figure(data=[go.Pie(
-        labels=labels, 
-        values=values, 
-        hole=.45,
-        textinfo='percent',
-        hoverinfo='label+value+percent',
-        marker=dict(colors=['#2B3E4F', '#00BFBF', '#3498DB', '#95A5A6', '#E67E22', '#D35400', '#7F8C8D', '#8E44AD', '#F39C12', '#2ECC71'])
-    )])
+        items.append(('Ganancia Neta', ganancia_neta))
+
+    for l, v in items:
+        if v > 0:
+            labels.append(l)
+            values.append(v)
+
+    colors = ['#2B3E4F', '#00BFBF', '#3498DB', '#95A5A6', '#E67E22', '#D35400', '#7F8C8D', '#8E44AD', '#F39C12', '#2ECC71']
     
-    fig.update_layout(
-        title=dict(text="<b>DISTRIBUCIÓN DE COSTOS SOBRE EL PVP</b>", font=dict(size=14, color="#2B3E4F")),
-        margin=dict(t=40, b=20, l=10, r=10),
-        height=280,
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.1)
+    fig, ax = plt.subplots(figsize=(5, 3.5), facecolor='none')
+    wedges, texts, autotexts = ax.pie(
+        values, 
+        labels=labels, 
+        autopct='%1.1f%%', 
+        pctdistance=0.75,
+        startangle=140, 
+        colors=colors[:len(values)],
+        textprops=dict(color="#0F172A", fontsize=7)
     )
+    
+    centre_circle = plt.Circle((0, 0), 0.50, fc='white')
+    fig.gca().add_artist(centre_circle)
+    
+    plt.setp(autotexts, size=7, weight="bold")
+    ax.axis('equal')  
+    plt.tight_layout()
     return fig
 
 # --- TABS ---
@@ -361,8 +378,8 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
         
-        fig1 = render_grafico_dona(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, y_pvp_venta)
-        st.plotly_chart(fig1, use_container_width=True)
+        fig1 = render_grafico_dona(x_costo_fabrica, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real)
+        st.pyplot(fig1, use_container_width=True)
 
     with col_right:
         st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
@@ -425,8 +442,8 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
             
-            fig2 = render_grafico_dona(costo_f_tab2, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, pvp_calc)
-            st.plotly_chart(fig2, use_container_width=True)
+            fig2 = render_grafico_dona(costo_f_tab2, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2)
+            st.pyplot(fig2, use_container_width=True)
 
     with col_right2:
         if costo_f_tab2 > 0:
@@ -485,8 +502,8 @@ with tab3:
             </div>
             """, unsafe_allow_html=True)
 
-            fig3 = render_grafico_dona(costo_max_fabrica, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, pvp_target)
-            st.plotly_chart(fig3, use_container_width=True)
+            fig3 = render_grafico_dona(costo_max_fabrica, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3)
+            st.pyplot(fig3, use_container_width=True)
 
     with col_right3:
         if pvp_target > 0:
