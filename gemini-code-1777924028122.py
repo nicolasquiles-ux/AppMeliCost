@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Versión del sistema
-V_NUMBER = "21.0"
+V_NUMBER = "22.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -9,7 +9,7 @@ st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", 
 # =========================================================
 # DATOS MAESTROS VIGENTES 2026 (NQ Database Oficial)
 # =========================================================
-TABLA_ME2_2026 = {
+TABLA_ME2_BASE = {
     "Hasta 0,3 kg": [7868.0, 5620.0, 6080.0],
     "De 0,3 a 0,5 kg": [8596.0, 6140.0, 6600.0],
     "De 0,5 a 1 kg": [9800.0, 7000.0, 7470.0],
@@ -39,16 +39,20 @@ TABLA_ME2_2026 = {
     "Más de 180 kg": [146398.0, 104570.0, 112060.0]
 }
 
-# Tasas actualizadas con la información enviada
 FINANCIACION_PRESETS = {
-    "Clásica / 1 Pago (0%)": 0.0,
-    "2 Cuotas Premium (9.49%)": 9.49,
-    "3 Cuotas Premium (12.19%)": 12.19,
-    "6 Cuotas Premium (19.09%)": 19.09,
-    "9 Cuotas Premium (27.29%)": 27.29,
-    "12 Cuotas Premium (32.29%)": 32.29,
-    "18 Cuotas Premium (41.59%)": 41.59,
+    "1 Pago / Clásica (0.00%)": 0.0,
+    "3 A 12 C/INT — Interés Bajo (5.00%)": 5.00,
+    "3 Cuotas Mismo Precio (8.40%)": 8.40,
+    "6 Cuotas Mismo Precio (12.30%)": 12.30,
+    "9 Cuotas Mismo Precio (15.70%)": 15.70,
+    "12 Cuotas Mismo Precio (19.20%)": 19.20,
     "Personalizado (Manual)": -1.0
+}
+
+REPUTACION_DESCUENTOS = {
+    "Verde / MercadoLíder (50% desc)": 1.0,
+    "Amarilla (40% desc)": 1.20,
+    "Roja / Sin Reputación (0% desc)": 2.0
 }
 
 CLAVE_CORRECTA = "NQ_PRO_2026"
@@ -165,18 +169,20 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# CONTROL FISCAL GENERAL
+# CONTROL FISCAL Y ESTRUCTURA GENERAL
 # =========================================================
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
-    c_tax1, c_tax2, c_tax3, c_tax4 = st.columns([1.5, 1, 1, 1])
+    c_tax1, c_tax2, c_tax3, c_tax4, c_tax5 = st.columns([1.5, 1, 1, 1, 1])
     with c_tax1:
         tipo_iva = st.radio("Configuración Impositiva", ["Responsable Inscripto", "Monotributista"], horizontal=True)
     with c_tax2:
-        iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=5.0, step=0.1)
+        reputacion_sel = st.selectbox("Reputación Vendedor", list(REPUTACION_DESCUENTOS.keys()), index=0)
     with c_tax3:
-        comision_vender_input = st.number_input("% Cargo Vender MeLi (Neto)", value=14.15, step=0.1)
+        iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=5.0, step=0.1)
     with c_tax4:
+        comision_vender_input = st.number_input("% Cargo Vender MeLi", value=14.15, step=0.1)
+    with c_tax5:
         alicuota_iva_prod = st.selectbox("% IVA Producto", [21.0, 10.5, 0.0], index=0)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -185,18 +191,20 @@ t_comi_base = comision_vender_input / 100
 t_iva_prod = alicuota_iva_prod / 100
 t_ganancias_fijo = 0.05
 t_estructura_fijo = 0.02
+factor_reputacion = REPUTACION_DESCUENTOS[reputacion_sel]
 
-peso_list = list(TABLA_ME2_2026.keys())
+peso_list = list(TABLA_ME2_BASE.keys())
 
 def buscar_flete_dinamico(pvp_evaluado, peso_categoria):
     if pvp_evaluado < UMBRAL_ENVIO_GRATIS:
         return 0.0
     elif pvp_evaluado < 50000:
-        return TABLA_ME2_2026.get(peso_categoria, [0.0, 0.0, 0.0])[1]
+        base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[1]
     else:
-        return TABLA_ME2_2026.get(peso_categoria, [0.0, 0.0, 0.0])[2]
+        base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[2]
+    return base * factor_reputacion
 
-def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, iva_pagar_m, ganancia_neta, margen_pct):
+def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_neta, margen_pct):
     pvp_neto = pvp / (1 + t_iva_prod)
     costo_total = pvp - ganancia_neta
     
@@ -204,7 +212,7 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
     if tipo_iva == "Responsable Inscripto":
         iva_row_html = f"""
         <div class="cost-item" style="background-color: #FEF3C7; padding: 4px 6px; border-radius: 4px;">
-            <span class="cost-label" style="color: #92400E;">IVA Neto a Pagar (Posición)</span>
+            <span class="cost-label" style="color: #92400E;">IVA Neto a Pagar (Posición AFIP)</span>
             <span class="cost-value" style="color: #92400E;">${iva_pagar_m:,.2f}</span>
         </div>
         """
@@ -218,12 +226,13 @@ def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, car
         <div class="cost-item"><span class="cost-label">Precio de Venta Público (PVP)</span><span class="cost-value">${pvp:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Venta Neta (Sin IVA)</span><span class="cost-value">${pvp_neto:,.2f}</span></div>
         <div class="cost-item"><span class="cost-label">Costo Fábrica (Sin IVA)</span><span class="cost-value">${costo_fabrica_neto:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Comisión ML Bruta</span><span class="cost-value">${comi_m_bruta:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Flete ML Bruto</span><span class="cost-value">${flete_bruto:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Cargo Fijo ML</span><span class="cost-value">${cargo_fijo_bruto:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">IIBB ({iibb_perc:.1f}%)</span><span class="cost-value">${iibb_m:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Imp. a las Ganancias (5%)</span><span class="cost-value">${gan_m:,.2f}</span></div>
-        <div class="cost-item"><span class="cost-label">Costo Estructura (2%)</span><span class="cost-value">${est_m:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Comisión ML + Financiamiento</span><span class="cost-value">${comi_m_bruta:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Flete Mercado Envíos</span><span class="cost-value">${flete_bruto:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Cargo Fijo por Unidad</span><span class="cost-value">${cargo_fijo_bruto:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Ingresos Brutos ({iibb_perc:.1f}%)</span><span class="cost-value">${iibb_m:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Impuesto a las Ganancias (5%)</span><span class="cost-value">${gan_m:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Mercado Ads (Publicidad)</span><span class="cost-value">${ads_m:,.2f}</span></div>
+        <div class="cost-item"><span class="cost-label">Costo Estructura / Depósito (2%)</span><span class="cost-value">${est_m:,.2f}</span></div>
         {iva_row_html}
         <div class="cost-item" style="margin-top: 10px; border-top: 2px solid #E5E7EB; padding-top: 8px;">
             <span class="cost-label" style="font-weight: 800; color: #111827;">COSTO TOTAL OPERATIVO</span>
@@ -257,6 +266,7 @@ with tab1:
         plan_selected_x = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_x_k")
         t_finan_val_x = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="custom_fin_x") / 100 if plan_selected_x == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_x] / 100
         peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_x_k")
+        mkt_ads_perc_1 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_1") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
         flete_bruto = buscar_flete_dinamico(y_pvp_venta, peso_cat_x)
@@ -267,10 +277,11 @@ with tab1:
         iibb_m = pvp_neto * t_iibb
         gan_m = pvp_neto * t_ganancias_fijo
         est_m = y_pvp_venta * t_estructura_fijo
+        ads_m = y_pvp_venta * mkt_ads_perc_1
         
         if tipo_iva == "Monotributista":
             costo_fabrica_inc = x_costo_fabrica * (1 + t_iva_prod)
-            ganancia_real = y_pvp_venta - (costo_fabrica_inc + comi_bruta + flete_bruto + fijo_bruto + iibb_m + est_m)
+            ganancia_real = y_pvp_venta - (costo_fabrica_inc + comi_bruta + flete_bruto + fijo_bruto + iibb_m + est_m + ads_m)
             iva_pagar_m = 0.0
         else:
             iva_venta = y_pvp_venta - pvp_neto
@@ -278,9 +289,10 @@ with tab1:
             iva_comi = comi_bruta - (comi_bruta / 1.21)
             iva_flete = flete_bruto - (flete_bruto / 1.21)
             iva_fijo = fijo_bruto - (fijo_bruto / 1.21)
+            iva_ads = ads_m - (ads_m / 1.21)
             
-            iva_pagar_m = iva_venta - (iva_compra + iva_comi + iva_flete + iva_fijo)
-            ganancia_real = pvp_neto - x_costo_fabrica - (comi_bruta / 1.21) - (flete_bruto / 1.21) - (fijo_bruto / 1.21) - iibb_m - gan_m - est_m - iva_pagar_m
+            iva_pagar_m = iva_venta - (iva_compra + iva_comi + iva_flete + iva_fijo + iva_ads)
+            ganancia_real = pvp_neto - x_costo_fabrica - (comi_bruta / 1.21) - (flete_bruto / 1.21) - (fijo_bruto / 1.21) - (ads_m / 1.21) - iibb_m - gan_m - est_m - iva_pagar_m
 
         rendimiento_real = (ganancia_real / y_pvp_venta) * 100
         card_style = "bg-ganancia" if ganancia_real >= 0 else "bg-loss"
@@ -300,7 +312,7 @@ with tab1:
         """, unsafe_allow_html=True)
 
     with col_right:
-        st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
+        st.markdown(render_desglose_html(x_costo_fabrica, y_pvp_venta, comi_bruta, flete_bruto, fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_real, rendimiento_real), unsafe_allow_html=True)
 
 # =========================================================
 # SOLAPA 2: PVP RECOMENDADO
@@ -315,6 +327,7 @@ with tab2:
         plan_selected_tab2 = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_tab2")
         t_finan_tab2 = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="c_fin_tab2") / 100 if plan_selected_tab2 == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_tab2] / 100
         peso_cat_tab2 = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_tab2")
+        mkt_ads_perc_2 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_2") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
         if costo_f_tab2 > 0:
@@ -325,12 +338,12 @@ with tab2:
 
                 if tipo_iva == "Monotributista":
                     costo_inc = costo_f_tab2 * (1 + t_iva_prod)
-                    denom = 1 - (t_comi_base + t_finan_tab2 + (t_iibb / (1 + t_iva_prod)) + t_estructura_fijo + margen_deseado_tab2)
+                    denom = 1 - (t_comi_base + t_finan_tab2 + (t_iibb / (1 + t_iva_prod)) + t_estructura_fijo + mkt_ads_perc_2 + margen_deseado_tab2)
                     if denom > 0: pvp_calc = (costo_inc + flete_bruto2 + fijo_bruto2) / denom
                 else:
                     factor_neto = 1 / (1 + t_iva_prod)
                     comi_f = (t_comi_base + t_finan_tab2)
-                    denom = factor_neto - comi_f - (t_iibb * factor_neto) - (t_ganancias_fijo * factor_neto) - t_estructura_fijo - margen_deseado_tab2
+                    denom = factor_neto - comi_f - (t_iibb * factor_neto) - (t_ganancias_fijo * factor_neto) - t_estructura_fijo - mkt_ads_perc_2 - margen_deseado_tab2
                     if denom > 0: pvp_calc = (costo_f_tab2 + flete_bruto2 + fijo_bruto2) / denom
 
             comi_bruta2 = pvp_calc * (t_comi_base + t_finan_tab2)
@@ -338,10 +351,11 @@ with tab2:
             iibb_m2 = pvp_neto2 * t_iibb
             gan_m2 = pvp_neto2 * t_ganancias_fijo
             est_m2 = pvp_calc * t_estructura_fijo
+            ads_m2 = pvp_calc * mkt_ads_perc_2
             
             iva_v2 = pvp_calc - pvp_neto2
             iva_c2 = costo_f_tab2 * t_iva_prod
-            iva_pagar2 = iva_v2 - (iva_c2 + (comi_bruta2 - comi_bruta2/1.21) + (flete_bruto2 - flete_bruto2/1.21) + (fijo_bruto2 - fijo_bruto2/1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
+            iva_pagar2 = iva_v2 - (iva_c2 + (comi_bruta2 - comi_bruta2/1.21) + (flete_bruto2 - flete_bruto2/1.21) + (fijo_bruto2 - fijo_bruto2/1.21) + (ads_m2 - ads_m2/1.21)) if tipo_iva == "Responsable Inscripto" else 0.0
             ganancia_neta2 = pvp_calc * margen_deseado_tab2
 
             st.markdown(f"""
@@ -360,7 +374,7 @@ with tab2:
 
     with col_right2:
         if costo_f_tab2 > 0:
-            st.markdown(render_desglose_html(costo_f_tab2, pvp_calc, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, iva_pagar2, ganancia_neta2, margen_deseado_tab2*100), unsafe_allow_html=True)
+            st.markdown(render_desglose_html(costo_f_tab2, pvp_calc, comi_bruta2, flete_bruto2, fijo_bruto2, iibb_m2, gan_m2, est_m2, ads_m2, iva_pagar2, ganancia_neta2, margen_deseado_tab2*100), unsafe_allow_html=True)
 
 # =========================================================
 # SOLAPA 3: ANALIZAR COSTO OBJETIVO
@@ -375,6 +389,7 @@ with tab3:
         plan_selected_obj = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_obj")
         t_finan_obj = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="c_fin_obj") / 100 if plan_selected_obj == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_obj] / 100
         peso_cat_obj = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_obj")
+        mkt_ads_perc_3 = st.number_input("% Inversión Mercado Ads (ACOS)", value=0.0, step=0.5, key="ads_3") / 100
         st.markdown("</div>", unsafe_allow_html=True)
 
         if pvp_target > 0:
@@ -386,17 +401,18 @@ with tab3:
             iibb_m3 = pvp_neto3 * t_iibb
             gan_m3 = pvp_neto3 * t_ganancias_fijo
             est_m3 = pvp_target * t_estructura_fijo
+            ads_m3 = pvp_target * mkt_ads_perc_3
             ganancia_neta3 = pvp_target * margen_target
 
             if tipo_iva == "Monotributista":
-                costo_max_inc = pvp_target - (ganancia_neta3 + comi_bruta3 + flete_bruto3 + fijo_bruto3 + iibb_m3 + est_m3)
+                costo_max_inc = pvp_target - (ganancia_neta3 + comi_bruta3 + flete_bruto3 + fijo_bruto3 + iibb_m3 + est_m3 + ads_m3)
                 costo_max_fabrica = costo_max_inc / (1 + t_iva_prod)
                 iva_pagar3 = 0.0
             else:
-                costo_max_fabrica = pvp_neto3 - comi_bruta3 - flete_bruto3 - fijo_bruto3 - iibb_m3 - gan_m3 - est_m3 - ganancia_neta3
+                costo_max_fabrica = pvp_neto3 - comi_bruta3 - flete_bruto3 - fijo_bruto3 - iibb_m3 - gan_m3 - est_m3 - ads_m3 - ganancia_neta3
                 iva_v3 = pvp_target - pvp_neto3
                 iva_c3 = costo_max_fabrica * t_iva_prod
-                iva_pagar3 = iva_v3 - (iva_c3 + (comi_bruta3 - comi_bruta3/1.21) + (flete_bruto3 - flete_bruto3/1.21) + (fijo_bruto3 - fijo_bruto3/1.21))
+                iva_pagar3 = iva_v3 - (iva_c3 + (comi_bruta3 - comi_bruta3/1.21) + (flete_bruto3 - flete_bruto3/1.21) + (fijo_bruto3 - fijo_bruto3/1.21) + (ads_m3 - ads_m3/1.21))
 
             st.markdown(f"""
             <div style="display: flex; gap: 10px; margin-top: 15px;">
@@ -415,4 +431,4 @@ with tab3:
 
     with col_right3:
         if pvp_target > 0:
-            st.markdown(render_desglose_html(costo_max_fabrica, pvp_target, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, iva_pagar3, ganancia_neta3, margen_target*100), unsafe_allow_html=True)
+            st.markdown(render_desglose_html(costo_max_fabrica, pvp_target, comi_bruta3, flete_bruto3, fijo_bruto3, iibb_m3, gan_m3, est_m3, ads_m3, iva_pagar3, ganancia_neta3, margen_target*100), unsafe_allow_html=True)
