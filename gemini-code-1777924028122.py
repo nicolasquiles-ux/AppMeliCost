@@ -1,7 +1,9 @@
 import streamlit as st
+import requests
+import re
 
 # Versión del sistema
-V_NUMBER = "27.0"
+V_NUMBER = "28.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -63,6 +65,47 @@ nq_main_color = "#2B3E4F"
 nq_green = "#1E8449"       
 nq_gold = "#BFA100"        
 gray_bg = "#F8FAFC"        
+
+# =========================================================
+# FUNCIÓN API MERCADO LIBRE
+# =========================================================
+def consultar_api_mercadolibre(link_o_mla):
+    match = re.search(r'MLA-?(\d+)', link_o_mla, re.IGNORECASE)
+    if not match:
+        return None, "Link o ID MLA no válido. Ejemplo: MLA1428593851 o enlace de la publicación."
+    
+    item_id = f"MLA{match.group(1)}"
+    url = f"https://api.mercadolibre.com/items/{item_id}"
+    
+    try:
+        res = requests.get(url, timeout=6)
+        if res.status_code == 200:
+            data = res.json()
+            pvp = data.get("price", 0.0)
+            title = data.get("title", "")
+            listing_type_id = data.get("listing_type_id", "gold_special")
+            shipping = data.get("shipping", {})
+            logistic_type = shipping.get("logistic_type", "default")
+            
+            modalidad = "Mercado Envíos Tradicional (ME2)"
+            if logistic_type == "fulfillment":
+                modalidad = "Mercado Envíos Full"
+            elif logistic_type == "self_service":
+                modalidad = "Mercado Envíos Flex"
+                
+            is_premium = listing_type_id == "gold_pro"
+            
+            return {
+                "item_id": item_id,
+                "title": title,
+                "pvp": float(pvp),
+                "is_premium": is_premium,
+                "modalidad": modalidad
+            }, None
+        else:
+            return None, f"No se encontró la publicación en Mercado Libre (Código HTTP {res.status_code})."
+    except Exception as e:
+        return None, f"Error de conexión con la API de MeLi: {str(e)}"
 
 # =========================================================
 # INYECCIÓN DE CSS SEGURO
@@ -160,7 +203,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # =========================================================
-# ENCABEZADO CORPORATIVO
+# ENCABEZADO CORPORATIVO Y MÓDULO API MELI
 # =========================================================
 st.markdown(f"""
     <div class="nq-header-container">
@@ -173,6 +216,26 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
+
+# --- BARRA DE IMPORTACIÓN DESDE API MELI ---
+with st.expander("🔍 **IMPORTAR PUBLICACIÓN DIRECTO DESDE MERCADO LIBRE (LINK O MLA)**", expanded=False):
+    c_api1, c_api2 = st.columns([3, 1])
+    with c_api1:
+        input_meli_link = st.text_input("Pega el Link o ID MLA (Ej: https://articulo.mercadolibre.com.ar/MLA-1428593851... o MLA1428593851)", key="input_api_meli")
+    with c_api2:
+        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+        btn_importar = st.button("🚀 Cargar de MeLi", use_container_width=True)
+        
+    if btn_importar and input_meli_link:
+        data_item, error_msg = consultar_api_mercadolibre(input_meli_link)
+        if error_msg:
+            st.error(f"❌ {error_msg}")
+        else:
+            st.session_state['fetched_pvp'] = data_item['pvp']
+            st.session_state['fetched_title'] = data_item['title']
+            st.session_state['fetched_modalidad'] = data_item['modalidad']
+            st.session_state['fetched_is_premium'] = data_item['is_premium']
+            st.success(f"✅ Cargado: **{data_item['title']}** | PVP: **${data_item['pvp']:,.2f}** | Logística: **{data_item['modalidad']}**")
 
 # =========================================================
 # CONTROL FISCAL Y CONFIGURACIÓN GENERAL
@@ -321,11 +384,22 @@ with tab1:
         x_costo_fabrica = precio_lista_1 * (1 - desc_prov_perc_1)
         st.caption(f"💡 Costo Real de Compra Neto: **${x_costo_fabrica:,.2f}**")
 
-        y_pvp_venta = st.number_input("PVP Publicado en MeLi (Y) ($)", value=115000.0, step=1000.0, key="y_pvp_k")
-        plan_selected_x = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_x_k")
+        default_pvp_1 = st.session_state.get('fetched_pvp', 115000.0)
+        y_pvp_venta = st.number_input("PVP Publicado en MeLi (Y) ($)", value=float(default_pvp_1), step=1000.0, key="y_pvp_k")
+        
+        default_plan_idx = 0
+        if st.session_state.get('fetched_is_premium', False):
+            default_plan_idx = 2 # 3 Cuotas Mismo Precio
+            
+        plan_selected_x = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=default_plan_idx, key="plan_x_k")
         t_finan_val_x = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="custom_fin_x") / 100 if plan_selected_x == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_x] / 100
         
-        modalidad_log_1 = st.selectbox("Modalidad Logística", ["Mercado Envíos Tradicional (ME2)", "Mercado Envíos Flex", "Mercado Envíos Full"], index=0, key="log_1")
+        default_log_idx = 0
+        fetched_log = st.session_state.get('fetched_modalidad', None)
+        if fetched_log == "Mercado Envíos Flex": default_log_idx = 1
+        elif fetched_log == "Mercado Envíos Full": default_log_idx = 2
+        
+        modalidad_log_1 = st.selectbox("Modalidad Logística", ["Mercado Envíos Tradicional (ME2)", "Mercado Envíos Flex", "Mercado Envíos Full"], index=default_log_idx, key="log_1")
         peso_cat_x = st.selectbox("Peso Correo Tabla", peso_list, index=13, key="peso_x_k")
         
         costo_moto_1, reemb_flex_1, full_unit_1, full_stor_1 = 0.0, 0.0, 0.0, 0.0
@@ -476,7 +550,8 @@ with tab3:
     
     with col_left3:
         st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
-        pvp_target = st.number_input("PVP Mercado Objetivo ($)", value=115000.0, step=1000.0, key="pvp_obj")
+        default_pvp_3 = st.session_state.get('fetched_pvp', 115000.0)
+        pvp_target = st.number_input("PVP Mercado Objetivo ($)", value=float(default_pvp_3), step=1000.0, key="pvp_obj")
         margen_target = st.number_input("% Margen Neto Pretendido", value=10.0, step=0.5, key="m_obj") / 100
         plan_selected_obj = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_obj")
         t_finan_obj = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="c_fin_obj") / 100 if plan_selected_obj == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_obj] / 100
@@ -550,10 +625,15 @@ with tab4:
         st.markdown(f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color:#2B3E4F; font-size:1.0rem; font-weight:800; margin-bottom:10px;'>🕵️ Parámetros de la Publicación Competidora</h4>", unsafe_allow_html=True)
         
-        pvp_competidor = st.number_input("PVP Publicado por el Competidor ($)", value=115000.0, step=1000.0, key="pvp_comp")
+        default_pvp_4 = st.session_state.get('fetched_pvp', 115000.0)
+        pvp_competidor = st.number_input("PVP Publicado por el Competidor ($)", value=float(default_pvp_4), step=1000.0, key="pvp_comp")
         mi_costo_actual = st.number_input("Mi Costo Fábrica Actual SIN IVA ($)", value=70392.83, step=1000.0, key="mi_costo_comp")
         
-        plan_comp = st.selectbox("Plan Cuotas del Competidor", list(FINANCIACION_PRESETS.keys()), index=0, key="plan_comp_k")
+        default_plan_comp_idx = 0
+        if st.session_state.get('fetched_is_premium', False):
+            default_plan_comp_idx = 2
+            
+        plan_comp = st.selectbox("Plan Cuotas del Competidor", list(FINANCIACION_PRESETS.keys()), index=default_plan_comp_idx, key="plan_comp_k")
         t_finan_comp = st.number_input("% Tasa Custom Competidor", value=0.0, step=0.1, key="c_fin_comp") / 100 if plan_comp == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_comp] / 100
         
         reputacion_comp = st.selectbox("Reputación del Competidor", list(REPUTACION_DESCUENTOS.keys()), index=0, key="rep_comp_k")
