@@ -1383,90 +1383,31 @@ with tab4:
       )
 
 # =========================================================
-# SOLAPA 5: PROCESAMIENTO MASIVO (UPLOAD LOTE)
+# SOLAPA 5: PROCESAMIENTO MASIVO (AUTOMÁTICO DESDE ARCHIVO)
 # =========================================================
 with tab5:
   st.subheader("📥 Carga Masiva de SKUs y Cálculo de Matriz")
   st.write(
-      "Subí tu archivo Excel (`.xlsx`) o CSV con el catálogo para procesar"
-      " masivamente los escenarios de publicación y PVP sugeridos."
+      "Subí tu archivo CSV o Excel. El sistema procesará las variables"
+      " dinámicamente desde tus columnas y generará todas las variantes"
+      " de publicación."
   )
 
-  opciones_peso_masivo = {
-      "Hasta 0,3 kg": "Hasta 0,3 kg",
-      "De 0,3 a 0,5 kg": "De 0,3 a 0,5 kg",
-      "De 0,5 a 1 kg": "De 0,5 a 1 kg",
-      "De 1 a 1,5 kg": "De 1 a 1,5 kg",
-      "De 1,5 a 2 kg": "De 1,5 a 2 kg",
-      "De 2 a 3 kg": "De 2 a 3 kg",
-      "De 3 a 4 kg": "De 3 a 4 kg",
-      "De 4 a 5 kg": "De 4 a 5 kg",
-      "De 5 a 8 kg": "De 5 a 8 kg",
-      "De 8 a 10 kg": "De 8 a 10 kg",
-      "De 10 a 13 kg": "De 10 a 13 kg",
-      "De 13 a 15 kg": "De 13 a 15 kg",
-      "De 15 a 20 kg": "De 15 a 20 kg",
-      "De 20 a 25 kg": "De 20 a 25 kg",
-      "De 25 a 30 kg": "De 25 a 30 kg",
-      "De 30 a 40 kg": "De 30 a 40 kg",
-  }
-
-  col_m1, col_m2, col_m3 = st.columns(3)
-  with col_m1:
+  c_m1, c_m2 = st.columns(2)
+  with c_m1:
     margen_global_m = (
         st.number_input(
             "% Margen Neto Objetivo Global",
-            min_value=0.0,
-            max_value=100.0,
             value=10.0,
             step=0.5,
             key="m_glob_m",
         )
         / 100
     )
-  with col_m2:
-    recargo_3c_m = (
-        st.number_input(
-            "% Recargo Tasa 3 Cuotas",
-            min_value=0.0,
-            max_value=100.0,
-            value=8.40,
-            step=0.1,
-            key="r3c_m",
-        )
-        / 100
-    )
-  with col_m3:
-    recargo_6c_m = (
-        st.number_input(
-            "% Recargo Tasa 6 Cuotas",
-            min_value=0.0,
-            max_value=100.0,
-            value=12.30,
-            step=0.1,
-            key="r6c_m",
-        )
-        / 100
-    )
-
-  col_m4, col_m5 = st.columns(2)
-  with col_m4:
-    peso_defecto_str = st.selectbox(
-        "Peso por Defecto (si no está especificado)",
-        options=list(opciones_peso_masivo.keys()),
-        index=4,
-        key="p_def_m",
-    )
-  with col_m5:
-    modalidad_defecto_str = st.selectbox(
-        "Modalidad Logística por Defecto",
-        [
-            "Mercado Envíos Tradicional (ME2)",
-            "Mercado Envíos Flex",
-            "Mercado Envíos Full",
-        ],
-        index=0,
-        key="m_def_m",
+  with c_m2:
+    st.info(
+        "💡 **Tasas aplicadas en la matriz:** Clásica (0%) | 3C (8.4%) | 6C"
+        " (12.3%) | 9C (15.7%) | 12C (19.2%)"
     )
 
   archivo_subido = st.file_uploader(
@@ -1475,114 +1416,174 @@ with tab5:
       key="uploader_masivo_tab5",
   )
 
-  def procesar_matriz_df(
-      df, margen_neto, tasa_3c, tasa_6c, peso_defecto, modalidad_defecto
-  ):
+  def mapear_peso_categoria(val):
+    """Mapea pesos numéricos o cadenas del CSV a las categorías oficiales de MeLi."""
+    if pd.isna(val):
+      return "De 1,5 a 2 kg"
+    val_str = str(val).lower().replace(",", ".").strip()
+    try:
+      # Extraer número de peso en kg
+      num_peso = float(re.findall(r"[-+]?\d*\.\d+|\d+", val_str)[0])
+      if num_peso <= 0.3:
+        return "Hasta 0,3 kg"
+      elif num_peso <= 0.5:
+        return "De 0,3 a 0,5 kg"
+      elif num_peso <= 1.0:
+        return "De 0,5 a 1 kg"
+      elif num_peso <= 1.5:
+        return "De 1 a 1,5 kg"
+      elif num_peso <= 2.0:
+        return "De 1,5 a 2 kg"
+      elif num_peso <= 3.0:
+        return "De 2 a 3 kg"
+      elif num_peso <= 5.0:
+        return "De 4 a 5 kg"
+      elif num_peso <= 10.0:
+        return "De 8 a 10 kg"
+      elif num_peso <= 20.0:
+        return "De 15 a 20 kg"
+      elif num_peso <= 30.0:
+        return "De 25 a 30 kg"
+      else:
+        return "De 30 a 40 kg"
+    except Exception:
+      return "De 1,5 a 2 kg"
+
+  def mapear_modalidad(val):
+    """Mapea tipos de flete/logística del archivo."""
+    if pd.isna(val):
+      return "Mercado Envíos Tradicional (ME2)"
+    v = str(val).lower().strip()
+    if "flex" in v or "m2" in v:
+      return "Mercado Envíos Flex"
+    elif "full" in v or "m3" in v:
+      return "Mercado Envíos Full"
+    return "Mercado Envíos Tradicional (ME2)"
+
+  def procesar_matriz_df(df, margen_neto):
     data = df.copy()
 
-    # Sanitización de datos
-    if "Costo_Base" in data.columns:
-      data["Costo_Base"] = pd.to_numeric(
-          data["Costo_Base"], errors="coerce"
-      ).fillna(0.0)
-    elif "Costo" in data.columns:
-      data["Costo_Base"] = pd.to_numeric(
-          data["Costo"], errors="coerce"
-      ).fillna(0.0)
-    else:
-      data["Costo_Base"] = 0.0
+    # Detectar dinámicamente columnas sin importar mayúsculas/minúsculas
+    col_map = {col.lower().strip(): col for col in data.columns}
 
-    if "Peso_Categoria" not in data.columns:
-      data["Peso_Categoria"] = peso_defecto
-    else:
-      data["Peso_Categoria"] = (
-          data["Peso_Categoria"].fillna(peso_defecto).astype(str)
+    # 1. Costo Base
+    col_costo = next(
+        (col_map[k] for k in col_map if "costo" in k or "price" in k), None
+    )
+    if col_costo:
+      data["Costo_Base_Limpio"] = (
+          pd.to_numeric(
+              data[col_costo]
+              .astype(str)
+              .str.replace(",", ".")
+              .str.replace("$", ""),
+              errors="coerce",
+          )
+          .fillna(0.0)
       )
-
-    if "Modalidad" not in data.columns:
-      data["Modalidad"] = modalidad_defecto
     else:
-      data["Modalidad"] = data["Modalidad"].fillna(modalidad_defecto).astype(str)
+      data["Costo_Base_Limpio"] = 0.0
 
-    pvp_clasica_sin_envio = []
-    pvp_clasica_con_envio = []
-    pvp_premium_3c = []
-    pvp_premium_6c = []
+    # 2. Peso
+    col_peso = next(
+        (col_map[k] for k in col_map if "peso" in k or "weight" in k), None
+    )
+    data["Peso_Cat_Mapeado"] = (
+        data[col_peso].apply(mapear_peso_categoria)
+        if col_peso
+        else "De 1,5 a 2 kg"
+    )
+
+    # 3. Modalidad
+    col_flete = next(
+        (
+            col_map[k]
+            for k in col_map
+            if "flete" in k or "modalidad" in k or "tipo" in k
+        ),
+        None,
+    )
+    data["Modalidad_Mapeada"] = (
+        data[col_flete].apply(mapear_modalidad)
+        if col_flete
+        else "Mercado Envíos Tradicional (ME2)"
+    )
+
+    # Diccionario de Planes / Tasas
+    tasas_variantes = {
+        "PVP_Clasica_SinEnvio": (0.0, "ME1"),
+        "PVP_Clasica_ConEnvio": (0.0, "AUTO"),
+        "PVP_Premium_3Cuotas": (0.084, "AUTO"),
+        "PVP_Premium_6Cuotas": (0.123, "AUTO"),
+        "PVP_Premium_9Cuotas": (0.157, "AUTO"),
+        "PVP_Premium_12Cuotas": (0.192, "AUTO"),
+    }
+
+    resultados = {k: [] for k in tasas_variantes.keys()}
 
     for _, row in data.iterrows():
-      c_base = row["Costo_Base"]
-      peso_cat = row["Peso_Categoria"]
-      mod_log = row["Modalidad"]
+      c_base = row["Costo_Base_Limpio"]
+      peso_cat = row["Peso_Cat_Mapeado"]
+      mod_log = row["Modalidad_Mapeada"]
 
       if c_base <= 0:
-        pvp_clasica_sin_envio.append(0.0)
-        pvp_clasica_con_envio.append(0.0)
-        pvp_premium_3c.append(0.0)
-        pvp_premium_6c.append(0.0)
+        for var in tasas_variantes:
+          resultados[var].append(0.0)
         continue
 
-      # 1. Clásica Sin Envío Gratis
-      p_c_se = calcular_pvp_recomendado_func(
-          c_base, margen_neto, 0.0, "ME1", peso_cat, 0.0, 0.0, 0.0, 0.0
-      )
-      # 2. Clásica Con Envío Gratis
-      p_c_ce = calcular_pvp_recomendado_func(
-          c_base, margen_neto, 0.0, mod_log, peso_cat, 0.0, 0.0, 0.0, 0.0
-      )
-      # 3. Premium 3 Cuotas
-      p_p_3c = calcular_pvp_recomendado_func(
-          c_base, margen_neto, tasa_3c, mod_log, peso_cat, 0.0, 0.0, 0.0, 0.0
-      )
-      # 4. Premium 6 Cuotas
-      p_p_6c = calcular_pvp_recomendado_func(
-          c_base, margen_neto, tasa_6c, mod_log, peso_cat, 0.0, 0.0, 0.0, 0.0
-      )
+      for var, (tasa, modo) in tasas_variantes.items():
+        log_final = mod_log if modo == "AUTO" else "ME1"
+        pvp_calc = calcular_pvp_recomendado_func(
+            costo_f=c_base,
+            margen_deseado=margen_neto,
+            t_finan=tasa,
+            modalidad_log=log_final,
+            peso_cat=peso_cat,
+            costo_moto=0.0,
+            reemb_flex=0.0,
+            full_unit=0.0,
+            full_stor=0.0,
+        )
+        resultados[var].append(pvp_calc)
 
-      pvp_clasica_sin_envio.append(p_c_se)
-      pvp_clasica_con_envio.append(p_c_ce)
-      pvp_premium_3c.append(p_p_3c)
-      pvp_premium_6c.append(p_p_6c)
+    for var, list_values in resultados.items():
+      data[var] = list_values
 
-    data["PVP_Clasica_SinEnvio"] = pvp_clasica_sin_envio
-    data["PVP_Clasica_ConEnvio"] = pvp_clasica_con_envio
-    data["PVP_Premium_3Cuotas"] = pvp_premium_3c
-    data["PVP_Premium_6Cuotas"] = pvp_premium_6c
-
+    # Eliminar columnas auxiliares internas para limpiar vista
+    data.drop(
+        columns=["Costo_Base_Limpio", "Peso_Cat_Mapeado", "Modalidad_Mapeada"],
+        inplace=True,
+        errors="ignore",
+    )
     return data
 
   if archivo_subido is not None:
     try:
+      # Detección automática de delimitador para CSV (coma o punto y coma)
       if archivo_subido.name.endswith(".csv"):
-        df_input = pd.read_csv(archivo_subido)
+        try:
+          df_input = pd.read_csv(archivo_subido, sep=";")
+          if df_input.shape[1] == 1:  # Probamos con coma si no separó nada
+            archivo_subido.seek(0)
+            df_input = pd.read_csv(archivo_subido, sep=",")
+        except Exception:
+          archivo_subido.seek(0)
+          df_input = pd.read_csv(archivo_subido, sep=None, engine="python")
       else:
         df_input = pd.read_excel(archivo_subido)
 
-      df_resultado = procesar_matriz_df(
-          df_input,
-          margen_global_m,
-          recargo_3c_m,
-          recargo_6c_m,
-          peso_defecto_str,
-          modalidad_defecto_str,
-      )
+      df_resultado = procesar_matriz_df(df_input, margen_global_m)
 
-      st.success("¡Catálogo procesado exitosamente!")
+      st.success("✅ ¡Catálogo procesado y mapeado exitosamente!")
       st.dataframe(df_resultado, use_container_width=True)
 
-      output = io.BytesIO()
-      with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_resultado.to_excel(
-            writer, index=False, sheet_name="Matriz_Precios_NQ"
-        )
-      data_excel = output.getvalue()
+      data_csv = df_resultado.to_csv(index=False, sep=";").encode("utf-8-sig")
 
       st.download_button(
-          label="📥 Descargar Matriz Calculada (.xlsx)",
-          data=data_excel,
-          file_name=f"matriz_precios_NQ_v{V_NUMBER}.xlsx",
-          mime=(
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          ),
+          label="📥 Descargar Matriz Completa (.csv)",
+          data=data_csv,
+          file_name=f"matriz_precios_NQ_v{V_NUMBER}.csv",
+          mime="text/csv",
       )
     except Exception as e:
       st.error(f"Error al procesar el archivo masivo: {str(e)}")
