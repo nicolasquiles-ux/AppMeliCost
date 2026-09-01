@@ -1,9 +1,11 @@
 import streamlit as st
+import pandas as pd
 import requests
 import re
+import io
 
 # Versión del sistema
-V_NUMBER = "28.0"
+V_NUMBER = "29.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide")
@@ -284,6 +286,23 @@ def calcular_flete_segun_modalidad(pvp_evaluado, peso_categoria, modalidad, cost
             base = TABLA_ME2_BASE.get(peso_categoria, [0.0, 0.0, 0.0])[2]
         return base * factor_reputacion
 
+def calcular_pvp_recomendado_func(costo_f, margen_deseado, t_finan, modalidad_log, peso_cat, costo_moto, reemb_flex, full_unit, full_stor):
+    pvp_calc = costo_f * 2.0
+    for _ in range(10):
+        flete_b = calcular_flete_segun_modalidad(pvp_calc, peso_cat, modalidad_log, costo_moto, reemb_flex, full_unit, full_stor)
+        fijo_b = CARGO_FIJO_MELI if pvp_calc < UMBRAL_ENVIO_GRATIS else 0.0
+
+        if tipo_iva == "Monotributista":
+            costo_inc = costo_f * (1 + t_iva_prod)
+            denom = 1 - (t_comi_base + t_finan + (t_iibb / (1 + t_iva_prod)) + margen_deseado)
+            if denom > 0: pvp_calc = (costo_inc + flete_b + fijo_b) / denom
+        else:
+            factor_neto = 1 / (1 + t_iva_prod)
+            comi_f = (t_comi_base + t_finan)
+            denom = factor_neto - comi_f - (t_iibb * factor_neto) - (t_ganancias_fijo * factor_neto) - margen_deseado
+            if denom > 0: pvp_calc = (costo_f + flete_b + fijo_b) / denom
+    return round(pvp_calc, 2)
+
 def render_desglose_html(costo_fabrica_neto, pvp, comi_m_bruta, flete_bruto, cargo_fijo_bruto, iibb_m, gan_m, est_m, ads_m, iva_pagar_m, ganancia_neta, margen_pct, modalidad_log, titulo_costo_prod="Costo Fábrica (Sin IVA)"):
     pvp_neto = pvp / (1 + t_iva_prod)
     costo_total = pvp - ganancia_neta
@@ -364,11 +383,12 @@ def render_indicadores_nativos(costo_fabrica, comi_bruta, flete_bruto, cargo_fij
     st.progress(min(max(pct_ganancia / 100, 0.0), 1.0))
 
 # --- TABS ---
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 REALIDAD REAL (Compro a X y Vendo a Y)", 
     "☝️ CALCULAR PVP RECOMENDADO (Fábrica -> Venta)", 
     "🎯 ANALIZAR COSTO OBJETIVO (Venta -> Fábrica)",
-    "🕵️ INGENIERÍA INVERSA (Analizar Competidor)"
+    "🕵️ INGENIERÍA INVERSA (Analizar Competidor)",
+    "📁 PROCESAMIENTO MASIVO (Upload SKU / Lote)"
 ])
 
 # =========================================================
@@ -389,7 +409,7 @@ with tab1:
         
         default_plan_idx = 0
         if st.session_state.get('fetched_is_premium', False):
-            default_plan_idx = 2 # 3 Cuotas Mismo Precio
+            default_plan_idx = 2
             
         plan_selected_x = st.selectbox("Plan Financiamiento / Cuotas", list(FINANCIACION_PRESETS.keys()), index=default_plan_idx, key="plan_x_k")
         t_finan_val_x = st.number_input("% Tasa Custom", value=0.0, step=0.1, key="custom_fin_x") / 100 if plan_selected_x == "Personalizado (Manual)" else FINANCIACION_PRESETS[plan_selected_x] / 100
@@ -494,21 +514,10 @@ with tab2:
         st.markdown("</div>", unsafe_allow_html=True)
 
         if costo_f_tab2 > 0:
-            pvp_calc = costo_f_tab2 * 2.0
-            for _ in range(10):
-                flete_bruto2 = calcular_flete_segun_modalidad(pvp_calc, peso_cat_tab2, modalidad_log_2, costo_moto_2, reemb_flex_2, full_unit_2, full_stor_2)
-                fijo_bruto2 = CARGO_FIJO_MELI if pvp_calc < UMBRAL_ENVIO_GRATIS else 0.0
+            pvp_calc = calcular_pvp_recomendado_func(costo_f_tab2, margen_deseado_tab2 + mkt_ads_perc_2 + costo_est_perc_2, t_finan_tab2, modalidad_log_2, peso_cat_tab2, costo_moto_2, reemb_flex_2, full_unit_2, full_stor_2)
 
-                if tipo_iva == "Monotributista":
-                    costo_inc = costo_f_tab2 * (1 + t_iva_prod)
-                    denom = 1 - (t_comi_base + t_finan_tab2 + (t_iibb / (1 + t_iva_prod)) + costo_est_perc_2 + mkt_ads_perc_2 + margen_deseado_tab2)
-                    if denom > 0: pvp_calc = (costo_inc + flete_bruto2 + fijo_bruto2) / denom
-                else:
-                    factor_neto = 1 / (1 + t_iva_prod)
-                    comi_f = (t_comi_base + t_finan_tab2)
-                    denom = factor_neto - comi_f - (t_iibb * factor_neto) - (t_ganancias_fijo * factor_neto) - costo_est_perc_2 - mkt_ads_perc_2 - margen_deseado_tab2
-                    if denom > 0: pvp_calc = (costo_f_tab2 + flete_bruto2 + fijo_bruto2) / denom
-
+            flete_bruto2 = calcular_flete_segun_modalidad(pvp_calc, peso_cat_tab2, modalidad_log_2, costo_moto_2, reemb_flex_2, full_unit_2, full_stor_2)
+            fijo_bruto2 = CARGO_FIJO_MELI if pvp_calc < UMBRAL_ENVIO_GRATIS else 0.0
             comi_bruta2 = pvp_calc * (t_comi_base + t_finan_tab2)
             pvp_neto2 = pvp_calc / (1 + t_iva_prod)
             iibb_m2 = pvp_neto2 * t_iibb
@@ -692,3 +701,93 @@ with tab4:
     with col_right4:
         if pvp_comp > 0:
             st.markdown(render_desglose_html(costo_est_comp_neto, pvp_comp, comi_bruta4, flete_bruto4, fijo_bruto4, iibb_m4, gan_m4, 0.0, ads_m4, iva_pagar4, ganancia_neta4, est_margen_comp*100, modalidad_log_4, "Costo Fábrica Estimado Competidor"), unsafe_allow_html=True)
+
+# =========================================================
+# SOLAPA 5: PROCESAMIENTO MASIVO (NEW IN V29)
+# =========================================================
+with tab5:
+    st.markdown("### 📁 Carga Masiva de SKUs y Cálculo Automático de Matriz de Precios")
+    st.markdown("Subí tu archivo Excel (.xlsx) o CSV con el catálogo. El sistema procesará los costos y generará los **4 escenarios de PVP sugeridos** para cada producto.")
+
+    col_m1, col_m2 = st.columns([1, 1])
+    with col_m1:
+        margen_batch = st.number_input("% Margen Neto Objetivo Global", value=10.0, step=0.5, key="m_batch") / 100
+        peso_cat_batch = st.selectbox("Peso Correo por Defecto (si no está especificado)", peso_list, index=13, key="peso_batch")
+    with col_m2:
+        tasa_3cuotas_custom = st.number_input("% Recargo Tasa 3 Cuotas (Premium)", value=8.4, step=0.1, key="t3c_batch") / 100
+        tasa_1cuota_custom = 0.0
+
+    uploaded_file = st.file_uploader("Arrastrá tu archivo Excel o CSV aquí", type=["xlsx", "csv"])
+
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                df_input = pd.read_csv(uploaded_file)
+            else:
+                df_input = pd.read_excel(uploaded_file)
+
+            st.write("📋 **Vista previa del archivo cargado:**", df_input.head())
+
+            # Normalizar nombres de columnas
+            cols_map = {c: c.strip().lower() for c in df_input.columns}
+            df_input.rename(columns=cols_map, inplace=True)
+
+            col_sku = next((c for c in df_input.columns if 'sku' in c or 'codigo' in c or 'código' in c), None)
+            col_costo = next((c for c in df_input.columns if 'costo' in c or 'precio_fabrica' in c or 'base' in c), None)
+            col_flete = next((c for c in df_input.columns if 'flete' in c or 'envio' in c or 'envío' in c), None)
+
+            if not col_sku or not col_costo:
+                st.error("❌ El archivo debe contener al menos las columnas 'SKU' y 'Costo'.")
+            else:
+                if st.button("🚀 PROCESAR MATRIZ DE PRECIOS COMPLETA", use_container_width=True):
+                    resultados = []
+
+                    for idx, row in df_input.iterrows():
+                        sku_val = row[col_sku]
+                        costo_val = float(row[col_costo]) if pd.notnull(row[col_costo]) else 0.0
+                        flete_val = float(row[col_flete]) if col_flete and pd.notnull(row[col_flete]) else 0.0
+
+                        if costo_val > 0:
+                            # 1. PVP 1 Cuota - Sin Envío Gratis
+                            pvp_1c_sin_envio = calcular_pvp_recomendado_func(costo_val, margen_batch, tasa_1cuota_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+                            
+                            # 2. PVP 1 Cuota - Con Envío Gratis (Incorproando costo de flete)
+                            pvp_1c_con_envio = calcular_pvp_recomendado_func(costo_val + flete_val, margen_batch, tasa_1cuota_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                            # 3. PVP 3 Cuotas - Sin Envío Gratis
+                            pvp_3c_sin_envio = calcular_pvp_recomendado_func(costo_val, margen_batch, tasa_3cuotas_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                            # 4. PVP 3 Cuotas - Con Envío Gratis
+                            pvp_3c_con_envio = calcular_pvp_recomendado_func(costo_val + flete_val, margen_batch, tasa_3cuotas_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                            resultados.append({
+                                "SKU": sku_val,
+                                "Costo Fábrica ($)": costo_val,
+                                "Flete Directo ($)": flete_val,
+                                "PVP 1 Cuota (Sin Envío)": pvp_1c_sin_envio,
+                                "PVP 1 Cuota (Con Envío)": pvp_1c_con_envio,
+                                "PVP 3 Cuotas (Sin Envío)": pvp_3c_sin_envio,
+                                "PVP 3 Cuotas (Con Envío)": pvp_3c_con_envio
+                            })
+
+                    df_res = pd.DataFrame(resultados)
+                    st.success("✅ ¡Procesamiento completado con éxito!")
+                    st.dataframe(df_res, use_container_width=True)
+
+                    # Botón para descargar Excel
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df_res.to_excel(writer, index=False, sheet_name='PVP_Sugeridos')
+                    
+                    st.download_button(
+                        label="📥 DESCARGAR REPORTES EN EXCEL",
+                        data=output.getvalue(),
+                        file_name=f"Matriz_Precios_NQ_v{V_NUMBER}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+        except Exception as e:
+            st.error(f"Error al procesar el archivo: {str(e)}")
+    else:
+        st.info("💡 Podés descargar una plantilla de prueba con las columnas: `SKU`, `Costo`, `Flete`")
