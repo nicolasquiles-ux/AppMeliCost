@@ -690,3 +690,122 @@ with tab4:
                 </div>
                 <div class="banner-card bg-costo" style="flex:1;">
                     <span class="label-banner">Costo Fábrica Estimado</span>
+                    <span class="price-main">${costo_est_comp_neto:,.2f}</span>
+                    <span class="badge-banner">Sin IVA</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            render_indicadores_nativos(costo_est_comp_neto, comi_bruta4, flete_bruto4, fijo_bruto4, iibb_m4, gan_m4, 0.0, ads_m4, iva_pagar4, ganancia_neta4, pvp_comp)
+
+    with col_right4:
+        if pvp_comp > 0:
+            st.markdown(render_desglose_html(costo_est_comp_neto, pvp_comp, comi_bruta4, flete_bruto4, fijo_bruto4, iibb_m4, gan_m4, 0.0, ads_m4, iva_pagar4, ganancia_neta4, est_margen_comp*100, modalidad_log_4, "Costo Fábrica Estimado Competidor"), unsafe_allow_html=True)
+
+# =========================================================
+# SOLAPA 5: PROCESAMIENTO MASIVO (MEJORADO EN V29.1)
+# =========================================================
+with tab5:
+    st.markdown("### 📁 Carga Masiva de SKUs y Cálculo Automático de Matriz de Precios")
+    st.markdown("Subí tu archivo Excel (`.xlsx`) o CSV con el catálogo. El sistema procesará los costos y generará los **4 escenarios de PVP sugeridos** para cada producto.")
+
+    col_m1, col_m2 = st.columns([1, 1])
+    with col_m1:
+        margen_batch = st.number_input("% Margen Neto Objetivo Global", value=10.0, step=0.5, key="m_batch") / 100
+        peso_cat_batch = st.selectbox("Peso Correo por Defecto (si no está especificado)", peso_list, index=13, key="peso_batch")
+    with col_m2:
+        tasa_3cuotas_custom = st.number_input("% Recargo Tasa 3 Cuotas (Premium)", value=8.4, step=0.1, key="t3c_batch") / 100
+        tasa_1cuota_custom = 0.0
+
+    uploaded_file = st.file_uploader("Arrastrá tu archivo Excel o CSV aquí", type=["xlsx", "csv"])
+
+    if uploaded_file is not None:
+        try:
+            df_input = None
+            
+            # --- LECTURA RUSTICA Y MULTIFORMATO SEGURO ---
+            if uploaded_file.name.endswith('.csv'):
+                # Intenta auto-detectar separadores comunes (;, , o tab)
+                content = uploaded_file.getvalue().decode('utf-8', errors='ignore')
+                sep_detected = ';' if ';' in content.split('\n')[0] else (',' if ',' in content.split('\n')[0] else '\t')
+                uploaded_file.seek(0)
+                df_input = pd.read_csv(uploaded_file, sep=sep_detected)
+            else:
+                try:
+                    df_input = pd.read_excel(uploaded_file)
+                except Exception as openpyxl_err:
+                    st.error("⚠️ Falta la librería 'openpyxl' en el servidor para leer archivos .xlsx. Por favor guarda/exporta tu archivo como formato **CSV** e intentalo de nuevo.")
+                    st.stop()
+
+            if df_input is not None:
+                st.write("📋 **Vista previa del archivo cargado:**", df_input.head())
+
+                # Normalizar nombres de columnas
+                cols_map = {c: str(c).strip().lower() for c in df_input.columns}
+                df_input.rename(columns=cols_map, inplace=True)
+
+                col_sku = next((c for c in df_input.columns if 'sku' in c or 'codigo' in c or 'código' in c or 'articulo' in c), None)
+                col_costo = next((c for c in df_input.columns if 'costo' in c or 'precio' in c or 'base' in c), None)
+                col_flete = next((c for c in df_input.columns if 'flete' in c or 'envio' in c or 'envío' in c), None)
+
+                if not col_sku or not col_costo:
+                    st.error("❌ El archivo debe contener al menos las columnas 'SKU' y 'Costo'.")
+                else:
+                    if st.button("🚀 PROCESAR MATRIZ DE PRECIOS COMPLETA", use_container_width=True):
+                        resultados = []
+
+                        for idx, row in df_input.iterrows():
+                            sku_val = str(row[col_sku])
+                            
+                            # Limpieza y conversión segura a float
+                            raw_costo = str(row[col_costo]).replace('$', '').replace('.', '').replace(',', '.').strip()
+                            costo_val = float(raw_costo) if raw_costo and raw_costo.lower() != 'nan' else 0.0
+
+                            costo_flete_val = 0.0
+                            if col_flete and pd.notnull(row[col_flete]):
+                                raw_flete = str(row[col_flete]).replace('$', '').replace('.', '').replace(',', '.').strip()
+                                if raw_flete and raw_flete.lower() != 'nan':
+                                    costo_flete_val = float(raw_flete)
+
+                            if costo_val > 0:
+                                # 1. PVP 1 Cuota - Sin Envío Gratis
+                                pvp_1c_sin_envio = calcular_pvp_recomendado_func(costo_val, margen_batch, tasa_1cuota_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+                                
+                                # 2. PVP 1 Cuota - Con Envío Gratis (Incorproando costo de flete)
+                                pvp_1c_con_envio = calcular_pvp_recomendado_func(costo_val + costo_flete_val, margen_batch, tasa_1cuota_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                                # 3. PVP 3 Cuotas - Sin Envío Gratis
+                                pvp_3c_sin_envio = calcular_pvp_recomendado_func(costo_val, margen_batch, tasa_3cuotas_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                                # 4. PVP 3 Cuotas - Con Envío Gratis
+                                pvp_3c_con_envio = calcular_pvp_recomendado_func(costo_val + costo_flete_val, margen_batch, tasa_3cuotas_custom, "Mercado Envíos Tradicional (ME2)", peso_cat_batch, 0, 0, 0, 0)
+
+                                resultados.append({
+                                    "SKU": sku_val,
+                                    "Costo Fábrica ($)": costo_val,
+                                    "Flete Directo ($)": costo_flete_val,
+                                    "PVP 1 Cuota (Sin Envío)": pvp_1c_sin_envio,
+                                    "PVP 1 Cuota (Con Envío)": pvp_1c_con_envio,
+                                    "PVP 3 Cuotas (Sin Envío)": pvp_3c_sin_envio,
+                                    "PVP 3 Cuotas (Con Envío)": pvp_3c_con_envio
+                                })
+
+                        df_res = pd.DataFrame(resultados)
+                        st.success("✅ ¡Procesamiento completado con éxito!")
+                        st.dataframe(df_res, use_container_width=True)
+
+                        # Generar archivo CSV de salida para descarga segura
+                        csv_data = df_res.to_csv(index=False, sep=';').encode('utf-8')
+                        
+                        st.download_button(
+                            label="📥 DESCARGAR REPORTES PROCESADOS (CSV)",
+                            data=csv_data,
+                            file_name=f"Matriz_Precios_NQ_v{V_NUMBER}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+
+        except Exception as e:
+            st.error(f"Error al procesar el archivo: {str(e)}")
+    else:
+        st.info("💡 Podés subir tu archivo CSV o Excel con columnas como: `SKU`, `Costo`, `Flete`")
