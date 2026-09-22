@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 
 # Versión del sistema
-V_NUMBER = "29.1"
+V_NUMBER = "29.2"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -121,22 +121,37 @@ def consultar_api_mercadolibre(link_o_mla):
     return None, f"Error de conexión con la API de MeLi: {str(e)}"
 
 
-def buscar_pvp_meli_por_ean(ean_code):
-  """Consulta la API de Mercado Libre para obtener el PVP actual buscando por código EAN."""
-  ean_clean = str(ean_code).strip().split(".")[0]
-  if not ean_clean or len(ean_clean) < 8 or ean_clean == "-":
-    return None
+def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
+  """Paso 1: Busca por EAN. Paso 2: Si no encuentra, realiza fallback por Marca + Descripción."""
+  # 1. Búsqueda por EAN
+  ean_clean = str(ean_code).strip().split(".")[0] if pd.notnull(ean_code) else ""
+  if ean_clean and len(ean_clean) >= 8 and ean_clean != "-":
+    url_ean = f"https://api.mercadolibre.com/sites/MLA/search?q={ean_clean}"
+    try:
+      res = requests.get(url_ean, timeout=4)
+      if res.status_code == 200:
+        results = res.json().get("results", [])
+        if results:
+          return float(results[0].get("price", 0.0)), "EAN Directo"
+    except Exception:
+      pass
 
-  url = f"https://api.mercadolibre.com/sites/MLA/search?q={ean_clean}"
+  # 2. Fallback: Búsqueda por Marca + Descripción
+  query_str = f"Centro Estant {descripcion if pd.notnull(descripcion) else articulo}".strip()
+  url_query = (
+      f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(query_str)}"
+  )
+
   try:
-    res = requests.get(url, timeout=5)
+    res = requests.get(url_query, timeout=4)
     if res.status_code == 200:
       results = res.json().get("results", [])
       if results:
-        return float(results[0].get("price", 0.0))
+        return float(results[0].get("price", 0.0)), "Búsqueda Título"
   except Exception:
     pass
-  return None
+
+  return None, "No Encontrado"
 
 
 # =========================================================
@@ -549,7 +564,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🎯 COSTO OBJETIVO",
     "🕵️ COMPETIDOR",
     "📁 PROCESAMIENTO MASIVO",
-    "🏆 LISTA CENTRO ESTANT (SCAN EAN)",
+    "🏆 LISTA CENTRO ESTANT (SCAN EAN/DESCRIPCIÓN)",
 ])
 
 # =========================================================
@@ -1595,16 +1610,17 @@ with tab5:
       st.error(f"Error al procesar el archivo masivo: {str(e)}")
 
 # =========================================================
-# SOLAPA 6: MATRIZ DE NEGOCIACIÓN DE LISTAS DE PROVEEDORES (CENTRO ESTANT / SCAN EAN)
+# SOLAPA 6: MATRIZ DE NEGOCIACIÓN DE LISTAS DE PROVEEDORES (CENTRO ESTANT / SCAN EAN-DESCRIPCIÓN)
 # =========================================================
 with tab6:
   st.subheader(
-      "🏆 Analizador Automatizado de Proveedores (Centro Estant / Scan EAN)"
+      "🏆 Analizador Automatizado de Proveedores (Centro Estant / Gold"
+      " Septiembre 2026)"
   )
   st.markdown(
       "Subí la lista oficial de Centro Estant. El sistema buscará"
-      " automáticamente en Mercado Libre el **PVP de referencia usando el"
-      " EAN** de cada producto y te indicará la bonificación necesaria."
+      " automáticamente en Mercado Libre el **PVP de referencia combinado por"
+      " EAN y Descripción**."
   )
 
   col_cat1, col_cat2, col_cat3 = st.columns(3)
@@ -1662,8 +1678,12 @@ with tab6:
       else:
         df_cat = pd.read_excel(uploaded_file_cat)
 
+      # Eliminar filas completamente vacías
+      df_cat = df_cat.dropna(how="all")
+
       st.write("📋 **Vista previa de los datos cargados:**", df_cat.head(4))
 
+      # Mapeo inteligente de columnas
       col_map = {str(c).strip().lower(): c for c in df_cat.columns}
       c_ean = next(
           (col_map[k] for k in col_map if "ean" in k or "codigo" in k), None
@@ -1692,33 +1712,31 @@ with tab6:
           ),
           None,
       )
-      c_pvp_win = next(
-          (
-              col_map[k]
-              for k in col_map
-              if "pvp" in k or "competidor" in k or "ganador" in k
-          ),
-          None,
-      )
 
-      if not c_plist or not c_ean:
+      if not c_plist:
         st.error(
-            "❌ El archivo debe incluir obligatoriamente las columnas **EAN** y"
-            " **Precio de Lista**."
+            "❌ No se encontró la columna con el **Precio de Lista** de Centro"
+            " Estant."
         )
       else:
         if st.button(
-            "🔍 ESCANEAR EANs EN MERCADO LIBRE Y CALCULAR BONIFICACIONES",
+            "🔍 ESCANEAR PRODUCTOS EN MERCADO LIBRE Y CALCULAR BONIFICACIONES",
             use_container_width=True,
         ):
           res_cat = []
           progress_bar = st.progress(0)
+          status_text = st.empty()
           total_rows = len(df_cat)
 
           for idx, row in df_cat.iterrows():
-            progress_bar.progress((idx + 1) / total_rows)
+            current_i = len(res_cat) + 1
+            progress_bar.progress(current_i / total_rows)
 
-            ean_val = str(row[c_ean]).strip() if pd.notnull(row[c_ean]) else "-"
+            ean_val = (
+                str(row[c_ean]).strip()
+                if c_ean and pd.notnull(row[c_ean])
+                else "-"
+            )
             art_val = (
                 str(row[c_art]).strip()
                 if c_art and pd.notnull(row[c_art])
@@ -1730,6 +1748,11 @@ with tab6:
                 else "Mueble Centro Estant"
             )
 
+            status_text.text(
+                f"Analizando ({current_i}/{total_rows}): {desc_val} ..."
+            )
+
+            # Parsear Precio de Lista
             raw_plist = (
                 str(row[c_plist])
                 .replace("$", "")
@@ -1737,26 +1760,18 @@ with tab6:
                 .replace(",", ".")
                 .strip()
             )
-            plist_val = (
-                float(raw_plist)
-                if raw_plist and raw_plist.lower() != "nan"
-                else 0.0
+            try:
+              plist_val = float(raw_plist)
+            except ValueError:
+              plist_val = 0.0
+
+            if plist_val <= 0:
+              continue
+
+            # Búsqueda Dual Inteligente
+            pvp_meli_encontrado, metodo_hallazgo = buscar_pvp_meli_inteligente(
+                ean_val, desc_val, art_val
             )
-
-            pvp_meli_encontrado = None
-            if c_pvp_win and pd.notnull(row[c_pvp_win]):
-              raw_pvp = (
-                  str(row[c_pvp_win])
-                  .replace("$", "")
-                  .replace(".", "")
-                  .replace(",", ".")
-                  .strip()
-              )
-              if raw_pvp and raw_pvp.lower() != "nan":
-                pvp_meli_encontrado = float(raw_pvp)
-
-            if not pvp_meli_encontrado:
-              pvp_meli_encontrado = buscar_pvp_meli_por_ean(ean_val)
 
             if pvp_meli_encontrado and pvp_meli_encontrado > 0:
               pvp_target_win = pvp_meli_encontrado - undercut_ganador
@@ -1783,12 +1798,7 @@ with tab6:
 
               if tipo_iva == "Monotributista":
                 costo_max_inc = pvp_target_win - (
-                    ganancia_target
-                    + comi_b
-                    + flete_b
-                    + fijo_b
-                    + iibb_m
-                    + gan_m
+                    ganancia_target + comi_b + flete_b + fijo_b + iibb_m + gan_m
                 )
                 costo_max_neto = costo_max_inc / (1 + t_iva_prod)
               else:
@@ -1815,7 +1825,6 @@ with tab6:
                   else "🔴 Exige Negociación (> 20% desc)"
               )
             else:
-              pvp_target_win = "No encontrado en MeLi"
               costo_max_out = "-"
               desc_out = "-"
               estado_out = "⚪ Sin PVP Competidor"
@@ -1830,25 +1839,25 @@ with tab6:
                     if pvp_meli_encontrado
                     else "No publicado"
                 ),
+                "Método Hallazgo": metodo_hallazgo,
                 "Costo Máx Compra (Sin IVA)": costo_max_out,
                 "% Bonificación Requerida": desc_out,
                 "Estado Viabilidad": estado_out,
             })
 
+          status_text.empty()
           df_res_cat = pd.DataFrame(res_cat)
-          st.success(
-              "✅ ¡Escaneo de EANs y Matriz de Negociación completada!"
-          )
+          st.success("✅ ¡Procesamiento finalizado exitosamente!")
           st.dataframe(df_res_cat, use_container_width=True)
 
           csv_cat = df_res_cat.to_csv(index=False, sep=";").encode("utf-8-sig")
           st.download_button(
-              label="📥 Descargar Matriz de Negociación con Centro Estant (.csv)",
+              label="📥 Descargar Matriz de Negociación Centro Estant (.csv)",
               data=csv_cat,
-              file_name="Estrategia_CentroEstant_EAN_MeLi.csv",
+              file_name="Matriz_Negociacion_Centro_Estant_Gold_2026.csv",
               mime="text/csv",
               use_container_width=True,
           )
 
     except Exception as e:
-      st.error(f"Error al procesar el archivo: {str(e)}")
+      st.error(f"Error al procesar la planilla: {str(e)}")
