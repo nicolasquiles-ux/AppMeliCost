@@ -348,7 +348,6 @@ def calcular_flete_segun_modalidad(
       flete_base = base * factor_reputacion
     return flete_base + cargo_full_unit + cargo_full_storage
   else:
-    # ME2 Tradicional
     if pvp_evaluado < UMBRAL_ENVIO_GRATIS:
       return 0.0
     elif pvp_evaluado < 50000:
@@ -530,7 +529,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🎯 COSTO OBJETIVO",
     "🕵️ COMPETIDOR",
     "📁 PROCESAMIENTO MASIVO",
-    "🏆 GANAR CATÁLOGO (BUY BOX)",
+    "🏆 LISTA PROVEEDOR (CENTRO ESTANT / BUY BOX)",
 ])
 
 # =========================================================
@@ -1576,14 +1575,18 @@ with tab5:
       st.error(f"Error al procesar el archivo masivo: {str(e)}")
 
 # =========================================================
-# SOLAPA 6: CÁLCULO DE BONIFICACIÓN PARA GANAR CATÁLOGO
+# SOLAPA 6: MATRIZ DIRECTA PARA LISTAS DE PROVEEDORES (CENTRO ESTANT / BUY BOX)
 # =========================================================
 with tab6:
-  st.subheader("🏆 Simulador de Bonificación/Descuento para Ganar Catálogo")
+  st.subheader(
+      "🏆 Analizador de Listas de Proveedores (Centro Estant / Estrategia Buy"
+      " Box)"
+  )
   st.markdown(
-      "Subí la lista de precios de tu proveedor (Centro Estant) con el PVP del"
-      " competidor que hoy gana el catálogo. El sistema calculará el"
-      " **Descuento de Fábrica Requerido** para ganarlo con tu margen deseado."
+      "Subí la lista de precios oficial de tu proveedor (con columnas **EAN,"
+      " Articulos, Descripcion, Lista**). El sistema calculará la bonificación"
+      " o descuento que necesitás sacarle a la fábrica para ganar la Buy Box en"
+      " Mercado Libre."
   )
 
   col_cat1, col_cat2, col_cat3 = st.columns(3)
@@ -1599,7 +1602,7 @@ with tab6:
     )
   with col_cat2:
     plan_catalogo = st.selectbox(
-        "Tipo de Publicación Objetivo",
+        "Modalidad Publicación Objetivo",
         [
             "1 Pago / Clásica (0%)",
             "3 Cuotas Mismo Precio (8.40%)",
@@ -1614,20 +1617,17 @@ with tab6:
         else (0.084 if "3 Cuotas" in plan_catalogo else 0.123)
     )
   with col_cat3:
-    undercut_ganador = st.number_input(
-        "Descuento $ para superar al Ganador ($)",
-        value=100.0,
-        step=50.0,
-        help=(
-            "Monto a restar del PVP del competidor para ser el n.º 1 en la Buy"
-            " Box"
-        ),
+    pvp_objetivo_global = st.number_input(
+        "PVP MeLi Referencia/Ganador Competidor ($)",
+        value=150000.0,
+        step=5000.0,
+        help="Si tu lista no tiene la columna de PVP Competidor, se usará este precio base de comparación.",
     )
 
   uploaded_file_cat = st.file_uploader(
-      "Subí tu catálogo/lista (Excel o CSV)",
+      "Subí la lista de Centro Estant / Proveedor (.xlsx o .csv)",
       type=["xlsx", "csv"],
-      key="uploader_catalogo",
+      key="uploader_catalogo_centroestant",
   )
 
   if uploaded_file_cat is not None:
@@ -1644,15 +1644,27 @@ with tab6:
       else:
         df_cat = pd.read_excel(uploaded_file_cat)
 
-      st.write("📋 **Vista previa de los datos:**", df_cat.head(3))
+      st.write("📋 **Vista previa de la lista detectada:**", df_cat.head(4))
 
+      # Mapeo flexible de columnas para Centro Estant
       col_map = {str(c).strip().lower(): c for c in df_cat.columns}
 
       c_ean = next(
+          (col_map[k] for k in col_map if "ean" in k or "codigo" in k), None
+      )
+      c_art = next(
           (
               col_map[k]
               for k in col_map
-              if "ean" in k or "sku" in k or "codigo" in k
+              if "articulo" in k or "art" in k or "sku" in k
+          ),
+          None,
+      )
+      c_desc = next(
+          (
+              col_map[k]
+              for k in col_map
+              if "descripcion" in k or "detalle" in k or "nombre" in k
           ),
           None,
       )
@@ -1660,7 +1672,7 @@ with tab6:
           (
               col_map[k]
               for k in col_map
-              if "lista" in k or "costo" in k or "fabrica" in k
+              if "list" in k or "costo" in k or "precio" in k or "estant" in k
           ),
           None,
       )
@@ -1672,14 +1684,10 @@ with tab6:
           ),
           None,
       )
-      c_peso = next(
-          (col_map[k] for k in col_map if "peso" in k or "kg" in k), None
-      )
 
-      if not c_plist or not c_pvp_win:
+      if not c_plist:
         st.error(
-            "❌ El archivo debe contener al menos dos columnas:"
-            " **Precio_Lista_Fabrica** y **PVP_Ganador_Actual**."
+            "❌ No se encontró la columna con el Precio de Lista del Proveedor."
         )
       else:
         if st.button(
@@ -1689,49 +1697,23 @@ with tab6:
           res_cat = []
 
           for idx, row in df_cat.iterrows():
-            ean_val = str(row[c_ean]) if c_ean else f"Item-{idx+1}"
+            ean_val = str(row[c_ean]) if c_ean and pd.notnull(row[c_ean]) else "-"
+            art_val = str(row[c_art]) if c_art and pd.notnull(row[c_art]) else f"SKU-{idx+1}"
+            desc_val = str(row[c_desc]) if c_desc and pd.notnull(row[c_desc]) else "Mueble Centro Estant"
 
-            plist_val = float(
-                str(row[c_plist])
-                .replace("$", "")
-                .replace(".", "")
-                .replace(",", ".")
-                .strip()
-            )
-            pvp_win_val = float(
-                str(row[c_pvp_win])
-                .replace("$", "")
-                .replace(".", "")
-                .replace(",", ".")
-                .strip()
-            )
-            peso_val = (
-                float(
-                    str(row[c_peso])
-                    .replace(",", ".")
-                    .replace("kg", "")
-                    .strip()
-                )
-                if c_peso and pd.notnull(row[c_peso])
-                else 22.5
-            )
+            raw_plist = str(row[c_plist]).replace("$", "").replace(".", "").replace(",", ".").strip()
+            plist_val = float(raw_plist) if raw_plist and raw_plist.lower() != "nan" else 0.0
 
-            pvp_target_win = pvp_win_val - undercut_ganador
+            if c_pvp_win and pd.notnull(row[c_pvp_win]):
+              raw_pvp = str(row[c_pvp_win]).replace("$", "").replace(".", "").replace(",", ".").strip()
+              pvp_win_val = float(raw_pvp) if raw_pvp else pvp_objetivo_global
+            else:
+              pvp_win_val = pvp_objetivo_global
 
             peso_cat_str = "De 20 a 25 kg"
-            if peso_val <= 5:
-              peso_cat_str = "De 4 a 5 kg"
-            elif peso_val <= 10:
-              peso_cat_str = "De 8 a 10 kg"
-            elif peso_val <= 15:
-              peso_cat_str = "De 13 a 15 kg"
-            elif peso_val <= 20:
-              peso_cat_str = "De 15 a 20 kg"
-            elif peso_val > 25:
-              peso_cat_str = "De 25 a 30 kg"
 
             flete_b = calcular_flete_segun_modalidad(
-                pvp_target_win,
+                pvp_win_val,
                 peso_cat_str,
                 "Mercado Envíos Tradicional (ME2)",
                 0,
@@ -1740,17 +1722,17 @@ with tab6:
                 0,
             )
             fijo_b = (
-                CARGO_FIJO_MELI if pvp_target_win < UMBRAL_ENVIO_GRATIS else 0.0
+                CARGO_FIJO_MELI if pvp_win_val < UMBRAL_ENVIO_GRATIS else 0.0
             )
 
-            pvp_neto = pvp_target_win / (1 + t_iva_prod)
-            comi_b = pvp_target_win * (t_comi_base + tasa_plan_cat)
+            pvp_neto = pvp_win_val / (1 + t_iva_prod)
+            comi_b = pvp_win_val * (t_comi_base + tasa_plan_cat)
             iibb_m = pvp_neto * t_iibb
             gan_m = pvp_neto * t_ganancias_fijo
-            ganancia_target = pvp_target_win * margen_catalogo
+            ganancia_target = pvp_win_val * margen_catalogo
 
             if tipo_iva == "Monotributista":
-              costo_max_inc = pvp_target_win - (
+              costo_max_inc = pvp_win_val - (
                   ganancia_target
                   + comi_b
                   + flete_b
@@ -1777,35 +1759,36 @@ with tab6:
             )
 
             res_cat.append({
-                "EAN / SKU": ean_val,
-                "Precio Lista Fábrica ($)": plist_val,
-                "PVP Ganador Actual ($)": pvp_win_val,
-                "PVP Sugerido para Ganar ($)": pvp_target_win,
+                "EAN": ean_val,
+                "Artículo": art_val,
+                "Descripción": desc_val,
+                "Precio Lista Proveedor ($)": plist_val,
+                "PVP Referencia Mercado ($)": pvp_win_val,
                 "Costo Máx Compra (Sin IVA)": max(
                     0.0, round(costo_max_neto, 2)
                 ),
-                "% Descuento Requerido en Fábrica": round(
+                "% Bonificación Requerida en Fábrica": round(
                     desc_requerido_pct, 2
                 ),
                 "Estado Viabilidad": (
-                    "🟢 Viable (< 25% desc)"
-                    if desc_requerido_pct <= 25
-                    else "🔴 Difícil (> 25% desc)"
+                    "🟢 Viable (< 20% desc)"
+                    if desc_requerido_pct <= 20
+                    else "🔴 Exige Negociación (> 20% desc)"
                 ),
             })
 
           df_res_cat = pd.DataFrame(res_cat)
-          st.success("✅ Matriz de Estrategia de Catálogo Procesada!")
+          st.success("✅ ¡Matriz de Centro Estant/Catálogo calculada exitosamente!")
           st.dataframe(df_res_cat, use_container_width=True)
 
           csv_cat = df_res_cat.to_csv(index=False, sep=";").encode("utf-8-sig")
           st.download_button(
-              label="📥 Descargar Análisis de Descuentos para Catálogo (.csv)",
+              label="📥 Descargar Estrategia de Compras Proveedor (.csv)",
               data=csv_cat,
-              file_name="Estrategia_Catalogo_CentroEstant.csv",
+              file_name="Estrategia_CentroEstant_NQ.csv",
               mime="text/csv",
               use_container_width=True,
           )
 
     except Exception as e:
-      st.error(f"Error al analizar el catálogo: {str(e)}")
+      st.error(f"Error al procesar la lista del proveedor: {str(e)}")
