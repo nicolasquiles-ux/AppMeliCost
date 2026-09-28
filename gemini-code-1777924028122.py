@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 
 # Versión del sistema
-V_NUMBER = "29.2"
+V_NUMBER = "29.3"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # =========================================================
-# DATOS MAESTROS VIGENTES 2026 (NQ Database Oficial)
+# DATOS MAESTROS VIGENTES SEPTIEMBRE 2026 (NQ Database Oficial)
 # =========================================================
 TABLA_ME2_BASE = {
     "Hasta 0,3 kg": [7868.0, 5620.0, 6080.0],
@@ -47,11 +47,12 @@ TABLA_ME2_BASE = {
 
 FINANCIACION_PRESETS = {
     "1 Pago / Clásica (0.00%)": 0.0,
-    "3 A 12 C/INT — Interés Bajo (5.00%)": 5.00,
-    "3 Cuotas Mismo Precio (8.40%)": 8.40,
-    "6 Cuotas Mismo Precio (12.30%)": 12.30,
-    "9 Cuotas Mismo Precio (15.70%)": 15.70,
-    "12 Cuotas Mismo Precio (19.20%)": 19.20,
+    "2 Cuotas Mismo Precio (9.49%)": 9.49,
+    "3 Cuotas Mismo Precio (12.19%)": 12.19,
+    "6 Cuotas Mismo Precio (19.09%)": 19.09,
+    "9 Cuotas Mismo Precio (27.29%)": 27.29,
+    "12 Cuotas Mismo Precio (32.29%)": 32.29,
+    "18 Cuotas Mismo Precio (41.59%)": 41.59,
     "Personalizado (Manual)": -1.0,
 }
 
@@ -123,7 +124,6 @@ def consultar_api_mercadolibre(link_o_mla):
 
 def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
   """Paso 1: Busca por EAN. Paso 2: Si no encuentra, realiza fallback por Marca + Descripción."""
-  # 1. Búsqueda por EAN
   ean_clean = str(ean_code).strip().split(".")[0] if pd.notnull(ean_code) else ""
   if ean_clean and len(ean_clean) >= 8 and ean_clean != "-":
     url_ean = f"https://api.mercadolibre.com/sites/MLA/search?q={ean_clean}"
@@ -136,7 +136,6 @@ def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
     except Exception:
       pass
 
-  # 2. Fallback: Búsqueda por Marca + Descripción
   query_str = f"Centro Estant {descripcion if pd.notnull(descripcion) else articulo}".strip()
   url_query = (
       f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(query_str)}"
@@ -336,7 +335,7 @@ with st.container():
     )
   with c_tax4:
     comision_vender_input = st.number_input(
-        "% Cargo Vender MeLi", value=14.15, step=0.1
+        "% Cargo Vender MeLi (Clásica)", value=14.50, step=0.05
     )
   with c_tax5:
     alicuota_iva_prod = st.selectbox(
@@ -609,7 +608,7 @@ with tab1:
 
     default_plan_idx = 0
     if st.session_state.get("fetched_is_premium", False):
-      default_plan_idx = 2
+      default_plan_idx = 3
 
     plan_selected_x = st.selectbox(
         "Plan Financiamiento / Cuotas",
@@ -1249,7 +1248,7 @@ with tab4:
 
     default_plan_comp = 0
     if st.session_state.get("fetched_is_premium", False):
-      default_plan_comp = 2
+      default_plan_comp = 3
 
     plan_selected_comp = st.selectbox(
         "Plan Financiamiento Competidor",
@@ -1438,8 +1437,8 @@ with tab5:
     )
   with c_m2:
     st.info(
-        "💡 **Tasas fijas de matriz:** Clásica (0%) | 3C (8.4%) | 6C (12.3%) |"
-        " 9C (15.7%) | 12C (19.2%)"
+        "💡 **Tasas fijas de matriz:** Clásica (0%) | 3C (12.19%) | 6C (19.09%)"
+        " | 9C (27.29%) | 12C (32.29%)"
     )
 
   archivo_subido = st.file_uploader(
@@ -1536,10 +1535,10 @@ with tab5:
     tasas_variantes = {
         "PVP_Clasica_SinEnvio": (0.0, "ME1"),
         "PVP_Clasica_ConEnvio": (0.0, "AUTO"),
-        "PVP_Premium_3Cuotas": (0.084, "AUTO"),
-        "PVP_Premium_6Cuotas": (0.123, "AUTO"),
-        "PVP_Premium_9Cuotas": (0.157, "AUTO"),
-        "PVP_Premium_12Cuotas": (0.192, "AUTO"),
+        "PVP_Premium_3Cuotas": (0.1219, "AUTO"),
+        "PVP_Premium_6Cuotas": (0.1909, "AUTO"),
+        "PVP_Premium_9Cuotas": (0.2729, "AUTO"),
+        "PVP_Premium_12Cuotas": (0.3229, "AUTO"),
     }
 
     resultados = {k: [] for k in tasas_variantes.keys()}
@@ -1639,8 +1638,8 @@ with tab6:
         "Modalidad Publicación Objetivo",
         [
             "1 Pago / Clásica (0%)",
-            "3 Cuotas Mismo Precio (8.40%)",
-            "6 Cuotas Mismo Precio (12.30%)",
+            "3 Cuotas Mismo Precio (12.19%)",
+            "6 Cuotas Mismo Precio (19.09%)",
         ],
         index=0,
         key="plan_cat_select_ean",
@@ -1648,7 +1647,7 @@ with tab6:
     tasa_plan_cat = (
         0.0
         if "1 Pago" in plan_catalogo
-        else (0.084 if "3 Cuotas" in plan_catalogo else 0.123)
+        else (0.1219 if "3 Cuotas" in plan_catalogo else 0.1909)
     )
   with col_cat3:
     undercut_ganador = st.number_input(
@@ -1678,12 +1677,10 @@ with tab6:
       else:
         df_cat = pd.read_excel(uploaded_file_cat)
 
-      # Eliminar filas completamente vacías
       df_cat = df_cat.dropna(how="all")
 
       st.write("📋 **Vista previa de los datos cargados:**", df_cat.head(4))
 
-      # Mapeo inteligente de columnas
       col_map = {str(c).strip().lower(): c for c in df_cat.columns}
       c_ean = next(
           (col_map[k] for k in col_map if "ean" in k or "codigo" in k), None
@@ -1752,7 +1749,6 @@ with tab6:
                 f"Analizando ({current_i}/{total_rows}): {desc_val} ..."
             )
 
-            # Parsear Precio de Lista
             raw_plist = (
                 str(row[c_plist])
                 .replace("$", "")
@@ -1768,7 +1764,6 @@ with tab6:
             if plist_val <= 0:
               continue
 
-            # Búsqueda Dual Inteligente
             pvp_meli_encontrado, metodo_hallazgo = buscar_pvp_meli_inteligente(
                 ean_val, desc_val, art_val
             )
