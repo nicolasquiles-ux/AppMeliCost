@@ -1442,4 +1442,660 @@ with tab4:
       st.markdown(
           f"""
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <div class="banner-card bg-pvp"
+                    <div class="banner-card bg-pvp" style="flex:1;">
+                        <span class="label-banner">PVP Competidor</span>
+                        <span class="price-main">${pvp_comp:,.2f}</span>
+                    </div>
+                    <div class="banner-card bg-costo" style="flex:1;">
+                        <span class="label-banner">Costo Compra Estimado</span>
+                        <span class="price-main">${costo_fabrica_comp:,.2f}</span>
+                        <span class="badge-banner">Margen Est.: {est_margen_comp * 100:.1f}%</span>
+                    </div>
+                </div>
+                """,
+          unsafe_allow_html=True,
+      )
+
+      render_indicadores_nativos(
+          costo_fabrica_comp,
+          comi_bruta4,
+          flete_bruto4,
+          fijo_bruto4,
+          iibb_m4,
+          gan_m4,
+          est_m4,
+          ads_m4,
+          iva_pagar4,
+          ganancia_neta4,
+          pvp_comp,
+      )
+
+  with col_right4:
+    if pvp_comp > 0:
+      st.markdown(
+          render_desglose_html(
+              costo_fabrica_comp,
+              pvp_comp,
+              comi_bruta4,
+              flete_bruto4,
+              fijo_bruto4,
+              iibb_m4,
+              gan_m4,
+              est_m4,
+              ads_m4,
+              iva_pagar4,
+              ganancia_neta4,
+              est_margen_comp * 100,
+              modalidad_log_4,
+              "Costo Fábrica Estimado Competidor",
+          ),
+          unsafe_allow_html=True,
+      )
+
+with tab5:
+  st.subheader("📥 Carga Masiva de SKUs y Cálculo de Matriz Multivariante")
+  st.write(
+      "Subí tu archivo CSV o Excel. El sistema procesará las variables"
+      " dinámicamente desde tus columnas y generará todas las variantes"
+      " posibles de publicación."
+  )
+
+  c_m1, c_m2 = st.columns(2)
+  with c_m1:
+    margen_global_m = (
+        st.number_input(
+            "% Margen Neto Objetivo Global",
+            value=10.0,
+            step=0.5,
+            key="m_glob_m",
+        )
+        / 100
+    )
+  with c_m2:
+    st.info(
+        "💡 **Tasas fijas de matriz:** Clásica (0%) | 3C (12.19%) | 6C (19.09%) |"
+        " 9C (27.29%) | 12C (32.29%)"
+    )
+
+  archivo_subido = st.file_uploader(
+      "Subí tu catálogo (.xlsx o .csv)",
+      type=["xlsx", "csv"],
+      key="uploader_masivo_tab5",
+  )
+
+  def mapear_peso_categoria(val):
+    if pd.isna(val):
+      return "De 1,5 a 2 kg"
+    val_str = str(val).lower().replace(",", ".").strip()
+    try:
+      num_peso = float(re.findall(r"[-+]?\d*\.\d+|\d+", val_str)[0])
+      if num_peso <= 0.3:
+        return "Hasta 0,3 kg"
+      elif num_peso <= 0.5:
+        return "De 0,3 a 0,5 kg"
+      elif num_peso <= 1.0:
+        return "De 0,5 a 1 kg"
+      elif num_peso <= 1.5:
+        return "De 1 a 1,5 kg"
+      elif num_peso <= 2.0:
+        return "De 1,5 a 2 kg"
+      elif num_peso <= 3.0:
+        return "De 2 a 3 kg"
+      elif num_peso <= 5.0:
+        return "De 4 a 5 kg"
+      elif num_peso <= 10.0:
+        return "De 8 a 10 kg"
+      elif num_peso <= 20.0:
+        return "De 15 a 20 kg"
+      elif num_peso <= 30.0:
+        return "De 25 a 30 kg"
+      else:
+        return "De 30 a 40 kg"
+    except Exception:
+      return "De 1,5 a 2 kg"
+
+  def mapear_modalidad(val):
+    if pd.isna(val):
+      return "Mercado Envíos Tradicional (ME2)"
+    v = str(val).lower().strip()
+    if "flex" in v or "m2" in v:
+      return "Mercado Envíos Flex"
+    elif "full" in v or "m3" in v:
+      return "Mercado Envíos Full"
+    return "Mercado Envíos Tradicional (ME2)"
+
+  def procesar_matriz_df(df, margen_neto):
+    data = df.copy()
+    col_map = {str(col).lower().strip(): col for col in data.columns}
+
+    col_costo = next(
+        (col_map[k] for k in col_map if "costo" in k or "price" in k), None
+    )
+    if col_costo:
+      data["Costo_Base_Limpio"] = (
+          pd.to_numeric(
+              data[col_costo]
+              .astype(str)
+              .str.replace(",", ".")
+              .str.replace("$", ""),
+              errors="coerce",
+          )
+          .fillna(0.0)
+      )
+    else:
+      data["Costo_Base_Limpio"] = 0.0
+
+    col_peso = next(
+        (col_map[k] for k in col_map if "peso" in k or "weight" in k), None
+    )
+    data["Peso_Cat_Mapeado"] = (
+        data[col_peso].apply(mapear_peso_categoria)
+        if col_peso
+        else "De 1,5 a 2 kg"
+    )
+
+    col_flete = next(
+        (
+            col_map[k]
+            for k in col_map
+            if "flete" in k or "modalidad" in k or "tipo" in k
+        ),
+        None,
+    )
+    data["Modalidad_Mapeada"] = (
+        data[col_flete].apply(mapear_modalidad)
+        if col_flete
+        else "Mercado Envíos Tradicional (ME2)"
+    )
+
+    tasas_variantes = {
+        "PVP_Clasica_SinEnvio": (0.0, "ME1"),
+        "PVP_Clasica_ConEnvio": (0.0, "AUTO"),
+        "PVP_Premium_3Cuotas": (0.1219, "AUTO"),
+        "PVP_Premium_6Cuotas": (0.1909, "AUTO"),
+        "PVP_Premium_9Cuotas": (0.2729, "AUTO"),
+        "PVP_Premium_12Cuotas": (0.3229, "AUTO"),
+    }
+
+    resultados = {k: [] for k in tasas_variantes.keys()}
+
+    for _, row in data.iterrows():
+      c_base = row["Costo_Base_Limpio"]
+      peso_cat = row["Peso_Cat_Mapeado"]
+      mod_log = row["Modalidad_Mapeada"]
+
+      if c_base <= 0:
+        for var in tasas_variantes:
+          resultados[var].append(0.0)
+        continue
+
+      for var, (tasa, modo) in tasas_variantes.items():
+        log_final = mod_log if modo == "AUTO" else "ME1"
+        pvp_calc = calcular_pvp_recomendado_func(
+            costo_f=c_base,
+            margen_deseado=margen_neto,
+            t_finan=tasa,
+            modalidad_log=log_final,
+            peso_cat=peso_cat,
+            costo_moto=0.0,
+            reemb_flex=0.0,
+            full_unit=0.0,
+            full_stor=0.0,
+        )
+        resultados[var].append(pvp_calc)
+
+    for var, list_values in resultados.items():
+      data[var] = list_values
+
+    data.drop(
+        columns=["Costo_Base_Limpio", "Peso_Cat_Mapeado", "Modalidad_Mapeada"],
+        inplace=True,
+        errors="ignore",
+    )
+    return data
+
+  if archivo_subido is not None:
+    try:
+      if archivo_subido.name.endswith(".csv"):
+        try:
+          df_input = pd.read_csv(archivo_subido, sep=";")
+          if df_input.shape[1] == 1:
+            archivo_subido.seek(0)
+            df_input = pd.read_csv(archivo_subido, sep=",")
+        except Exception:
+          archivo_subido.seek(0)
+          df_input = pd.read_csv(archivo_subido, sep=None, engine="python")
+      else:
+        df_input = pd.read_excel(archivo_subido)
+
+      df_resultado = procesar_matriz_df(df_input, margen_global_m)
+
+      st.success("✅ ¡Catálogo procesado y mapeado exitosamente!")
+      st.dataframe(df_resultado, use_container_width=True)
+
+      data_csv = df_resultado.to_csv(index=False, sep=";").encode("utf-8-sig")
+
+      st.download_button(
+          label="📥 Descargar Matriz Completa (.csv)",
+          data=data_csv,
+          file_name=f"matriz_precios_NQ_v{V_NUMBER}.csv",
+          mime="text/csv",
+      )
+    except Exception as e:
+      st.error(f"Error al procesar el archivo masivo: {str(e)}")
+
+with tab6:
+  st.subheader(
+      "🏆 Analizador Automatizado de Proveedores (Centro Estant / Gold"
+      " Septiembre 2026)"
+  )
+  st.markdown(
+      "Subí la lista oficial de Centro Estant. El sistema buscará"
+      " automáticamente en Mercado Libre el **PVP de referencia combinado por"
+      " EAN y Descripción**."
+  )
+
+  col_cat1, col_cat2, col_cat3 = st.columns(3)
+  with col_cat1:
+    margen_catalogo = (
+        st.number_input(
+            "% Margen Neto Pretendido",
+            value=10.0,
+            step=0.5,
+            key="m_cat_input_ean",
+        )
+        / 100
+    )
+  with col_cat2:
+    plan_catalogo = st.selectbox(
+        "Modalidad Publicación Objetivo",
+        [
+            "1 Pago / Clásica (0%)",
+            "3 Cuotas Mismo Precio (12.19%)",
+            "6 Cuotas Mismo Precio (19.09%)",
+        ],
+        index=0,
+        key="plan_cat_select_ean",
+    )
+    tasa_plan_cat = (
+        0.0
+        if "1 Pago" in plan_catalogo
+        else (0.1219 if "3 Cuotas" in plan_catalogo else 0.1909)
+    )
+  with col_cat3:
+    undercut_ganador = st.number_input(
+        "Ajuste para ganar la Buy Box ($)",
+        value=100.0,
+        step=50.0,
+        help="Monto a restar del PVP del competidor para quedar n.º 1",
+    )
+
+  uploaded_file_cat = st.file_uploader(
+      "Subí la lista de Centro Estant / Proveedor (.xlsx o .csv)",
+      type=["xlsx", "csv"],
+      key="uploader_catalogo_centroestant_ean",
+  )
+
+  if uploaded_file_cat is not None:
+    try:
+      if uploaded_file_cat.name.endswith(".csv"):
+        try:
+          df_cat = pd.read_csv(uploaded_file_cat, sep=";")
+          if df_cat.shape[1] == 1:
+            uploaded_file_cat.seek(0)
+            df_cat = pd.read_csv(uploaded_file_cat, sep=",")
+        except Exception:
+          uploaded_file_cat.seek(0)
+          df_cat = pd.read_csv(uploaded_file_cat, sep=None, engine="python")
+      else:
+        df_cat = pd.read_excel(uploaded_file_cat)
+
+      df_cat = df_cat.dropna(how="all")
+
+      st.write("📋 **Vista previa de los datos cargados:**", df_cat.head(4))
+
+      col_map = {str(c).strip().lower(): c for c in df_cat.columns}
+      c_ean = next(
+          (col_map[k] for k in col_map if "ean" in k or "codigo" in k), None
+      )
+      c_art = next(
+          (
+              col_map[k]
+              for k in col_map
+              if "articulo" in k or "art" in k or "sku" in k
+          ),
+          None,
+      )
+      c_desc = next(
+          (
+              col_map[k]
+              for k in col_map
+              if "descripcion" in k or "detalle" in k or "nombre" in k
+          ),
+          None,
+      )
+      c_plist = next(
+          (
+              col_map[k]
+              for k in col_map
+              if "list" in k or "costo" in k or "precio" in k or "estant" in k
+          ),
+          None,
+      )
+
+      if not c_plist:
+        st.error(
+            "❌ No se encontró la columna con el **Precio de Lista** de Centro"
+            " Estant."
+        )
+      else:
+        if st.button(
+            "🔍 ESCANEAR PRODUCTOS EN MERCADO LIBRE Y CALCULAR BONIFICACIONES",
+            use_container_width=True,
+        ):
+          res_cat = []
+          progress_bar = st.progress(0)
+          status_text = st.empty()
+          total_rows = len(df_cat)
+
+          for idx, row in df_cat.iterrows():
+            current_i = len(res_cat) + 1
+            progress_bar.progress(current_i / total_rows)
+
+            ean_val = (
+                str(row[c_ean]).strip()
+                if c_ean and pd.notnull(row[c_ean])
+                else "-"
+            )
+            art_val = (
+                str(row[c_art]).strip()
+                if c_art and pd.notnull(row[c_art])
+                else f"SKU-{idx+1}"
+            )
+            desc_val = (
+                str(row[c_desc]).strip()
+                if c_desc and pd.notnull(row[c_desc])
+                else "Mueble Centro Estant"
+            )
+
+            status_text.text(
+                f"Analizando ({current_i}/{total_rows}): {desc_val} ..."
+            )
+
+            raw_plist = (
+                str(row[c_plist])
+                .replace("$", "")
+                .replace(".", "")
+                .replace(",", ".")
+                .strip()
+            )
+            try:
+              plist_val = float(raw_plist)
+            except ValueError:
+              plist_val = 0.0
+
+            if plist_val <= 0:
+              continue
+
+            pvp_meli_encontrado, metodo_hallazgo = buscar_pvp_meli_inteligente(
+                ean_val, desc_val, art_val
+            )
+
+            if pvp_meli_encontrado and pvp_meli_encontrado > 0:
+              pvp_target_win = pvp_meli_encontrado - undercut_ganador
+              peso_cat_str = "De 20 a 25 kg"
+
+              flete_b = calcular_flete_segun_modalidad(
+                  pvp_target_win,
+                  peso_cat_str,
+                  "Mercado Envíos Tradicional (ME2)",
+                  0,
+                  0,
+                  0,
+                  0,
+              )
+              fijo_b = (
+                  CARGO_FIJO_MELI if pvp_target_win < UMBRAL_ENVIO_GRATIS else 0.0
+              )
+
+              pvp_neto = pvp_target_win / (1 + t_iva_prod)
+              comi_b = pvp_target_win * (t_comi_base + tasa_plan_cat)
+              iibb_m = pvp_neto * t_iibb
+              gan_m = pvp_neto * t_ganancias_fijo
+              ganancia_target = pvp_target_win * margen_catalogo
+
+              if tipo_iva == "Monotributista":
+                costo_max_inc = pvp_target_win - (
+                    ganancia_target + comi_b + flete_b + fijo_b + iibb_m + gan_m
+                )
+                costo_max_neto = costo_max_inc / (1 + t_iva_prod)
+              else:
+                costo_max_neto = (
+                    pvp_neto
+                    - (comi_b / 1.21)
+                    - (flete_b / 1.21)
+                    - (fijo_b / 1.21)
+                    - iibb_m
+                    - gan_m
+                    - ganancia_target
+                )
+
+              desc_requerido_pct = (
+                  (1 - (costo_max_neto / plist_val)) * 100
+                  if plist_val > 0
+                  else 0.0
+              )
+              costo_max_out = max(0.0, round(costo_max_neto, 2))
+              desc_out = round(desc_requerido_pct, 2)
+              estado_out = (
+                  "🟢 Viable (< 20% desc)"
+                  if desc_requerido_pct <= 20
+                  else "🔴 Exige Negociación (> 20% desc)"
+              )
+            else:
+              costo_max_out = "-"
+              desc_out = "-"
+              estado_out = "⚪ Sin PVP Competidor"
+
+            res_cat.append({
+                "EAN": ean_val,
+                "Artículo": art_val,
+                "Descripción": desc_val,
+                "Precio Lista Proveedor ($)": plist_val,
+                "PVP MeLi Detectado ($)": (
+                    f"${pvp_meli_encontrado:,.2f}"
+                    if pvp_meli_encontrado
+                    else "No publicado"
+                ),
+                "Método Hallazgo": metodo_hallazgo,
+                "Costo Máx Compra (Sin IVA)": costo_max_out,
+                "% Bonificación Requerida": desc_out,
+                "Estado Viabilidad": estado_out,
+            })
+
+          status_text.empty()
+          df_res_cat = pd.DataFrame(res_cat)
+          st.success("✅ ¡Procesamiento finalizado exitosamente!")
+          st.dataframe(df_res_cat, use_container_width=True)
+
+          csv_cat = df_res_cat.to_csv(index=False, sep=";").encode("utf-8-sig")
+          st.download_button(
+              label="📥 Descargar Matriz de Negociación Centro Estant (.csv)",
+              data=csv_cat,
+              file_name="Matriz_Negociacion_Centro_Estant_Gold_2026.csv",
+              mime="text/csv",
+              use_container_width=True,
+          )
+
+    except Exception as e:
+      st.error(f"Error al procesar la planilla: {str(e)}")
+
+# =========================================================
+# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL (BÚSQUEDA JERÁRQUICA INTELIGENTE)
+# =========================================================
+with tab7:
+  st.subheader("🎯 Monitor de Catálogo & Ganadores de Buy Box por SKU")
+  st.markdown(
+      "Ingresá un **EAN, SKU o Título de Producto** para auditar en tiempo real"
+      " quién gana la **Buy Box**, ver la lista completa de vendedores"
+      " competidores y calcular la bonificación requerida a fábrica para"
+      " desplazar al n.º 1."
+  )
+
+  col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
+  with col_s1:
+    query_sku = st.text_input(
+        "SKU / EAN / Descripción a Monitorear",
+        value="7798274755841",
+        placeholder="Ej: 7798274755841 o Biblioteca 6001 Negro Centro Estant",
+        key="input_sku_tab7",
+    )
+  with col_s2:
+    costo_lista_f = st.number_input(
+        "Costo Lista Proveedor ($)",
+        value=70500.0,
+        step=1000.0,
+        key="costo_f_tab7",
+    )
+  with col_s3:
+    margen_objetivo_tab7 = (
+        st.number_input(
+            "% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7"
+        )
+        / 100
+    )
+
+  if st.button(
+      "🚀 AUDITAR CATÁLOGO Y COMPETENCIA",
+      use_container_width=True,
+      key="btn_audit_tab7",
+  ):
+    if query_sku:
+      with st.spinner(
+          "Consultando Mercado Libre API y fichas de catálogo..."
+      ):
+        items_competencia, metodo_hallado = buscar_competencia_inteligente(
+            query_sku, limit=12
+        )
+
+        if items_competencia:
+          first_item = items_competencia[0]
+          pvp_ganador = float(first_item.get("price", 0.0))
+          title_product = first_item.get("title", "Producto Mercado Libre")
+          seller_id_ganador = first_item.get("seller_id", "Desconocido")
+
+          # Calculo de costo objetivo para ganarle al #1 (restando $100)
+          pvp_objetivo = pvp_ganador - 100.0
+          peso_std = "De 20 a 25 kg"
+          flete_std = calcular_flete_segun_modalidad(
+              pvp_objetivo,
+              peso_std,
+              "Mercado Envíos Tradicional (ME2)",
+              0,
+              0,
+              0,
+              0,
+          )
+          fijo_std = (
+              CARGO_FIJO_MELI if pvp_objetivo < UMBRAL_ENVIO_GRATIS else 0.0
+          )
+          comi_std = pvp_objetivo * t_comi_base
+          pvp_neto_std = pvp_objetivo / (1 + t_iva_prod)
+          iibb_std = pvp_neto_std * t_iibb
+          gan_std = pvp_neto_std * t_ganancias_fijo
+          ganancia_target_std = pvp_objetivo * margen_objetivo_tab7
+
+          if tipo_iva == "Monotributista":
+            costo_max_compra = (
+                pvp_objetivo
+                - (
+                    ganancia_target_std
+                    + comi_std
+                    + flete_std
+                    + fijo_std
+                    + iibb_std
+                    + gan_std
+                )
+            ) / (1 + t_iva_prod)
+          else:
+            costo_max_compra = (
+                pvp_neto_std
+                - (comi_std / 1.21)
+                - (flete_std / 1.21)
+                - (fijo_std / 1.21)
+                - iibb_std
+                - gan_std
+                - ganancia_target_std
+            )
+
+          bonif_requerida = (
+              ((1 - (costo_max_compra / costo_lista_f)) * 100)
+              if costo_lista_f > 0
+              else 0.0
+          )
+
+          st.caption(f"🔎 **Método de hallazgo:** {metodo_hallado}")
+
+          # --- TARJETAS RESUMEN DE COMPROBACIÓN ---
+          m1, m2, m3, m4 = st.columns(4)
+          with m1:
+            st.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
+          with m2:
+            st.metric("🎯 PVP Objetivo (N.º 1)", f"${pvp_objetivo:,.2f}")
+          with m3:
+            st.metric(
+                "📦 Costo Máx Compra", f"${max(0.0, costo_max_compra):,.2f}"
+            )
+          with m4:
+            st.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
+
+          st.markdown("---")
+          st.markdown(
+              "### 📋 Publicaciones Competidoras Detectadas para:"
+              f" **{title_product}**"
+          )
+
+          tabla_comp = []
+          for rank, it in enumerate(items_competencia, start=1):
+            p = float(it.get("price", 0.0))
+            s_id = it.get("seller_id", "Sin ID")
+            log_t = (
+                it.get("shipping", {}).get("logistic_type", "tradicional")
+            )
+            l_type = (
+                "Premium (Cuotas)"
+                if it.get("listing_type_id") == "gold_pro"
+                else "Clásica"
+            )
+            is_buybox = (
+                "🥇 Ganador Buy Box" if rank == 1 else f"Puesto #{rank}"
+            )
+
+            tabla_comp.append({
+                "Posición": is_buybox,
+                "ID Publicación": it.get("id"),
+                "Vendedor ID": s_id,
+                "PVP Publicado ($)": f"${p:,.2f}",
+                "Modalidad": l_type,
+                "Logística": log_t.upper(),
+                "Enlace": it.get("permalink"),
+            })
+
+          df_comp = pd.DataFrame(tabla_comp)
+          st.dataframe(df_comp, use_container_width=True)
+
+          st.info(
+              f"💡 **Estrategia Comercial:** Para desplazar al Vendedor **ID:"
+              f" {seller_id_ganador}** del Puesto #1, debés publicar a"
+              f" **${pvp_objetivo:,.2f}**. Para sostener un"
+              f" {margen_objetivo_tab7*100:.1f}% de margen neto, tu costo de"
+              f" lista de **${costo_lista_f:,.2f}** requiere un descuento del"
+              f" **{bonif_requerida:.2f}%**."
+          )
+        else:
+          st.warning(
+              "⚠️ No se encontraron publicaciones activas para ese SKU/EAN o"
+              " descripción."
+          )
+    else:
+      st.error("Por favor, ingresá un SKU, EAN o descripción válida.")
