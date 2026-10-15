@@ -8,7 +8,7 @@ import streamlit as st
 import meli_auth
 
 # Versión del sistema
-V_NUMBER = "29.6"
+V_NUMBER = "29.7"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -150,7 +150,7 @@ def consultar_api_mercadolibre(link_o_mla, access_token=None):
 
 
 def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
-    """Paso 1: Busca por EAN. Paso 2: Si no encuentra, realiza fallback por Marca + Descripción."""
+    """Paso 1: Busca por GTIN/EAN. Paso 2: Si no encuentra, realiza fallback por Marca + Descripción."""
     ean_clean = str(ean_code).strip().split(".")[0] if pd.notnull(ean_code) else ""
     if ean_clean and len(ean_clean) >= 8 and ean_clean != "-":
         url_gtin = f"https://api.mercadolibre.com/sites/MLA/search?gtin={ean_clean}"
@@ -212,7 +212,6 @@ def buscar_competencia_inteligente_v2(query_term, limit=12):
         if res.status_code == 200:
             products = res.json().get("results", [])
             if products:
-                # Si encontramos el producto de catálogo, buscamos los ítems que compiten en él
                 cat_id = products[0].get("id")
                 url_items_cat = f"https://api.mercadolibre.com/products/{cat_id}/items"
                 res_items = requests.get(url_items_cat, timeout=5)
@@ -316,7 +315,7 @@ html, body, [class*="css"] {{
 
 st.markdown(css_template, unsafe_allow_html=True)
 
-# --- LOGIN SITEMA NQ ---
+# --- LOGIN SISTEMA NQ ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
@@ -1528,7 +1527,7 @@ with tab6:
             st.error(f"Error al procesar la planilla: {str(e)}")
 
 # =========================================================
-# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL CON ESTADO DE CONEXIÓN
+# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL CON ESTADO DE CONEXIÓN (CORREGIDO)
 # =========================================================
 with tab7:
     st.subheader("🎯 Monitor de Catálogo & Ganadores de Buy Box por SKU")
@@ -1536,7 +1535,6 @@ with tab7:
         "Ingresá un **EAN, SKU o Título de Producto** para auditar en tiempo real quién gana la **Buy Box**, ver la lista completa de vendedores competidores y calcular la bonificación requerida a fábrica para desplazar al n.º 1."
     )
 
-    # BARRA DE CONEXIÓN A LA API DE MERCADO LIBRE
     conexion_ok, msg_conexion = probar_conexion_meli()
     if conexion_ok:
         st.success(f"🟢 **{msg_conexion}**")
@@ -1571,7 +1569,6 @@ with tab7:
                     title_product = first_item.get("title", first_item.get("name", "Producto Mercado Libre"))
                     seller_id_ganador = first_item.get("seller_id", "Desconocido")
 
-                    # Calculo de costo objetivo para ganarle al #1 (restando $100)
                     pvp_objetivo = pvp_ganador - 100.0
                     peso_std = "De 20 a 25 kg"
                     flete_std = calcular_flete_segun_modalidad(
@@ -1592,4 +1589,62 @@ with tab7:
                     else:
                         costo_max_compra = (
                             pvp_neto_std
-                            - (comi_std / 1
+                            - (comi_std / 1.21)
+                            - (flete_std / 1.21)
+                            - (fijo_std / 1.21)
+                            - iibb_std
+                            - gan_std
+                            - ganancia_target_std
+                        )
+
+                    bonif_requerida = (
+                        ((1 - (costo_max_compra / costo_lista_f)) * 100) if costo_lista_f > 0 else 0.0
+                    )
+
+                    st.caption(f"🔎 **Método de hallazgo:** {metodo_hallado}")
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    with m1:
+                        st.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
+                    with m2:
+                        st.metric("🎯 PVP Objetivo (N.º 1)", f"${pvp_objetivo:,.2f}")
+                    with m3:
+                        st.metric("📦 Costo Máx Compra", f"${max(0.0, costo_max_compra):,.2f}")
+                    with m4:
+                        st.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
+
+                    st.markdown("---")
+                    st.markdown(f"### 📋 Publicaciones Competidoras Detectadas para: **{title_product}**")
+
+                    tabla_comp = []
+                    for rank, it in enumerate(items_competencia, start=1):
+                        p = float(it.get("price", 0.0))
+                        s_id = it.get("seller_id", "Sin ID")
+                        log_t = it.get("shipping", {}).get("logistic_type", "tradicional")
+                        l_type = (
+                            "Premium (Cuotas)"
+                            if it.get("listing_type_id") == "gold_pro"
+                            else "Clásica"
+                        )
+                        is_buybox = "🥇 Ganador Buy Box" if rank == 1 else f"Puesto #{rank}"
+
+                        tabla_comp.append({
+                            "Posición": is_buybox,
+                            "ID Publicación": it.get("id"),
+                            "Vendedor ID": s_id,
+                            "PVP Publicado ($)": f"${p:,.2f}",
+                            "Modalidad": l_type,
+                            "Logística": str(log_t).upper(),
+                            "Enlace": it.get("permalink", "#"),
+                        })
+
+                    df_comp = pd.DataFrame(tabla_comp)
+                    st.dataframe(df_comp, use_container_width=True)
+
+                    st.info(
+                        f"💡 **Estrategia Comercial:** Para desplazar al Vendedor **ID: {seller_id_ganador}** del Puesto #1, debés publicar a **${pvp_objetivo:,.2f}**. Para sostener un {margen_objetivo_tab7*100:.1f}% de margen neto, tu costo de lista de **${costo_lista_f:,.2f}** requiere un descuento del **{bonif_requerida:.2f}%**."
+                    )
+                else:
+                    st.warning("⚠️ No se encontraron publicaciones activas para ese SKU/EAN o descripción.")
+        else:
+            st.error("Por favor, ingresá un SKU, EAN o descripción válida.")
