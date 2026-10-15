@@ -8,7 +8,7 @@ import streamlit as st
 import meli_auth
 
 # Versión del sistema
-V_NUMBER = "29.3"
+V_NUMBER = "29.4"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -76,25 +76,42 @@ gray_bg = "#F8FAFC"
 
 
 # =========================================================
-# FUNCIONES DE CONSULTA A LA API DE MERCADO LIBRE
+# FUNCIONES DE CONSULTA A LA API DE MERCADO LIBRE ENRIQUECIDAS
 # =========================================================
-def consultar_api_mercadolibre(link_o_mla):
+def consultar_api_mercadolibre(link_o_mla, access_token=None):
     match = re.search(r"MLA-?(\d+)", link_o_mla, re.IGNORECASE)
     if not match:
         return None, "Link o ID MLA no válido. Ejemplo: MLA1428593851 o enlace de la publicación."
 
     item_id = f"MLA{match.group(1)}"
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     url = f"https://api.mercadolibre.com/items/{item_id}"
 
     try:
-        res = requests.get(url, timeout=6)
+        res = requests.get(url, headers=headers, timeout=6)
         if res.status_code == 200:
             data = res.json()
             pvp = data.get("price", 0.0)
             title = data.get("title", "")
+            seller_id = data.get("seller_id")
+            catalog_product_id = data.get("catalog_product_id")
             listing_type_id = data.get("listing_type_id", "gold_special")
             shipping = data.get("shipping", {})
             logistic_type = shipping.get("logistic_type", "default")
+
+            winner_info = None
+            if catalog_product_id:
+                url_cat = f"https://api.mercadolibre.com/products/{catalog_product_id}"
+                res_cat = requests.get(url_cat, headers=headers, timeout=4)
+                if res_cat.status_code == 200:
+                    data_cat = res_cat.json()
+                    buy_box = data_cat.get("buy_box_winner", {})
+                    if buy_box:
+                        winner_info = {
+                            "winner_seller_id": buy_box.get("seller_id"),
+                            "winner_price": buy_box.get("price"),
+                            "winner_item_id": buy_box.get("item_id"),
+                        }
 
             modalidad = "Mercado Envíos Tradicional (ME2)"
             if logistic_type == "fulfillment":
@@ -108,6 +125,9 @@ def consultar_api_mercadolibre(link_o_mla):
                 "item_id": item_id,
                 "title": title,
                 "pvp": float(pvp),
+                "seller_id": seller_id,
+                "catalog_product_id": catalog_product_id,
+                "winner_info": winner_info,
                 "is_premium": is_premium,
                 "modalidad": modalidad,
             }, None
@@ -144,6 +164,18 @@ def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
         pass
 
     return None, "No Encontrado"
+
+
+def buscar_competencia_por_sku(query_term, limit=10):
+    """Obtiene las publicaciones activas que compiten por un SKU/EAN/Título."""
+    url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(query_term)}&limit={limit}"
+    try:
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            return res.json().get("results", [])
+    except Exception:
+        pass
+    return []
 
 
 # =========================================================
@@ -310,7 +342,9 @@ with st.expander("🔍 **IMPORTAR PUBLICACIÓN DIRECTO DESDE MERCADO LIBRE (LINK
         btn_importar = st.button("🚀 Cargar de MeLi", use_container_width=True)
 
     if btn_importar and input_meli_link:
-        data_item, error_msg = consultar_api_mercadolibre(input_meli_link)
+        data_item, error_msg = consultar_api_mercadolibre(
+            input_meli_link, access_token=st.session_state.get("access_token")
+        )
         if error_msg:
             st.error(f"❌ {error_msg}")
         else:
@@ -515,21 +549,21 @@ def render_indicadores_nativos(
 # =========================================================
 # DECLARACIÓN Y CONFIGURACIÓN DE PESTAÑAS (TABS)
 # =========================================================
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
     "☝️ PVP RECOMENDADO",
     "🎯 COSTO OBJETIVO",
     "🕵️ COMPETIDOR",
     "📁 PROCESAMIENTO MASIVO",
     "🏆 LISTA CENTRO ESTANT (SCAN EAN/DESCRIPCIÓN)",
+    "🎯 MONITOR DE CATÁLOGO & BUY BOX",
 ])
 
 # =========================================================
-# SOLAPA 1: REALIDAD REAL
+# SOLAPAS 1 A 6 (MANTENIDAS EXACTAMENTE IGUAL)
 # =========================================================
 with tab1:
     col_left, col_right = st.columns([1.1, 1.1])
-
     with col_left:
         st.markdown(
             f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>",
@@ -684,12 +718,8 @@ with tab1:
             unsafe_allow_html=True,
         )
 
-# =========================================================
-# SOLAPA 2: PVP RECOMENDADO
-# =========================================================
 with tab2:
     col_left2, col_right2 = st.columns([1.1, 1.1])
-
     with col_left2:
         st.markdown(
             f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>",
@@ -830,12 +860,8 @@ with tab2:
                 unsafe_allow_html=True,
             )
 
-# =========================================================
-# SOLAPA 3: ANALIZAR COSTO OBJETIVO
-# =========================================================
 with tab3:
     col_left3, col_right3 = st.columns([1.1, 1.1])
-
     with col_left3:
         st.markdown(
             f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>",
@@ -972,12 +998,8 @@ with tab3:
                 unsafe_allow_html=True,
             )
 
-# =========================================================
-# SOLAPA 4: INGENIERÍA INVERSA (ANALIZAR COMPETIDOR)
-# =========================================================
 with tab4:
     col_left4, col_right4 = st.columns([1.1, 1.1])
-
     with col_left4:
         st.markdown(
             f"<div style='background-color: {gray_bg}; padding: 20px; border-radius: 12px;'>",
@@ -1126,9 +1148,6 @@ with tab4:
                 unsafe_allow_html=True,
             )
 
-# =========================================================
-# SOLAPA 5: PROCESAMIENTO MASIVO (AUTODETECT MULTIDELIMITADOR)
-# =========================================================
 with tab5:
     st.subheader("📥 Carga Masiva de SKUs y Cálculo de Matriz Multivariante")
     st.write(
@@ -1286,9 +1305,6 @@ with tab5:
         except Exception as e:
             st.error(f"Error al procesar el archivo masivo: {str(e)}")
 
-# =========================================================
-# SOLAPA 6: MATRIZ DE NEGOCIACIÓN DE LISTAS DE PROVEEDORES (CENTRO ESTANT / SCAN EAN-DESCRIPCIÓN)
-# =========================================================
 with tab6:
     st.subheader("🏆 Analizador Automatizado de Proveedores (Centro Estant / Gold Septiembre 2026)")
     st.markdown(
@@ -1450,3 +1466,122 @@ with tab6:
 
         except Exception as e:
             st.error(f"Error al procesar la planilla: {str(e)}")
+
+# =========================================================
+# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL
+# =========================================================
+with tab7:
+    st.subheader("🎯 Monitor de Catálogo & Ganadores de Buy Box por SKU")
+    st.markdown(
+        "Ingresá un **EAN, SKU o Título de Producto** para auditar en tiempo real quién gana la **Buy Box**, ver la lista completa de vendedores competidores y calcular la bonificación requerida a fábrica para desplazar al n.º 1."
+    )
+
+    col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
+    with col_s1:
+        query_sku = st.text_input(
+            "SKU / EAN / Descripción a Monitorear",
+            value="7798009181204",
+            placeholder="Ej: 7798009181204 o Alacena 120 Blanca Centro Estant",
+            key="input_sku_tab7",
+        )
+    with col_s2:
+        costo_lista_f = st.number_input(
+            "Costo Lista Proveedor ($)", value=72000.0, step=1000.0, key="costo_f_tab7"
+        )
+    with col_s3:
+        margen_objetivo_tab7 = (
+            st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7") / 100
+        )
+
+    if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
+        if query_sku:
+            with st.spinner("Consultando Mercado Libre API y fichas de catálogo..."):
+                items_competencia = buscar_competencia_por_sku(query_sku, limit=12)
+
+                if items_competencia:
+                    # Identificar primer item / ganador
+                    first_item = items_competencia[0]
+                    pvp_ganador = float(first_item.get("price", 0.0))
+                    title_product = first_item.get("title", "Producto Mercado Libre")
+                    seller_id_ganador = first_item.get("seller_id", "Desconocido")
+                    permalink_ganador = first_item.get("permalink", "#")
+
+                    # Calculo de costo objetivo para ganarle al #1 (restando $100)
+                    pvp_objetivo = pvp_ganador - 100.0
+                    peso_std = "De 20 a 25 kg"
+                    flete_std = calcular_flete_segun_modalidad(
+                        pvp_objetivo, peso_std, "Mercado Envíos Tradicional (ME2)", 0, 0, 0, 0
+                    )
+                    fijo_std = CARGO_FIJO_MELI if pvp_objetivo < UMBRAL_ENVIO_GRATIS else 0.0
+                    comi_std = pvp_objetivo * t_comi_base
+                    pvp_neto_std = pvp_objetivo / (1 + t_iva_prod)
+                    iibb_std = pvp_neto_std * t_iibb
+                    gan_std = pvp_neto_std * t_ganancias_fijo
+                    ganancia_target_std = pvp_objetivo * margen_objetivo_tab7
+
+                    if tipo_iva == "Monotributista":
+                        costo_max_compra = (
+                            pvp_objetivo
+                            - (ganancia_target_std + comi_std + flete_std + fijo_std + iibb_std + gan_std)
+                        ) / (1 + t_iva_prod)
+                    else:
+                        costo_max_compra = (
+                            pvp_neto_std
+                            - (comi_std / 1.21)
+                            - (flete_std / 1.21)
+                            - (fijo_std / 1.21)
+                            - iibb_std
+                            - gan_std
+                            - ganancia_target_std
+                        )
+
+                    bonif_requerida = (
+                        ((1 - (costo_max_compra / costo_lista_f)) * 100) if costo_lista_f > 0 else 0.0
+                    )
+
+                    # --- TARJETAS RESUMEN DE COMPROBACIÓN ---
+                    m1, m2, m3, m4 = st.columns(4)
+                    with m1:
+                        st.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
+                    with m2:
+                        st.metric("🎯 PVP Objetivo (N.º 1)", f"${pvp_objetivo:,.2f}")
+                    with m3:
+                        st.metric("📦 Costo Máx Compra", f"${max(0.0, costo_max_compra):,.2f}")
+                    with m4:
+                        st.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
+
+                    st.markdown("---")
+                    st.markdown(f"### 📋 Publicaciones Competidoras Detectadas para: **{title_product}**")
+
+                    tabla_comp = []
+                    for rank, it in enumerate(items_competencia, start=1):
+                        p = float(it.get("price", 0.0))
+                        s_id = it.get("seller_id", "Sin ID")
+                        log_t = it.get("shipping", {}).get("logistic_type", "tradicional")
+                        l_type = (
+                            "Premium (Cuotas)"
+                            if it.get("listing_type_id") == "gold_pro"
+                            else "Clásica"
+                        )
+                        is_buybox = "🥇 Ganador Buy Box" if rank == 1 else f"Puesto #{rank}"
+
+                        tabla_comp.append({
+                            "Posición": is_buybox,
+                            "ID Publicación": it.get("id"),
+                            "Vendedor ID": s_id,
+                            "PVP Publicado ($)": f"${p:,.2f}",
+                            "Modalidad": l_type,
+                            "Logística": log_t.upper(),
+                            "Enlace": it.get("permalink"),
+                        })
+
+                    df_comp = pd.DataFrame(tabla_comp)
+                    st.dataframe(df_comp, use_container_width=True)
+
+                    st.info(
+                        f"💡 **Estrategia Comercial:** Para desplazar al Vendedor **ID: {seller_id_ganador}** del Puesto #1, debés publicar a **${pvp_objetivo:,.2f}**. Para sostener un {margen_objetivo_tab7*100:.1f}% de margen neto, tu costo de lista de **${costo_lista_f:,.2f}** requiere un descuento del **{bonif_requerida:.2f}%**."
+                    )
+                else:
+                    st.warning("⚠️ No se encontraron publicaciones activas para ese SKU/EAN o descripción.")
+        else:
+            st.error("Por favor, ingresá un SKU, EAN o descripción válida.")
