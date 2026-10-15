@@ -1,12 +1,13 @@
 import os
 import requests
-from dotenv import load_dotenv
+import streamlit as st
 
-load_dotenv()
-
-CLIENT_ID = os.environ.get("MELI_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("MELI_CLIENT_SECRET")
-REDIRECT_URI = os.environ.get("MELI_REDIRECT_URI", "https://api.melicost.com/webhooks/meli")
+# Lectura segura: intenta leer desde st.secrets (Streamlit Cloud) o desde os.environ
+CLIENT_ID = getattr(st, "secrets", {}).get("MELI_CLIENT_ID", os.environ.get("MELI_CLIENT_ID", ""))
+CLIENT_SECRET = getattr(st, "secrets", {}).get("MELI_CLIENT_SECRET", os.environ.get("MELI_CLIENT_SECRET", ""))
+REDIRECT_URI = getattr(
+    st, "secrets", {}
+).get("MELI_REDIRECT_URI", os.environ.get("MELI_REDIRECT_URI", "https://api.melicost.com/webhooks/meli"))
 
 AUTH_URL = "https://auth.mercadolibre.com.ar/authorization"
 TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
