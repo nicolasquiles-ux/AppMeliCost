@@ -8,12 +8,18 @@ import streamlit as st
 import meli_auth
 
 # Versión del sistema
-V_NUMBER = "29.7"
+V_NUMBER = "29.8"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title=f"NQ | Sales Intelligence Dashboard v{V_NUMBER}", layout="wide"
 )
+
+# --- HEADERS DE PETICIÓN PARA EVITAR HTTP 403 ---
+HEADERS_MELI = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+}
 
 # =========================================================
 # DATOS MAESTROS VIGENTES SEPTIEMBRE 2026 (NQ Database Oficial)
@@ -75,13 +81,20 @@ nq_gold = "#BFA100"
 gray_bg = "#F8FAFC"
 
 
+def get_headers(access_token=None):
+    headers = HEADERS_MELI.copy()
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    return headers
+
+
 # =========================================================
 # FUNCIONES DE CONSULTA A LA API DE MERCADO LIBRE ENRIQUECIDAS
 # =========================================================
-def probar_conexion_meli():
-    """Verifica el estado de respuesta de los servidores de Mercado Libre."""
+def probar_conexion_meli(access_token=None):
+    """Verifica el estado de respuesta de los servidores de Mercado Libre agregando User-Agent y Token si existe."""
     try:
-        res = requests.get("https://api.mercadolibre.com/sites/MLA", timeout=4)
+        res = requests.get("https://api.mercadolibre.com/sites/MLA", headers=get_headers(access_token), timeout=5)
         if res.status_code == 200:
             return True, "Conexión MELI establecida (HTTP 200 OK)"
         else:
@@ -96,7 +109,7 @@ def consultar_api_mercadolibre(link_o_mla, access_token=None):
         return None, "Link o ID MLA no válido. Ejemplo: MLA1428593851 o enlace de la publicación."
 
     item_id = f"MLA{match.group(1)}"
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    headers = get_headers(access_token)
     url = f"https://api.mercadolibre.com/items/{item_id}"
 
     try:
@@ -149,13 +162,14 @@ def consultar_api_mercadolibre(link_o_mla, access_token=None):
         return None, f"Error de conexión con la API de MeLi: {str(e)}"
 
 
-def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
+def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo, access_token=None):
     """Paso 1: Busca por GTIN/EAN. Paso 2: Si no encuentra, realiza fallback por Marca + Descripción."""
+    headers = get_headers(access_token)
     ean_clean = str(ean_code).strip().split(".")[0] if pd.notnull(ean_code) else ""
     if ean_clean and len(ean_clean) >= 8 and ean_clean != "-":
         url_gtin = f"https://api.mercadolibre.com/sites/MLA/search?gtin={ean_clean}"
         try:
-            res = requests.get(url_gtin, timeout=4)
+            res = requests.get(url_gtin, headers=headers, timeout=4)
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 if results:
@@ -167,7 +181,7 @@ def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
     url_query = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(query_str)}"
 
     try:
-        res = requests.get(url_query, timeout=4)
+        res = requests.get(url_query, headers=headers, timeout=4)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
@@ -178,15 +192,16 @@ def buscar_pvp_meli_inteligente(ean_code, descripcion, articulo):
     return None, "No Encontrado"
 
 
-def buscar_competencia_inteligente_v2(query_term, limit=12):
+def buscar_competencia_inteligente_v2(query_term, limit=12, access_token=None):
     """Estrategia de Búsqueda de 4 Niveles para Garantizar Hallazgo de Competencia."""
+    headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
 
     # Nivel 1: Búsqueda por parámetro oficial GTIN (EAN)
     if term_clean.isdigit() and len(term_clean) >= 8:
         url_gtin = f"https://api.mercadolibre.com/sites/MLA/search?gtin={term_clean}&limit={limit}"
         try:
-            res = requests.get(url_gtin, timeout=5)
+            res = requests.get(url_gtin, headers=headers, timeout=5)
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 if results:
@@ -197,7 +212,7 @@ def buscar_competencia_inteligente_v2(query_term, limit=12):
     # Nivel 2: Búsqueda por query libre numérico o texto
     url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_clean)}&limit={limit}"
     try:
-        res = requests.get(url_q, timeout=5)
+        res = requests.get(url_q, headers=headers, timeout=5)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
@@ -208,13 +223,13 @@ def buscar_competencia_inteligente_v2(query_term, limit=12):
     # Nivel 3: Búsqueda por productos de catálogo
     url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(term_clean)}"
     try:
-        res = requests.get(url_cat, timeout=5)
+        res = requests.get(url_cat, headers=headers, timeout=5)
         if res.status_code == 200:
             products = res.json().get("results", [])
             if products:
                 cat_id = products[0].get("id")
                 url_items_cat = f"https://api.mercadolibre.com/products/{cat_id}/items"
-                res_items = requests.get(url_items_cat, timeout=5)
+                res_items = requests.get(url_items_cat, headers=headers, timeout=5)
                 if res_items.status_code == 200:
                     items_cat = res_items.json().get("results", [])
                     if items_cat:
@@ -226,7 +241,7 @@ def buscar_competencia_inteligente_v2(query_term, limit=12):
     query_fallback = f"Centro Estant {term_clean}".strip()
     url_fallback = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(query_fallback)}&limit={limit}"
     try:
-        res = requests.get(url_fallback, timeout=5)
+        res = requests.get(url_fallback, headers=headers, timeout=5)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
@@ -1449,7 +1464,9 @@ with tab6:
                         if plist_val <= 0:
                             continue
 
-                        pvp_meli_encontrado, metodo_hallazgo = buscar_pvp_meli_inteligente(ean_val, desc_val, art_val)
+                        pvp_meli_encontrado, metodo_hallazgo = buscar_pvp_meli_inteligente(
+                            ean_val, desc_val, art_val, access_token=st.session_state.get("access_token")
+                        )
 
                         if pvp_meli_encontrado and pvp_meli_encontrado > 0:
                             pvp_target_win = pvp_meli_encontrado - undercut_ganador
@@ -1527,7 +1544,7 @@ with tab6:
             st.error(f"Error al procesar la planilla: {str(e)}")
 
 # =========================================================
-# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL CON ESTADO DE CONEXIÓN (CORREGIDO)
+# SOLAPA 7: MONITOR DE CATÁLOGO & BUY BOX EN TIEMPO REAL CON ESTADO DE CONEXIÓN
 # =========================================================
 with tab7:
     st.subheader("🎯 Monitor de Catálogo & Ganadores de Buy Box por SKU")
@@ -1535,7 +1552,9 @@ with tab7:
         "Ingresá un **EAN, SKU o Título de Producto** para auditar en tiempo real quién gana la **Buy Box**, ver la lista completa de vendedores competidores y calcular la bonificación requerida a fábrica para desplazar al n.º 1."
     )
 
-    conexion_ok, msg_conexion = probar_conexion_meli()
+    token_actual = st.session_state.get("access_token")
+    conexion_ok, msg_conexion = probar_conexion_meli(access_token=token_actual)
+
     if conexion_ok:
         st.success(f"🟢 **{msg_conexion}**")
     else:
@@ -1545,8 +1564,8 @@ with tab7:
     with col_s1:
         query_sku = st.text_input(
             "SKU / EAN / Descripción a Monitorear",
-            value="7798274755841",
-            placeholder="Ej: 7798274755841 o Biblioteca 6001 Centro Estant",
+            value="7798274756039",
+            placeholder="Ej: 7798274756039 o Biblioteca 6001 Centro Estant",
             key="input_sku_tab7",
         )
     with col_s2:
@@ -1561,7 +1580,9 @@ with tab7:
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         if query_sku:
             with st.spinner("Consultando Mercado Libre API y fichas de catálogo..."):
-                items_competencia, metodo_hallado = buscar_competencia_inteligente_v2(query_sku, limit=12)
+                items_competencia, metodo_hallado = buscar_competencia_inteligente_v2(
+                    query_sku, limit=12, access_token=token_actual
+                )
 
                 if items_competencia:
                     first_item = items_competencia[0]
