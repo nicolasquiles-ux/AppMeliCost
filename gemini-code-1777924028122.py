@@ -1856,3 +1856,39 @@ with tab6:
 
     except Exception as e:
       st.error(f"Error al procesar la planilla: {str(e)}")
+import meli_auth
+
+# --- EN LA BARRA LATERAL (SIDEBAR) ---
+st.sidebar.title("🔗 Mercado Libre OAuth")
+
+# Capturar el parámetro 'code' cuando el cliente regresa del login de MeLi
+query_params = st.query_params
+
+if "code" in query_params:
+  auth_code = query_params["code"]
+  st.sidebar.info("Procesando autorización...")
+  try:
+    tokens = meli_auth.intercambiar_code_por_tokens(auth_code)
+    st.session_state["access_token"] = tokens.get("access_token")
+    st.session_state["refresh_token"] = tokens.get("refresh_token")
+    st.session_state["user_id"] = tokens.get("user_id")
+
+    st.sidebar.success(f"✅ ¡Conectado! User ID: {tokens.get('user_id')}")
+    st.query_params.clear()
+  except Exception as e:
+    st.sidebar.error(f"Error de vinculación: {str(e)}")
+else:
+  if "access_token" in st.session_state:
+    st.sidebar.success(f"🟢 Sesión Activa (User ID: {st.session_state.get('user_id')})")
+  else:
+    url_login = meli_auth.obtener_link_autorizacion()
+    st.sidebar.markdown(
+        f"""
+        <a href="{url_login}" target="_blank">
+            <button style="background-color:#0055A0; color:white; border:none; padding:10px 15px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%;">
+                🔑 Conectar mi cuenta de MeLi
+            </button>
+        </a>
+    """,
+        unsafe_allow_html=True,
+    )
