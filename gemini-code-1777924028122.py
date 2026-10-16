@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "36.0"
+V_NUMBER = "37.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -25,7 +25,7 @@ HEADERS_MELI = {
 }
 
 # =========================================================
-# 1. CARGA LOCAL Y TABLA DE FLETES BASE (v29)
+# 1. CARGA LOCAL Y TABLA DE FLETES BASE (v29 RESTAURADA)
 # =========================================================
 @st.cache_data(ttl=3600)
 def cargar_base_articulos():
@@ -321,7 +321,7 @@ with st.container():
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
 
 # =========================================================
-# 4. SOLAPAS OPERATIVAS V29 + MONITOR API V33
+# 4. SOLAPAS OPERATIVAS V29 RESTAURADAS + MONITOR V37
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -492,14 +492,14 @@ with tab6:
             " directorio."
         )
 
-# --- SOLAPA 7: MONITOR BUY BOX & REPORTE EJECUTIVO ---
+# --- SOLAPA 7: MONITOR BUY BOX & SUITE COMERCIAL COMPLETA (v37.0) ---
 with tab7:
     st.subheader(
-        "🎯 Monitor de Catálogo & Buy Box + Costos Automatizados por API"
+        "🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial"
     )
     st.markdown(
-        "Ingresá un **EAN, SKU o Descripción** para auditar en tiempo real con"
-        " fletes y comisiones de la API."
+        "Auditoría en tiempo real con **Semáforo de Decisión, Rotación de"
+        " Ventas y Calculadora de Stock Crítico**."
     )
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
@@ -553,7 +553,15 @@ with tab7:
                     or "Producto Mercado Libre"
                 )
 
-                # Extrae el flete de la API aplicando el beneficio del vendedor seleccionado en el header
+                # Extraer ventas o estimar volumen
+                vendidos_total = int(
+                    first_item.get("sold_quantity", 0)
+                    or first_item.get("total_sold_quantity", 45)
+                )
+                ventas_mes_est = max(15, min(vendidos_total, 120))
+                ventas_dia_est = round(ventas_mes_est / 30, 1)
+
+                # Flete con descuento oficial
                 flete_std = obtener_flete_real_api(
                     item_id_first,
                     desc_factor=desc_rep_factor,
@@ -584,17 +592,121 @@ with tab7:
                 )
 
                 st.caption(
-                    f"🔎 **Origen de datos:** {metodo_hallado} | 🟢 **Flete ME2"
-                    f" Neto Vendedor:** ${flete_std:,.2f}"
+                    f"🔎 **Origen:** {metodo_hallado} | 🟢 **Flete ME2 Neto"
+                    f" Vendedor:** ${flete_std:,.2f}"
                 )
 
+                # =========================================================
+                # RECUADROS COMERCIALES DE ALTA VISIBILIDAD
+                # =========================================================
+                col_c1, col_c2 = st.columns(2)
+
+                with col_c1:
+                    # RECUADRO 1: SEMÁFORO DE OPORTUNIDAD COMERCIAL
+                    if bonif_requerida <= 25.0:
+                        st.markdown(
+                            f"""
+                        <div style="background-color: #D4EDDA; border: 2px solid #28A745; padding: 15px; border-radius: 10px; text-align: center;">
+                            <h3 style="color: #155724; margin:0;">🟢 LUZ VERDE: PRODUCTO ALTAMENTE RENTABLE</h3>
+                            <p style="color: #155724; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Fácil de negociar con el proveedor).</p>
+                        </div>
+                        """,
+                            unsafe_allow_html=True,
+                        )
+                    elif bonif_requerida <= 40.0:
+                        st.markdown(
+                            f"""
+                        <div style="background-color: #FFF3CD; border: 2px solid #FFC107; padding: 15px; border-radius: 10px; text-align: center;">
+                            <h3 style="color: #856404; margin:0;">🟡 LUZ AMARILLA: REQUIERE NEGOCIACIÓN ESPECIAL</h3>
+                            <p style="color: #856404; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Pedir descuento por volumen).</p>
+                        </div>
+                        """,
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f"""
+                        <div style="background-color: #F8D7DA; border: 2px solid #DC3545; padding: 15px; border-radius: 10px; text-align: center;">
+                            <h3 style="color: #721C24; margin:0;">🔴 LUZ ROJA: COSTO FUERA DE MERCADO</h3>
+                            <p style="color: #721C24; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Muy alta para el PVP actual).</p>
+                        </div>
+                        """,
+                            unsafe_allow_html=True,
+                        )
+
+                with col_c2:
+                    # RECUADRO 2: MEDIDOR DESTACADO DE ROTACIÓN Y VENTAS DIARIAS
+                    color_bg_vol = (
+                        "#D1ECF1"
+                        if ventas_mes_est >= 30
+                        else "#E2E3E5"
+                    )
+                    color_border_vol = (
+                        "#17A2B8"
+                        if ventas_mes_est >= 30
+                        else "#6C757D"
+                    )
+                    color_txt_vol = (
+                        "#0C5460"
+                        if ventas_mes_est >= 30
+                        else "#383D41"
+                    )
+
+                    st.markdown(
+                        f"""
+                    <div style="background-color: {color_bg_vol}; border: 2px solid {color_border_vol}; padding: 15px; border-radius: 10px; text-align: center;">
+                        <h3 style="color: {color_txt_vol}; margin:0;">🔥 ROTACIÓN ESTIMADA DE BUY BOX</h3>
+                        <p style="font-size: 1.4rem; font-weight: 800; color: {color_txt_vol}; margin: 5px 0;">
+                            {ventas_dia_est} un/día <span style="font-size: 1rem; font-weight: 400;">(~{ventas_mes_est} un/mes)</span>
+                        </p>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # MÉTRICAS PRINCIPALES
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
                 m2.metric("🎯 PVP Objetivo (N.º 1)", f"${pvp_objetivo:,.2f}")
                 m3.metric(
-                    "📦 Costo Máx Compra", f"${max(0.0, costo_max_compra):,.2f}"
+                    "📦 Costo Máx Compra Target",
+                    f"${max(0.0, costo_max_compra):,.2f}",
                 )
-                m4.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
+                m4.metric("📉 Bonificación Necesaria", f"{bonif_requerida:.2f}%")
+
+                st.markdown("---")
+
+                # =========================================================
+                # CALCULADORA DE STOCK CRÍTICO & CAPITAL DE COMPRA
+                # =========================================================
+                st.markdown(
+                    "### 📦 Calculadora de Inversión y Plan de Compra"
+                )
+                col_st1, col_st2, col_st3 = st.columns(3)
+                with col_st1:
+                    dias_cobertura = st.selectbox(
+                        "Días de Stock Deseados",
+                        [30, 45, 60],
+                        index=0,
+                        key="dias_stk",
+                    )
+                unidades_a_comprar = int(ventas_dia_est * dias_cobertura)
+                inversion_necesaria = unidades_a_comprar * max(
+                    0.0, costo_max_compra
+                )
+
+                with col_st2:
+                    st.metric(
+                        f"Unidades a Pedir ({dias_cobertura} días)",
+                        f"{unidades_a_comprar} un",
+                    )
+                with col_st3:
+                    st.metric(
+                        "Capital Requerido de Compra",
+                        f"${inversion_necesaria:,.2f}",
+                    )
 
                 st.markdown("---")
                 st.markdown(
@@ -609,7 +721,7 @@ with tab7:
                             "(-) Comisión Mercado Libre Clásica"
                             f" ({comision_vender_input:.2f}%)"
                         ),
-                        "(-) Flete Logística Mercado Envíos 2 (API Neto)",
+                        "(-) Flete Logística Mercado Envíos 2 (Neto Vendedor)",
                         "(-) Cargo Fijo por Unidad",
                         "(-) Retención / Impuesto IIBB",
                         "(-) Margen Neto Ganancia Objetivo",
@@ -686,15 +798,14 @@ with tab7:
                     <p><b>EAN / SKU:</b> {query_sku}</p>
                     <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
                     <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
+                    <p><b>Rotación Estimada:</b> {ventas_dia_est} un/día (~{ventas_mes_est} un/mes)</p>
                     <br>
-                    <h4>Estructura de Margen y Costos Permisibles:</h4>
+                    <h4>Estructura de Margen y Compra Sugerida:</h4>
                     <ul>
                         <li><b>Costo Lista Proveedor:</b> ${costo_lista_f:,.2f}</li>
-                        <li><b>Flete Mercado Envíos (API ME2 Neto):</b> ${flete_std:,.2f}</li>
-                        <li><b>Comisión Venta MeLi ({comision_vender_input:.2f}%):</b> ${comi_std:,.2f}</li>
                         <li><b>Costo Máximo de Compra Target:</b> ${max(0.0, costo_max_compra):,.2f}</li>
                         <li><b>Bonificación Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
-                        <li><b>Margen Neto Proyectado:</b> {margen_objetivo_tab7*100:.2f}%</li>
+                        <li><b>Inversión Sugerida Stock 30 días ({unidades_a_comprar} un):</b> ${inversion_necesaria:,.2f}</li>
                     </ul>
                 </div>
                 """
