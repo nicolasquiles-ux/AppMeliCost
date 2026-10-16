@@ -5,24 +5,15 @@ from datetime import datetime
 import pandas as pd
 import requests
 import streamlit as st
-import matplotlib.pyplot as plt
 
-# Intentar importación opcional de Plotly
-try:
-    import plotly.express as px
-    import plotly.graph_objects as go
-    HAS_PLOTLY = True
-except ImportError:
-    HAS_PLOTLY = False
-
-# Intentar importación de módulo OAuth local
+# Módulo OAuth local opcional
 try:
     import meli_auth
     HAS_MELI_AUTH = True
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "41.0 Pro SaaS"
+V_NUMBER = "41.1 Pro SaaS"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -44,7 +35,7 @@ HEADERS_MELI = {
 # =========================================================
 @st.cache_data(ttl=3600)
 def cargar_lista_precios_gold(url_gsheets=None):
-    """Carga y procesa la Lista de Precios Oficial desde Excel o Google Sheets con máxima tolerancia a fallos."""
+    """Carga y procesa la Lista de Precios Oficial desde Excel o Google Sheets sin dependencias externas."""
     # 1. Intentar desde Google Sheets si se ingresó URL
     if url_gsheets and "docs.google.com/spreadsheets" in str(url_gsheets):
         try:
@@ -89,7 +80,7 @@ def cargar_lista_precios_gold(url_gsheets=None):
                     df["COSTO_LISTA_GOLD"] = pd.to_numeric(df["COSTO_LISTA_GOLD"], errors="coerce").fillna(0.0)
                     df = df[df["COSTO_LISTA_GOLD"] > 0]
                     return df
-        except Exception as e:
+        except Exception:
             pass
 
     # 3. Fallback Matriz Artículos previa si existiera
@@ -118,18 +109,15 @@ def buscar_costo_lista_gold(term_busqueda):
 
     term_str = str(term_busqueda).strip().upper()
 
-    # Búsqueda exacta EAN
     match_ean = df_articulos_base[df_articulos_base["EAN"] == term_str]
     if not match_ean.empty:
         return float(match_ean.iloc[0]["COSTO_LISTA_GOLD"])
 
-    # Búsqueda SKU / Artículo
     if "ARTICULO" in df_articulos_base.columns:
         match_art = df_articulos_base[df_articulos_base["ARTICULO"].astype(str).str.upper() == term_str]
         if not match_art.empty:
             return float(match_art.iloc[0]["COSTO_LISTA_GOLD"])
 
-    # Búsqueda parcial Descripción
     if "DESCRIPCION" in df_articulos_base.columns:
         match_desc = df_articulos_base[df_articulos_base["DESCRIPCION"].astype(str).str.upper().str.contains(term_str)]
         if not match_desc.empty:
@@ -440,7 +428,6 @@ with tab0:
         st.markdown("---")
         st.markdown("### 🔍 Selector Rápido de Producto de la Lista Gold")
 
-        # Crear lista de opciones para combo
         opciones_art = []
         for idx, row in df_articulos_base.iterrows():
             ean_str = str(row.get("EAN", ""))
@@ -452,28 +439,11 @@ with tab0:
         prod_sel = st.selectbox("Seleccionar Producto del Catálogo Gold para Inspección:", opciones_art)
 
         st.markdown("---")
-        st.markdown("### 📊 Estructura Visual de Precios de Lista (Distribución)")
-
-        if HAS_PLOTLY:
-            fig = px.histogram(
-                df_articulos_base,
-                x="COSTO_LISTA_GOLD",
-                nbins=25,
-                title="Distribución de Costos de Lista de Muebles Centro Estant (Gold Sept 2026)",
-                labels={"COSTO_LISTA_GOLD": "Costo de Lista ($)"},
-                color_discrete_sequence=["#0055A0"]
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            fig, ax = plt.subplots(figsize=(10, 4))
-            ax.hist(df_articulos_base["COSTO_LISTA_GOLD"], bins=20, color="#0055A0", edgecolor="white")
-            ax.set_title("Distribución de Costos de Lista Gold ($)")
-            ax.set_xlabel("Costo Lista Gold ($)")
-            ax.set_ylabel("Cantidad de SKUs")
-            st.pyplot(fig)
+        st.markdown("### 📊 Vista de Matriz de Artículos Gold")
+        st.dataframe(df_articulos_base, use_container_width=True)
 
     else:
-        st.warning("⚠️ No se pudo cargar automáticamente la base. Suba el archivo 'Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx' en el directorio.")
+        st.warning("⚠️ No se pudo cargar automáticamente la base local.")
 
 # --- SOLAPA 1: REALIDAD REAL ---
 with tab1:
