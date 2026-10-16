@@ -12,7 +12,7 @@ except ImportError:
     HAS_MELI_AUTH = False
 
 # Versión del sistema
-V_NUMBER = "30.2"
+V_NUMBER = "30.3"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -93,13 +93,13 @@ def get_headers(access_token=None):
 
 
 # =========================================================
-# FUNCIONES DE BÚSQUEDA EN MERCADO LIBRE
+# MOTOR MULTI-BÚSQUEDA EN CASACADA (v30.3)
 # =========================================================
 def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
 
-    # 1. Intento por GTIN / EAN
+    # Nivel 1: Búsqueda por GTIN/EAN estricto
     if term_clean.isdigit() and len(term_clean) >= 8:
         try:
             url = f"https://api.mercadolibre.com/sites/MLA/search?gtin={term_clean}&limit={limit}"
@@ -107,29 +107,46 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 if results:
-                    return results, "EAN / GTIN Directo"
+                    return results, "GTIN / EAN Directo"
         except Exception:
             pass
 
-    # 2. Intento por Búsqueda Libre
+    # Nivel 2: Búsqueda libre por término/EAN en query `q`
     try:
         url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_clean)}&limit={limit}"
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
-                return results, "Búsqueda por Título"
+                return results, "Query Búsqueda Libre"
     except Exception:
         pass
 
-    # 3. Fallback con marca Centro Estant
+    # Nivel 3: Búsqueda por Ficha de Catálogo Buy Box
+    try:
+        url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(term_clean)}"
+        res_cat = requests.get(url_cat, headers=headers, timeout=5)
+        if res_cat.status_code == 200:
+            products = res_cat.json().get("results", [])
+            if products:
+                cat_id = products[0].get("id")
+                url_items = f"https://api.mercadolibre.com/products/{cat_id}/items"
+                res_items = requests.get(url_items, headers=headers, timeout=5)
+                if res_items.status_code == 200:
+                    items_cat = res_items.json().get("results", [])
+                    if items_cat:
+                        return items_cat, "Catálogo Buy Box MeLi"
+    except Exception:
+        pass
+
+    # Nivel 4: Fallback Comercial con Marca (Centro Estant)
     try:
         url_fb = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote('Centro Estant ' + term_clean)}&limit={limit}"
-        res = requests.get(url_fb, headers=headers, timeout=5)
-        if res.status_code == 200:
-            results = res.json().get("results", [])
+        res_fb = requests.get(url_fb, headers=headers, timeout=5)
+        if res_fb.status_code == 200:
+            results = res_fb.json().get("results", [])
             if results:
-                return results, "Fallback Marca + Término"
+                return results, "Fallback Comercial (Marca + Modelo)"
     except Exception:
         pass
 
@@ -137,7 +154,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
 
 
 # =========================================================
-# ESTILOS CSS E INTERFAZ BASE
+# ESTILOS E INTERFAZ
 # =========================================================
 css_template = f"""
 <style>
@@ -292,9 +309,6 @@ with tab7:
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         token = st.session_state.get("access_token")
 
-        if not token:
-            st.warning("⚠️ **Paso previo requerido:** Para hacer la consulta directa a la API de Mercado Libre, hace clic en '🔑 Conectar cuenta de MeLi' en la barra lateral izquierda.")
-
         with st.spinner("Consultando Mercado Libre API en vivo..."):
             items_competencia, metodo_hallado = buscar_items_api_oficial(
                 query_sku, limit=10, access_token=token
@@ -316,7 +330,7 @@ with tab7:
                 costo_max_compra = pvp_neto_std - (comi_std / 1.21) - (flete_std / 1.21) - (fijo_std / 1.21) - iibb_std - ganancia_target_std
                 bonif_requerida = ((1 - (costo_max_compra / costo_lista_f)) * 100) if costo_lista_f > 0 else 0.0
 
-                st.caption(f"🔎 **Origen de consulta:** {metodo_hallado}")
+                st.caption(f"🔎 **Estrategia utilizada:** {metodo_hallado}")
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
@@ -335,6 +349,7 @@ with tab7:
                         "Título": it.get("title"),
                         "PVP ($)": f"${float(it.get('price', 0.0)):,.2f}",
                         "Vendedor ID": it.get("seller_id"),
+                        "Enlace": it.get("permalink", "#"),
                     })
 
                 st.dataframe(pd.DataFrame(tabla_comp), use_container_width=True)
