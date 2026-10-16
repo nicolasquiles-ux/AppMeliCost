@@ -1,21 +1,28 @@
 import io
 import re
+import os
 from datetime import datetime
 import pandas as pd
 import requests
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
-# Módulo OAuth local
+# Intentar importación opcional de Plotly
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
+
+# Intentar importación de módulo OAuth local
 try:
     import meli_auth
-
     HAS_MELI_AUTH = True
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "40.0 Pro SaaS"
+V_NUMBER = "41.0 Pro SaaS"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -33,14 +40,14 @@ HEADERS_MELI = {
 }
 
 # =========================================================
-# 1. CARGA LOCAL Y NORMALIZACIÓN DE LA LISTA GOLD
+# 1. CARGA ROBUSTA DE LA LISTA GOLD SEPTIEMBRE 2026
 # =========================================================
 @st.cache_data(ttl=3600)
 def cargar_lista_precios_gold(url_gsheets=None):
-    """Carga y procesa la Lista de Precios Oficial desde Excel o Google Sheets."""
-    if url_gsheets and "docs.google.com/spreadsheets" in url_gsheets:
+    """Carga y procesa la Lista de Precios Oficial desde Excel o Google Sheets con máxima tolerancia a fallos."""
+    # 1. Intentar desde Google Sheets si se ingresó URL
+    if url_gsheets and "docs.google.com/spreadsheets" in str(url_gsheets):
         try:
-            # Transformar enlace estándar a export CSV
             csv_url = url_gsheets.split("/edit")[0] + "/export?format=csv"
             df_gsheet = pd.read_csv(csv_url)
             df_gsheet.columns = [str(c).strip().upper() for c in df_gsheet.columns]
@@ -48,72 +55,86 @@ def cargar_lista_precios_gold(url_gsheets=None):
         except Exception:
             pass
 
+    # 2. Cargar desde Excel local 'Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx'
     nombre_archivo = "Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx"
-    try:
-        df_raw = pd.read_excel(nombre_archivo, header=None)
-        
-        header_row = None
-        for idx, row in df_raw.iterrows():
-            row_str = [str(val).upper() for val in row.values]
-            if "EAN" in row_str or "ARTICULOS" in row_str:
-                header_row = idx
-                break
-        
-        if header_row is not None:
-            df = pd.read_excel(nombre_archivo, skiprows=header_row)
-            df.columns = [str(c).strip().upper() for c in df.columns]
-            
-            col_ean = [c for c in df.columns if "EAN" in c]
-            col_art = [c for c in df.columns if "ART" in c]
-            col_desc = [c for c in df.columns if "DESC" in c]
-            col_precio = [c for c in df.columns if "LISTA" in c or "PRECIO" in c or "SEPT" in c]
-            
-            renames = {}
-            if col_ean: renames[col_ean[0]] = "EAN"
-            if col_art: renames[col_art[0]] = "ARTICULO"
-            if col_desc: renames[col_desc[0]] = "DESCRIPCION"
-            if col_precio: renames[col_precio[0]] = "COSTO_LISTA_GOLD"
-            
-            df = df.rename(columns=renames)
-            df = df.dropna(subset=["EAN", "COSTO_LISTA_GOLD"], how="all")
-            
-            df["EAN"] = df["EAN"].astype(str).str.replace(".0", "", regex=False).str.strip()
-            df["COSTO_LISTA_GOLD"] = pd.to_numeric(df["COSTO_LISTA_GOLD"], errors="coerce").fillna(0.0)
-            return df
-    except Exception:
-        pass
-    
-    try:
-        df_alt = pd.read_excel("Matriz Articulos Gemini.xlsm", sheet_name=0)
-        df_alt.columns = [str(c).strip().upper() for c in df_alt.columns]
-        return df_alt
-    except Exception:
-        return pd.DataFrame()
+    if os.path.exists(nombre_archivo):
+        try:
+            df_raw = pd.read_excel(nombre_archivo, header=None)
+            header_row = None
+            for idx, row in df_raw.iterrows():
+                row_str = [str(val).upper() for val in row.values if pd.notna(val)]
+                if any("EAN" in x for x in row_str) or any("ARTICULO" in x for x in row_str):
+                    header_row = idx
+                    break
 
-# Inicialización
-url_gsheet_input = st.sidebar.text_input("🌐 Enlace Google Sheets (Lista Viva)", placeholder="https://docs.google.com/spreadsheets/d/...")
+            if header_row is not None:
+                df = pd.read_excel(nombre_archivo, skiprows=header_row)
+                df.columns = [str(c).strip().upper() for c in df.columns]
+
+                col_ean = [c for c in df.columns if "EAN" in c]
+                col_art = [c for c in df.columns if "ART" in c]
+                col_desc = [c for c in df.columns if "DESC" in c]
+                col_precio = [c for c in df.columns if any(k in c for k in ["LISTA", "PRECIO", "SEPT", "CE", "GOLD"])]
+
+                renames = {}
+                if col_ean: renames[col_ean[0]] = "EAN"
+                if col_art: renames[col_art[0]] = "ARTICULO"
+                if col_desc: renames[col_desc[0]] = "DESCRIPCION"
+                if col_precio: renames[col_precio[0]] = "COSTO_LISTA_GOLD"
+
+                df = df.rename(columns=renames)
+                if "EAN" in df.columns and "COSTO_LISTA_GOLD" in df.columns:
+                    df = df.dropna(subset=["EAN", "COSTO_LISTA_GOLD"], how="all")
+                    df["EAN"] = df["EAN"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+                    df["COSTO_LISTA_GOLD"] = pd.to_numeric(df["COSTO_LISTA_GOLD"], errors="coerce").fillna(0.0)
+                    df = df[df["COSTO_LISTA_GOLD"] > 0]
+                    return df
+        except Exception as e:
+            pass
+
+    # 3. Fallback Matriz Artículos previa si existiera
+    if os.path.exists("Matriz Articulos Gemini.xlsm"):
+        try:
+            df_alt = pd.read_excel("Matriz Articulos Gemini.xlsm", sheet_name=0)
+            df_alt.columns = [str(c).strip().upper() for c in df_alt.columns]
+            return df_alt
+        except Exception:
+            pass
+
+    return pd.DataFrame()
+
+# Carga inicial global
+url_gsheet_input = st.sidebar.text_input(
+    "🌐 Enlace Google Sheets (Lista Viva)",
+    placeholder="https://docs.google.com/spreadsheets/d/...",
+    key="url_gsheet_sidebar"
+)
 df_articulos_base = cargar_lista_precios_gold(url_gsheet_input)
 
 def buscar_costo_lista_gold(term_busqueda):
+    """Devuelve el costo de lista buscando por EAN, SKU o palabras clave."""
     if df_articulos_base.empty or not term_busqueda:
         return 70500.0
-    
+
     term_str = str(term_busqueda).strip().upper()
-    
+
+    # Búsqueda exacta EAN
     match_ean = df_articulos_base[df_articulos_base["EAN"] == term_str]
     if not match_ean.empty:
         return float(match_ean.iloc[0]["COSTO_LISTA_GOLD"])
-    
+
+    # Búsqueda SKU / Artículo
     if "ARTICULO" in df_articulos_base.columns:
         match_art = df_articulos_base[df_articulos_base["ARTICULO"].astype(str).str.upper() == term_str]
         if not match_art.empty:
             return float(match_art.iloc[0]["COSTO_LISTA_GOLD"])
-        
+
+    # Búsqueda parcial Descripción
     if "DESCRIPCION" in df_articulos_base.columns:
         match_desc = df_articulos_base[df_articulos_base["DESCRIPCION"].astype(str).str.upper().str.contains(term_str)]
         if not match_desc.empty:
             return float(match_desc.iloc[0]["COSTO_LISTA_GOLD"])
-            
+
     return 70500.0
 
 # TABLA MAESTRA ME2
@@ -181,9 +202,7 @@ def obtener_nickname_vendedor(seller_id, access_token=None):
     return f"Vendedor {seller_id}"
 
 
-def obtener_flete_real_api(
-    item_id, desc_factor=0.50, access_token=None, zip_code="1414"
-):
+def obtener_flete_real_api(item_id, desc_factor=0.50, access_token=None, zip_code="1414"):
     if not item_id or item_id == "Sin ID":
         return TABLA_ME2_BASE["De 20 a 25 kg"][1]
 
@@ -290,7 +309,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
 
 
 # =========================================================
-# 3. INTERFAZ Y ESTILOS PRO
+# 3. INTERFAZ Y ESTILOS
 # =========================================================
 css_template = f"""
 <style>
@@ -312,9 +331,6 @@ html, body, [class*="css"] {{ font-family: 'Plus Jakarta Sans', sans-serif; back
 .nq-title-country {{ color: #64748B; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }}
 .nq-dashboard {{ color: {nq_main_color}; font-weight: 800; font-size: 1.25rem; }}
 .tax-bar {{ background-color: {gray_bg}; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #E2E8F0; }}
-.kpi-card {{
-    background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 20px; border-radius: 12px; text-align: center;
-}}
 </style>
 """
 
@@ -337,7 +353,7 @@ if not st.session_state.autenticado:
                 st.error("Clave incorrecta")
     st.stop()
 
-# --- SIDEBAR OAUTH & GSHEETS ---
+# --- SIDEBAR OAUTH ---
 st.sidebar.title("🔗 Mercado Libre OAuth")
 
 if HAS_MELI_AUTH:
@@ -392,7 +408,7 @@ with st.container():
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
 
 # =========================================================
-# 4. PESTAÑAS OPERATIVAS (INCLUYENDO CONTROL CENTER)
+# 4. PESTAÑAS OPERATIVAS CON CONTROL CENTER ACTIVO
 # =========================================================
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏠 CONTROL CENTER",
@@ -405,52 +421,59 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎯 MONITOR DE CATÁLOGO & BUY BOX",
 ])
 
-# --- SOLAPA 0: CONTROL CENTER SAAS ---
+# --- SOLAPA 0: CONTROL CENTER ---
 with tab0:
     st.subheader("🏠 Control Center Gerencial & Análisis Macro")
-    
+
     if not df_articulos_base.empty and "COSTO_LISTA_GOLD" in df_articulos_base.columns:
         tot_skus = len(df_articulos_base)
         costo_prom = df_articulos_base["COSTO_LISTA_GOLD"].mean()
-        pvp_prom_est = costo_prom * 2.1
-        
+        costo_min = df_articulos_base["COSTO_LISTA_GOLD"].min()
+        costo_max = df_articulos_base["COSTO_LISTA_GOLD"].max()
+
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("📦 Total SKUs en Matriz", f"{tot_skus} Artículos")
+        k1.metric("📦 SKUs en Lista Gold", f"{tot_skus} Productos")
         k2.metric("💵 Costo Lista Promedio", f"${costo_prom:,.2f}")
-        k3.metric("🎯 PVP Sugerido Promedio", f"${pvp_prom_est:,.2f}")
-        k4.metric("📊 Margen Neto Target Prom.", "15.00%")
+        k3.metric("📉 Costo Mínimo de Lista", f"${costo_min:,.2f}")
+        k4.metric("📈 Costo Máximo de Lista", f"${costo_max:,.2f}")
 
         st.markdown("---")
-        st.markdown("### 📊 Gráfico Interactivo de Dispersión: Costo Lista vs. PVP Sugerido")
-        
-        # Generar DataFrame para Plotly
-        df_plot = df_articulos_base.copy()
-        df_plot["PVP_SUGERIDO"] = df_plot["COSTO_LISTA_GOLD"] * 2.1
-        df_plot["PVP_BREAKEVEN"] = df_plot["COSTO_LISTA_GOLD"] * 1.45
-        
-        fig = px.scatter(
-            df_plot,
-            x="COSTO_LISTA_GOLD",
-            y="PVP_SUGERIDO",
-            size="COSTO_LISTA_GOLD",
-            color="COSTO_LISTA_GOLD",
-            hover_name="DESCRIPCION" if "DESCRIPCION" in df_plot.columns else "EAN",
-            labels={"COSTO_LISTA_GOLD": "Costo Lista Gold ($)", "PVP_SUGERIDO": "PVP Sugerido Mercado ($)"},
-            title="Estructura Comercial del Catálogo (Zona de Margen)",
-            color_continuous_scale="Viridis"
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df_plot["COSTO_LISTA_GOLD"],
-                y=df_plot["PVP_BREAKEVEN"],
-                mode="lines",
-                name="Línea Break-Even (Piso)",
-                line=dict(color="red", dash="dash")
+        st.markdown("### 🔍 Selector Rápido de Producto de la Lista Gold")
+
+        # Crear lista de opciones para combo
+        opciones_art = []
+        for idx, row in df_articulos_base.iterrows():
+            ean_str = str(row.get("EAN", ""))
+            art_str = str(row.get("ARTICULO", ""))
+            desc_str = str(row.get("DESCRIPCION", ""))
+            precio_val = float(row.get("COSTO_LISTA_GOLD", 0.0))
+            opciones_art.append(f"{art_str} | {desc_str} | EAN: {ean_str} | Costo: ${precio_val:,.2f}")
+
+        prod_sel = st.selectbox("Seleccionar Producto del Catálogo Gold para Inspección:", opciones_art)
+
+        st.markdown("---")
+        st.markdown("### 📊 Estructura Visual de Precios de Lista (Distribución)")
+
+        if HAS_PLOTLY:
+            fig = px.histogram(
+                df_articulos_base,
+                x="COSTO_LISTA_GOLD",
+                nbins=25,
+                title="Distribución de Costos de Lista de Muebles Centro Estant (Gold Sept 2026)",
+                labels={"COSTO_LISTA_GOLD": "Costo de Lista ($)"},
+                color_discrete_sequence=["#0055A0"]
             )
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.hist(df_articulos_base["COSTO_LISTA_GOLD"], bins=20, color="#0055A0", edgecolor="white")
+            ax.set_title("Distribución de Costos de Lista Gold ($)")
+            ax.set_xlabel("Costo Lista Gold ($)")
+            ax.set_ylabel("Cantidad de SKUs")
+            st.pyplot(fig)
+
     else:
-        st.info("Cargue la lista de precios para activar el Control Center.")
+        st.warning("⚠️ No se pudo cargar automáticamente la base. Suba el archivo 'Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx' en el directorio.")
 
 # --- SOLAPA 1: REALIDAD REAL ---
 with tab1:
@@ -519,17 +542,18 @@ with tab5:
     up = st.file_uploader("Subir Archivo de Catálogo (Excel / CSV)", type=["xlsx", "csv"])
     if up:
         df_up = pd.read_excel(up) if up.name.endswith(".xlsx") else pd.read_csv(up)
-        st.write("Vista previa cargada:", df_up.head(3))
+        st.write("Vista previa cargada:", df_up.head(5))
 
 # --- SOLAPA 6: LISTA CENTRO ESTANT ---
 with tab6:
     st.subheader("🏆 Lista Oficial Centro Estant — LISTA GOLD SEPTIEMBRE 2026")
     if not df_articulos_base.empty:
+        st.success(f"✅ Se cargaron exitosamente **{len(df_articulos_base)} artículos** de la Lista Gold.")
         st.dataframe(df_articulos_base, use_container_width=True)
     else:
-        st.info("Cargue o verifique el archivo de lista de precios.")
+        st.info("No se encontró la matriz local.")
 
-# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL ---
+# --- SOLAPA 7: MONITOR BUY BOX ---
 with tab7:
     st.subheader("🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial")
     st.markdown("Auditoría en tiempo real cruzada con la **Lista Gold Septiembre 2026**, calculando la **Bonificación Real a Proveedor** y el **PVP Break-Even**.")
@@ -537,7 +561,7 @@ with tab7:
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
     with col_s1:
         query_sku = st.text_input("SKU / EAN / Descripción", value="7798009182461", key="input_sku_tab7")
-    
+
     costo_auto_gold = buscar_costo_lista_gold(query_sku)
 
     with col_s2:
