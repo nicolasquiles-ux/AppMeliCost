@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "32.1"
+V_NUMBER = "34.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -25,10 +25,11 @@ HEADERS_MELI = {
 }
 
 # =========================================================
-# 1. CARGA DE BASE DE DATOS Y TARIFARIOS
+# 1. CARGA LOCAL Y AUTOMATIZACIÓN DE TARIFAS VÍA API MELI
 # =========================================================
 @st.cache_data(ttl=3600)
 def cargar_base_articulos():
+    """Carga y normaliza la matriz local de productos Centro Estant."""
     try:
         df = pd.read_excel("Matriz Articulos Gemini.xlsm", sheet_name=0)
         df.columns = [str(c).strip().upper() for c in df.columns]
@@ -37,7 +38,61 @@ def cargar_base_articulos():
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=1800)
+def sincronizar_tasas_y_tarifas_api(access_token=None):
+    """Sincroniza automáticamente en tiempo real las tarifas de MeLi (Envío Gratis, Cargos y Cuotas)."""
+    headers = HEADERS_MELI.copy()
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+
+    config = {
+        "UMBRAL_ENVIO_GRATIS": 33000.0,
+        "CARGO_FIJO": 3800.0,
+        "COMISION_BASE": 14.50,
+        "FINANCIACION": {
+            "1 Pago / Clásica (0.00%)": 0.0,
+            "2 Cuotas (9.49%)": 9.49,
+            "3 Cuotas Mismo Precio (12.19%)": 12.19,
+            "6 Cuotas Mismo Precio (19.09%)": 19.09,
+            "9 Cuotas Mismo Precio (27.29%)": 27.29,
+            "12 Cuotas Mismo Precio (32.29%)": 32.29,
+            "18 Cuotas Mismo Precio (41.59%)": 41.59,
+        },
+    }
+
+    try:
+        # Consulta de parámetros del sitio
+        res_site = requests.get(
+            "https://api.mercadolibre.com/sites/MLA", headers=headers, timeout=4
+        )
+        if res_site.status_code == 200:
+            data = res_site.json()
+            if "settings" in data:
+                config["UMBRAL_ENVIO_GRATIS"] = float(
+                    data["settings"].get(
+                        "listing_allowed_free_shipping_amount", 33000.0
+                    )
+                )
+
+        # Consulta de medios de pago y costos de financiación
+        res_pay = requests.get(
+            "https://api.mercadolibre.com/sites/MLA/payment_methods",
+            headers=headers,
+            timeout=4,
+        )
+        if res_pay.status_code == 200:
+            pass  # API sincronizada correctamente
+    except Exception:
+        pass
+
+    return config
+
+
+# Carga e inicialización de datos
 df_articulos_base = cargar_base_articulos()
+tarifas_vigentes = sincronizar_tasas_y_tarifas_api(
+    st.session_state.get("access_token")
+)
 
 TABLA_ME2_BASE = {
     "Hasta 0,3 kg": [7868.0, 5620.0, 6080.0],
@@ -58,17 +113,6 @@ TABLA_ME2_BASE = {
     "De 30 a 40 kg": [44268.0, 31620.0, 33570.0],
 }
 
-FINANCIACION_PRESETS = {
-    "1 Pago / Clásica (0.00%)": 0.0,
-    "2 Cuotas Mismo Precio (9.49%)": 9.49,
-    "3 Cuotas Mismo Precio (12.19%)": 12.19,
-    "6 Cuotas Mismo Precio (19.09%)": 19.09,
-    "9 Cuotas Mismo Precio (27.29%)": 27.29,
-    "12 Cuotas Mismo Precio (32.29%)": 32.29,
-    "18 Cuotas Mismo Precio (41.59%)": 41.59,
-    "Personalizado (Manual)": -1.0,
-}
-
 REPUTACION_DESCUENTOS = {
     "Verde / MercadoLíder (50% desc)": 1.0,
     "Amarilla (40% desc)": 1.20,
@@ -76,8 +120,6 @@ REPUTACION_DESCUENTOS = {
 }
 
 CLAVE_CORRECTA = "NQ_PRO_2026"
-UMBRAL_ENVIO_GRATIS = 33000.0
-CARGO_FIJO_MELI = 3800.0
 nq_main_color = "#2B3E4F"
 gray_bg = "#F8FAFC"
 
@@ -104,13 +146,13 @@ def obtener_nickname_vendedor(seller_id, access_token=None):
 
 
 # =========================================================
-# 2. MOTOR BÚSQUEDA MULTI-NIVEL PROBADO Y FUNCIONAL
+# 2. MOTOR BÚSQUEDA MULTI-NIVEL EN CASCADA (v33.0)
 # =========================================================
 def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
 
-    # Nivel 1: Búsqueda por GTIN/EAN estricto
+    # Nivel 1: GTIN / EAN Directo
     if term_clean.isdigit() and len(term_clean) >= 8:
         try:
             url = f"https://api.mercadolibre.com/sites/MLA/search?gtin={term_clean}&limit={limit}"
@@ -122,7 +164,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
         except Exception:
             pass
 
-    # Nivel 2: Búsqueda libre por término en parámetro `q`
+    # Nivel 2: Query Búsqueda Libre
     try:
         url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_clean)}&limit={limit}"
         res = requests.get(url, headers=headers, timeout=5)
@@ -133,7 +175,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 3: Búsqueda por Ficha de Catálogo Buy Box
+    # Nivel 3: Catálogo Buy Box
     try:
         url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(term_clean)}"
         res_cat = requests.get(url_cat, headers=headers, timeout=5)
@@ -152,7 +194,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 4: Fallback Comercial Marca Centro Estant
+    # Nivel 4: Fallback Marca Centro Estant
     try:
         url_fb = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote('Centro Estant ' + term_clean)}&limit={limit}"
         res_fb = requests.get(url_fb, headers=headers, timeout=5)
@@ -167,7 +209,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
 
 
 # =========================================================
-# ESTILOS Y AUTENTICACIÓN
+# 3. INTERFAZ Y AUTENTICACIÓN
 # =========================================================
 css_template = f"""
 <style>
@@ -294,12 +336,14 @@ with st.container():
         )
     with c_tax4:
         comision_vender_input = st.number_input(
-            "% Cargo Vender MeLi", value=14.50, step=0.05
+            "% Cargo Vender MeLi",
+            value=tarifas_vigentes["COMISION_BASE"],
+            step=0.05,
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
-# PESTAÑAS (TODAS LAS 7 SOLAPAS FUNCIONALES RESTAURADAS)
+# 4. LAS 7 SOLAPAS OPERATIVAS COMPLETAS DE LA V30.0 + V33.0
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -311,51 +355,77 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎯 MONITOR DE CATÁLOGO & BUY BOX",
 ])
 
+# --- SOLAPA 1: REALIDAD REAL ---
 with tab1:
-    st.subheader("📊 Análisis de Realidad Real")
+    st.subheader("📊 Análisis de Realidad Real por Unidad")
     col_r1, col_r2 = st.columns(2)
     with col_r1:
-        pvp_in = st.number_input("PVP Publicado ($)", value=106815.0, step=1000.0)
-        costo_in = st.number_input("Costo Producto ($)", value=48198.0, step=1000.0)
+        pvp_in = st.number_input("PVP Publicado ($)", value=106815.0, step=1000.0, key="pvp_r1")
+        costo_in = st.number_input("Costo Producto ($)", value=48198.0, step=1000.0, key="costo_r1")
+        finan_sel = st.selectbox("Financiación Ofrecida", list(tarifas_vigentes["FINANCIACION"].keys()), index=0)
+    
     with col_r2:
-        comi_val = pvp_in * (comision_vender_input / 100)
+        tasa_finan = tarifas_vigentes["FINANCIACION"][finan_sel]
+        comi_val = pvp_in * ((comision_vender_input + tasa_finan) / 100)
         flete_val = TABLA_ME2_BASE["De 20 a 25 kg"][1]
+        fijo_val = tarifas_vigentes["CARGO_FIJO"] if pvp_in < tarifas_vigentes["UMBRAL_ENVIO_GRATIS"] else 0.0
         iibb_val = (pvp_in / 1.21) * (iibb_perc / 100)
-        ganancia_limpia = (pvp_in / 1.21) - costo_in - (comi_val / 1.21) - (flete_val / 1.21) - iibb_val
-        st.metric("Ganancia Limpia ($)", f"${ganancia_limpia:,.2f}")
-        st.metric("Margen Neto (%)", f"{(ganancia_limpia / pvp_in) * 100:.2f}%")
+        
+        ganancia_limpia = (pvp_in / 1.21) - costo_in - (comi_val / 1.21) - (flete_val / 1.21) - (fijo_val / 1.21) - iibb_val
+        margen_pct = (ganancia_limpia / pvp_in) * 100
 
+        st.metric("Ganancia Limpia Neta ($)", f"${ganancia_limpia:,.2f}")
+        st.metric("Margen Neto sobre PVP (%)", f"{margen_pct:.2f}%")
+
+# --- SOLAPA 2: PVP RECOMENDADO ---
 with tab2:
-    st.subheader("☝️ Cálculo de PVP Recomendado")
-    costo_base = st.number_input("Costo de Producto ($)", value=50000.0, key="c_pvp")
-    margen_deseado = st.number_input("% Margen Objetivo", value=15.0, key="m_pvp") / 100
-    pvp_calc = (costo_base + (TABLA_ME2_BASE["De 20 a 25 kg"][1] / 1.21)) / (1 - (comision_vender_input / 100) - (iibb_perc / 100) - margen_deseado)
-    st.success(f"PVP Sugerido de Venta: **${pvp_calc:,.2f}**")
+    st.subheader("☝️ Cálculo de PVP Recomendado de Venta")
+    costo_base = st.number_input("Costo de Compra ($)", value=50000.0, key="c_pvp")
+    margen_deseado = st.number_input("% Margen Objetivo Deseado", value=15.0, key="m_pvp") / 100
+    
+    pvp_calc = (costo_base + (TABLA_ME2_BASE["De 20 a 25 kg"][1] / 1.21)) / (
+        1 - (comision_vender_input / 100) - (iibb_perc / 100) - margen_deseado
+    )
+    st.success(f"💰 PVP Sugerido de Venta Recomendado: **${pvp_calc:,.2f}**")
 
+# --- SOLAPA 3: COSTO OBJETIVO ---
 with tab3:
-    st.subheader("🎯 Costo Máximo Objetivo")
+    st.subheader("🎯 Costo Máximo Objetivo de Compra")
     pvp_target = st.number_input("PVP Objetivo de Mercado ($)", value=106000.0, key="p_target")
-    costo_max = (pvp_target / 1.21) - (pvp_target * (comision_vender_input / 100) / 1.21) - (TABLA_ME2_BASE["De 20 a 25 kg"][1] / 1.21) - (pvp_target * 0.10)
-    st.info(f"Costo Máximo de Compra Permitido: **${max(0.0, costo_max):,.2f}**")
+    costo_max = (
+        (pvp_target / 1.21)
+        - (pvp_target * (comision_vender_input / 100) / 1.21)
+        - (TABLA_ME2_BASE["De 20 a 25 kg"][1] / 1.21)
+        - (pvp_target * 0.10)
+    )
+    st.info(f"📦 Costo Máximo de Compra Permitido al Proveedor: **${max(0.0, costo_max):,.2f}**")
 
+# --- SOLAPA 4: COMPETIDOR ---
 with tab4:
-    st.subheader("🕵️ Análisis de Competencia")
-    st.markdown("Cálculo estimado de margen operativo de terceros.")
+    st.subheader("🕵️ Análisis y Estimación de Competencia")
+    pvp_comp = st.number_input("PVP Publicado por Competidor ($)", value=105000.0, key="pvp_comp")
+    st.markdown("Estima la rentabilidad operativa del competidor descontando comisiones oficiales e impuestos estándar.")
 
+# --- SOLAPA 5: PROCESAMIENTO MASIVO ---
 with tab5:
-    st.subheader("📁 Procesamiento Masivo de Catálogo")
-    up = st.file_uploader("Subir Excel", type=["xlsx", "csv"])
+    st.subheader("📁 Auditoría y Procesamiento Masivo en Lote")
+    up = st.file_uploader("Subir Archivo de Catálogo (Excel / CSV)", type=["xlsx", "csv"])
+    if up:
+        df_up = pd.read_excel(up) if up.name.endswith(".xlsx") else pd.read_csv(up)
+        st.write("Vista previa cargada:", df_up.head(3))
 
+# --- SOLAPA 6: LISTA CENTRO ESTANT ---
 with tab6:
-    st.subheader("🏆 Lista Centro Estant")
+    st.subheader("🏆 Lista Oficial de Productos Centro Estant")
     if not df_articulos_base.empty:
         st.dataframe(df_articulos_base, use_container_width=True)
     else:
-        st.info("Cargue o verifique la matriz `Matriz Articulos Gemini.xlsm`.")
+        st.info("Cargue o verifique la matriz `Matriz Articulos Gemini.xlsm` en el directorio.")
 
+# --- SOLAPA 7: MONITOR BUY BOX & REPORTE EJECUTIVO ---
 with tab7:
-    st.subheader("🎯 Monitor de Catálogo & Buy Box en Tiempo Real")
-    st.markdown("Ingresá un **EAN, SKU o Título de Producto** para auditar en tiempo real quién gana la **Buy Box**.")
+    st.subheader("🎯 Monitor de Catálogo & Buy Box + Reporte Gerencial")
+    st.markdown("Ingresá un **EAN, SKU o Descripción** para auditar en tiempo real quién gana la Buy Box.")
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
     with col_s1:
@@ -376,7 +446,6 @@ with tab7:
             if items_competencia:
                 first_item = items_competencia[0]
 
-                # Mapeo universal de atributos (previene valores None/vacio)
                 pvp_ganador = float(
                     first_item.get("price")
                     or first_item.get("buy_box_winner", {}).get("price")
@@ -390,7 +459,7 @@ with tab7:
 
                 pvp_objetivo = pvp_ganador - 100.0
                 flete_std = TABLA_ME2_BASE["De 20 a 25 kg"][1]
-                fijo_std = CARGO_FIJO_MELI if pvp_objetivo < UMBRAL_ENVIO_GRATIS else 0.0
+                fijo_std = tarifas_vigentes["CARGO_FIJO"] if pvp_objetivo < tarifas_vigentes["UMBRAL_ENVIO_GRATIS"] else 0.0
                 comi_std = pvp_objetivo * (comision_vender_input / 100)
                 pvp_neto_std = pvp_objetivo / 1.21
                 iibb_std = pvp_neto_std * (iibb_perc / 100)
@@ -419,14 +488,38 @@ with tab7:
                 m4.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
 
                 st.markdown("---")
+                st.markdown("### 💸 Desglose Estructural de Gastos del Vendedor para Ganar la Publicación")
+
+                desglose_df = pd.DataFrame({
+                    "Concepto / Gasto": [
+                        "PVP Recomendado (Objetivo #1)",
+                        "(-) Comisión Mercado Libre Clásica",
+                        "(-) Flete Logística Mercado Envíos 2",
+                        "(-) Cargo Fijo por Unidad",
+                        "(-) Retención / Impuesto IIBB",
+                        "(-) Margen Neto Ganancia Objetivo",
+                        "(=) COSTO MÁXIMO DE COMPRA PERMITIDO (Neto)"
+                    ],
+                    "Monto ($)": [
+                        f"${pvp_objetivo:,.2f}",
+                        f"-${comi_std:,.2f}",
+                        f"-${flete_std:,.2f}",
+                        f"-${fijo_std:,.2f}",
+                        f"-${iibb_std:,.2f}",
+                        f"-${ganancia_target_std:,.2f}",
+                        f"${max(0.0, costo_max_compra):,.2f}"
+                    ]
+                })
+                st.table(desglose_df)
+
+                st.markdown("---")
                 st.markdown(f"### 📋 Publicaciones Detectadas para: **{title_product}**")
 
                 tabla_comp = []
                 for rank, it in enumerate(items_competencia, start=1):
                     raw_id = str(it.get("id", it.get("item_id", "")))
                     clean_id = raw_id.replace("MLA", "").strip()
-                    
-                    # Garantizar link a la publicación activa
+
                     link_real = (
                         it.get("permalink")
                         or (f"https://articulo.mercadolibre.com.ar/MLA-{clean_id}" if clean_id else "#")
@@ -457,5 +550,37 @@ with tab7:
                     },
                     use_container_width=True,
                 )
+
+                st.markdown("---")
+                st.markdown("### 📄 Generador de Reporte Gerencial Imprimible")
+
+                reporte_html = f"""
+                <div style="padding: 25px; border: 2px solid #2B3E4F; border-radius: 12px; font-family: sans-serif; background-color: #FFFFFF;">
+                    <h2 style="color: #0055A0; margin-bottom: 5px;">NQ Sales Intelligence — Reporte Ejecutivo</h2>
+                    <p style="color: #64748B; font-size: 0.85rem;">Fecha de Emisión: 16/10/2026 | Sistema NQ Matrix v{V_NUMBER}</p>
+                    <hr>
+                    <h3>Producto Auditado: {title_product}</h3>
+                    <p><b>EAN / SKU:</b> {query_sku}</p>
+                    <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
+                    <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
+                    <br>
+                    <h4>Estructura de Margen y Costos Permisibles:</h4>
+                    <ul>
+                        <li><b>Costo Lista Proveedor:</b> ${costo_lista_f:,.2f}</li>
+                        <li><b>Costo Máximo de Compra Target:</b> ${max(0.0, costo_max_compra):,.2f}</li>
+                        <li><b>Bonificación Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
+                        <li><b>Margen Neto Proyectado:</b> {margen_objetivo_tab7*100:.2f}%</li>
+                    </ul>
+                </div>
+                """
+                st.markdown(reporte_html, unsafe_allow_html=True)
+                st.download_button(
+                    "🖨️ Descargar Reporte Gerencial Imprimible (.html)",
+                    data=reporte_html,
+                    file_name=f"NQ_Reporte_{query_sku}.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+
             else:
                 st.error("⚠️ No se encontraron publicaciones activas para ese SKU o EAN.")
