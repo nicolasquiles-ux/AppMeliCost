@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "44.0 Pro SaaS"
+V_NUMBER = "45.0 Pro SaaS"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -76,7 +76,6 @@ def procesar_dataframe_lista_gold(df_raw):
 
 
 def cargar_lista_precios_general(uploaded_file, url_gsheets):
-    # Fuente 1: Archivo subido manualmente por el usuario
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith(".csv"):
@@ -89,7 +88,6 @@ def cargar_lista_precios_general(uploaded_file, url_gsheets):
         except Exception:
             pass
 
-    # Fuente 2: Google Sheets con auto-limpieza de URL
     if url_gsheets:
         url_clean = str(url_gsheets).strip()
         if "docs.google.com" in url_clean:
@@ -105,7 +103,6 @@ def cargar_lista_precios_general(uploaded_file, url_gsheets):
             except Exception:
                 pass
 
-    # Fuente 3: Archivo local oficial
     nombre_archivo = "Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx"
     if os.path.exists(nombre_archivo):
         try:
@@ -137,7 +134,6 @@ if st.sidebar.button("🔄 Recargar y Limpiar Caché", use_container_width=True)
     st.cache_data.clear()
     st.rerun()
 
-# Carga de datos
 df_articulos_base, origen_lista = cargar_lista_precios_general(file_up_sidebar, url_gsheet_input)
 
 
@@ -277,12 +273,35 @@ def extraer_ventas_de_objeto(item_dict, access_token=None):
     return None
 
 
+def detectar_financiacion_item(item_dict):
+    """Detecta si la publicación es Premium o incluye Cuotas Mismo Precio."""
+    listing_type = item_dict.get("listing_type_id", "")
+    tags = item_dict.get("tags", [])
+
+    if listing_type == "gold_pro" or "gold_pro" in tags:
+        return "6 Cuotas Mismo Precio (19.09%)", 19.09
+    
+    return "1 Pago / Clásica (0.00%)", 0.0
+
+
 # =========================================================
 # 2. MOTOR BÚSQUEDA MULTI-NIVEL EN CASCADA
 # =========================================================
 def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
+
+    # Soporte para enlaces directos tipo MLA-2857011148 o URLs de MeLi
+    match_mla = re.search(r"MLA-?(\d+)", term_clean, re.IGNORECASE)
+    if match_mla:
+        raw_mla = f"MLA{match_mla.group(1)}"
+        try:
+            url_single = f"https://api.mercadolibre.com/items/{raw_mla}"
+            res_s = requests.get(url_single, headers=headers, timeout=5)
+            if res_s.status_code == 200:
+                return [res_s.json()], "Publicación Directa (URL / ID)"
+        except Exception:
+            pass
 
     if term_clean.isdigit() and len(term_clean) >= 8:
         try:
@@ -428,7 +447,7 @@ with st.container():
     with c_tax3:
         iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=3.5, step=0.1)
     with c_tax4:
-        comision_vender_input = st.number_input("% Cargo Vender MeLi", value=14.50, step=0.05)
+        comision_vender_input = st.number_input("% Cargo Vender MeLi (Base)", value=14.50, step=0.05)
     st.markdown("</div>", unsafe_allow_html=True)
 
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
@@ -514,12 +533,15 @@ with tab2:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         costo_base = st.number_input("Costo de Compra ($)", value=50000.0, key="c_pvp")
+        finan_p2 = st.selectbox("Programa de Cuotas / Financiación", list(FINANCIACION_PRESETS.keys()), index=0, key="fin_p2")
         margen_deseado = st.number_input("% Margen Objetivo Deseado", value=15.0, key="m_pvp") / 100
         rango_peso_r2 = st.selectbox("Categoría de Peso ME2", list(TABLA_ME2_BASE.keys()), index=13, key="peso_r2")
 
     with col_p2:
+        tasa_f2 = FINANCIACION_PRESETS[finan_p2]
+        comi_tot_p2 = comision_vender_input + tasa_f2
         flete_r2 = TABLA_ME2_BASE[rango_peso_r2][1] * desc_rep_factor
-        pvp_calc = (costo_base + (flete_r2 / 1.21)) / (1 - (comision_vender_input / 100) - (iibb_perc / 100) - margen_deseado)
+        pvp_calc = (costo_base + (flete_r2 / 1.21)) / (1 - (comi_tot_p2 / 100) - (iibb_perc / 100) - margen_deseado)
         st.success(f"💰 PVP Sugerido de Venta Recomendado: **${max(0.0, pvp_calc):,.2f}**")
 
 # --- SOLAPA 3: COSTO OBJETIVO ---
@@ -528,23 +550,31 @@ with tab3:
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         pvp_target = st.number_input("PVP Objetivo de Mercado ($)", value=106000.0, key="p_target")
+        finan_c3 = st.selectbox("Financiación Publicación", list(FINANCIACION_PRESETS.keys()), index=0, key="fin_c3")
         m_target_c3 = st.number_input("% Margen Objetivo Target", value=10.0, key="m_c3") / 100
         rango_peso_r3 = st.selectbox("Categoría de Peso ME2", list(TABLA_ME2_BASE.keys()), index=13, key="peso_r3")
 
     with col_c2:
+        tasa_f3 = FINANCIACION_PRESETS[finan_c3]
+        comi_tot_c3 = comision_vender_input + tasa_f3
         flete_r3 = TABLA_ME2_BASE[rango_peso_r3][1] * desc_rep_factor
-        costo_max = (pvp_target / 1.21) - (pvp_target * (comision_vender_input / 100) / 1.21) - (flete_r3 / 1.21) - (pvp_target * m_target_c3)
+        costo_max = (pvp_target / 1.21) - (pvp_target * (comi_tot_c3 / 100) / 1.21) - (flete_r3 / 1.21) - (pvp_target * m_target_c3)
         st.info(f"📦 Costo Máximo de Compra Permitido al Proveedor: **${max(0.0, costo_max):,.2f}**")
 
 # --- SOLAPA 4: COMPETIDOR ---
 with tab4:
     st.subheader("🕵️ Análisis y Estimación de Competencia")
-    pvp_comp = st.number_input("PVP Publicado por Competidor ($)", value=105000.0, key="pvp_comp")
-    rango_peso_r4 = st.selectbox("Peso Estimado del Producto", list(TABLA_ME2_BASE.keys()), index=13, key="peso_r4")
-    flete_r4 = TABLA_ME2_BASE[rango_peso_r4][1] * desc_rep_factor
-    comi_comp = pvp_comp * (comision_vender_input / 100)
-    ingreso_neto_est = (pvp_comp / 1.21) - (comi_comp / 1.21) - (flete_r4 / 1.21) - ((pvp_comp / 1.21) * (iibb_perc / 100))
-    st.write(f"Caja Limpia Estimada que recibe el Competidor: **${ingreso_neto_est:,.2f}**")
+    col_comp1, col_comp2 = st.columns(2)
+    with col_comp1:
+        pvp_comp = st.number_input("PVP Publicado por Competidor ($)", value=105000.0, key="pvp_comp")
+        finan_comp = st.selectbox("Financiación Competidor", list(FINANCIACION_PRESETS.keys()), index=0, key="fin_comp")
+    with col_comp2:
+        rango_peso_r4 = st.selectbox("Peso Estimado del Producto", list(TABLA_ME2_BASE.keys()), index=13, key="peso_r4")
+        tasa_fc = FINANCIACION_PRESETS[finan_comp]
+        flete_r4 = TABLA_ME2_BASE[rango_peso_r4][1] * desc_rep_factor
+        comi_comp = pvp_comp * ((comision_vender_input + tasa_fc) / 100)
+        ingreso_neto_est = (pvp_comp / 1.21) - (comi_comp / 1.21) - (flete_r4 / 1.21) - ((pvp_comp / 1.21) * (iibb_perc / 100))
+        st.write(f"Caja Limpia Estimada que recibe el Competidor: **${ingreso_neto_est:,.2f}**")
 
 # --- SOLAPA 5: PROCESAMIENTO MASIVO ---
 with tab5:
@@ -563,15 +593,14 @@ with tab6:
     else:
         st.info("No se encontró la matriz local.")
 
-# --- SOLAPA 7: MONITOR BUY BOX (DESPLEGABLE DE EAN CONECTADO A LA MATRIZ) ---
+# --- SOLAPA 7: MONITOR BUY BOX (CON DETECCIÓN DE FINANCIACIÓN / CUOTAS) ---
 with tab7:
     st.subheader("🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial")
-    st.markdown("Auditoría en tiempo real cruzada con la **Lista Gold Septiembre 2026**, calculando la **Bonificación Real a Proveedor** y el **PVP Break-Even**.")
+    st.markdown("Auditoría en tiempo real cruzada con la **Lista Gold Septiembre 2026**, calculando la **Bonificación Real a Proveedor**, **Cuotas Financieras** y el **PVP Break-Even**.")
 
-    col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
+    col_s1, col_s2, col_s3, col_s4 = st.columns([2.5, 1, 1, 1.2])
 
     if not df_articulos_base.empty:
-        # Generar lista estructurada para el desplegable (EAN | Art | Desc | Precio)
         dict_opciones = {}
         for idx, row in df_articulos_base.iterrows():
             ean_s = str(row.get("EAN", "")).strip()
@@ -586,14 +615,13 @@ with tab7:
             }
 
         lista_opciones_combo = list(dict_opciones.keys())
-        # Opción extra para ingreso manual si se desea
-        lista_opciones_combo.append("✏️ Ingresar EAN / SKU Manualmente...")
+        lista_opciones_combo.append("✏️ Ingresar EAN / SKU / URL Manualmente...")
 
         with col_s1:
             prod_seleccionado_label = st.selectbox("📋 Seleccionar Producto de la Matriz Gold:", lista_opciones_combo, key="combo_ean_tab7")
 
-        if prod_seleccionado_label == "✏️ Ingresar EAN / SKU Manualmente...":
-            query_sku = st.text_input("Ingresar EAN o SKU Manual", value="7798009182461", key="input_sku_manual_tab7")
+        if prod_seleccionado_label == "✏️ Ingresar EAN / SKU / URL Manualmente...":
+            query_sku = st.text_input("Ingresar EAN, SKU o Enlace MeLi Manual", value="7798009182461", key="input_sku_manual_tab7")
             costo_auto_gold = buscar_costo_lista_gold(query_sku)
         else:
             item_data = dict_opciones[prod_seleccionado_label]
@@ -605,24 +633,35 @@ with tab7:
                 "Costo Lista Gold Proveedor ($)",
                 value=costo_auto_gold,
                 step=1000.0,
-                key=f"costo_f_{query_sku}"  # Clave dinámica para que actualice en vivo
+                key=f"costo_f_{query_sku}"
             )
         with col_s3:
-            margen_objetivo_tab7 = st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7") / 100
+            finan_tab7_sel = st.selectbox(
+                "💳 Financiación / Cuotas",
+                list(FINANCIACION_PRESETS.keys()),
+                index=0,
+                key=f"finan_tab7_{query_sku}"
+            )
+        with col_s4:
+            margen_objetivo_tab7 = st.number_input("% Margen Objetivo Target", value=10.0, step=0.5, key="m_target_tab7") / 100
 
     else:
         with col_s1:
-            query_sku = st.text_input("SKU / EAN / Descripción", value="7798009182461", key="input_sku_tab7_fallback")
+            query_sku = st.text_input("SKU / EAN / URL", value="7798009182461", key="input_sku_tab7_fallback")
         costo_auto_gold = buscar_costo_lista_gold(query_sku)
         with col_s2:
             costo_lista_f = st.number_input("Costo Lista Gold Proveedor ($)", value=costo_auto_gold, step=1000.0, key="costo_f_tab7_fb")
         with col_s3:
-            margen_objetivo_tab7 = st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7_fb") / 100
+            finan_tab7_sel = st.selectbox("💳 Financiación", list(FINANCIACION_PRESETS.keys()), index=0, key="finan_fb")
+        with col_s4:
+            margen_objetivo_tab7 = st.number_input("% Margen Target", value=10.0, step=0.5, key="m_target_fb") / 100
+
+    tasa_finan_tab7 = FINANCIACION_PRESETS[finan_tab7_sel]
 
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         token = st.session_state.get("access_token")
 
-        with st.spinner("Consultando Mercado Libre API en vivo y cruzando con Lista Gold..."):
+        with st.spinner("Consultando Mercado Libre API en vivo y analizando comisiones/cuotas..."):
             items_competencia, metodo_hallado = buscar_items_api_oficial(query_sku, limit=10, access_token=token)
 
             if items_competencia:
@@ -632,12 +671,20 @@ with tab7:
                 pvp_ganador = float(first_item.get("price") or first_item.get("buy_box_winner", {}).get("price") or 0.0)
                 title_product = first_item.get("title") or first_item.get("name") or "Producto Mercado Libre"
 
+                # Detección automática de cuotas sin interés si no se forzó en el selector
+                lbl_finan_auto, pct_finan_auto = detectar_financiacion_item(first_item)
+                tasa_finan_efectiva = tasa_finan_tab7 if tasa_finan_tab7 > 0 else pct_finan_auto
+
                 sold_total = extraer_ventas_de_objeto(first_item, access_token=token)
                 flete_std = obtener_flete_real_api(item_id_first, desc_factor=desc_rep_factor, access_token=token)
                 fijo_std = CARGO_FIJO_MELI if pvp_ganador < UMBRAL_ENVIO_GRATIS else 0.0
 
                 pvp_objetivo = pvp_ganador - 100.0
-                comi_std = pvp_objetivo * (comision_vender_input / 100)
+                
+                # Comisión total incluyendo cargo de venta + recargo de financiación de cuotas
+                comision_porcentaje_total = comision_vender_input + tasa_finan_efectiva
+                comi_std = pvp_objetivo * (comision_porcentaje_total / 100)
+                
                 pvp_neto_std = pvp_objetivo / 1.21
                 iibb_std = pvp_neto_std * (iibb_perc / 100)
                 ganancia_target_std = pvp_objetivo * margen_objetivo_tab7
@@ -645,13 +692,13 @@ with tab7:
                 costo_max_compra = pvp_neto_std - (comi_std / 1.21) - (flete_std / 1.21) - (fijo_std / 1.21) - iibb_std - ganancia_target_std
                 bonif_requerida = ((1 - (costo_max_compra / costo_lista_f)) * 100) if costo_lista_f > 0 else 0.0
 
-                denom = 1 - (comision_vender_input / 100) - ((iibb_perc / 100) / 1.21)
+                denom = 1 - (comision_porcentaje_total / 100) - ((iibb_perc / 100) / 1.21)
                 pvp_breakeven = (costo_lista_f + (flete_std / 1.21) + (fijo_std / 1.21)) / denom if denom > 0 else 0.0
 
                 flete_flex_neto = max(0.0, flete_std - TARIFA_FLEX_AMBA)
                 ganancia_extra_flex = (flete_std - flete_flex_neto) / 1.21
 
-                st.caption(f"🔎 **Origen:** {metodo_hallado} | 🟢 **Flete ME2 Neto Vendedor:** ${flete_std:,.2f}")
+                st.caption(f"🔎 **Origen:** {metodo_hallado} | 🟢 **Flete ME2 Neto Vendedor:** ${flete_std:,.2f} | 💳 **Cargo Financiación:** {tasa_finan_efectiva:.2f}%")
 
                 col_c1, col_c2, col_c3 = st.columns(3)
 
@@ -679,16 +726,13 @@ with tab7:
                 m4.metric("📉 Bonificación Real a Pedir", f"{bonif_requerida:.2f}%")
 
                 st.markdown("---")
-                st.markdown("### 🚚 Eficiencia Logística: Mercado Envíos 2 vs. Flex")
-                st.info(f"Entregando este producto por **Mercado Envíos Flex (Cadetería AMBA)** recuperás el flete estándar y sumás una ganancia extra neta de **${ganancia_extra_flex:,.2f} por unidad**.")
-
-                st.markdown("---")
                 st.markdown("### 💸 Desglose Estructural de Gastos del Vendedor para Ganar la Buy Box")
 
                 desglose_df = pd.DataFrame({
                     "Concepto / Gasto": [
                         "PVP Recomendado (Objetivo #1)",
-                        f"(-) Comisión Mercado Libre Clásica ({comision_vender_input:.2f}%)",
+                        f"(-) Cargo de Venta MeLi Base ({comision_vender_input:.2f}%)",
+                        f"(-) Recargo por Financiación de Cuotas ({tasa_finan_efectiva:.2f}%)",
                         "(-) Flete Logística Mercado Envíos 2 (Neto Vendedor)",
                         "(-) Cargo Fijo por Unidad",
                         "(-) Retención / Impuesto IIBB",
@@ -697,7 +741,8 @@ with tab7:
                     ],
                     "Monto ($)": [
                         f"${pvp_objetivo:,.2f}",
-                        f"-${comi_std:,.2f}",
+                        f"-${pvp_objetivo * (comision_vender_input / 100):,.2f}",
+                        f"-${pvp_objetivo * (tasa_finan_efectiva / 100):,.2f}",
                         f"-${flete_std:,.2f}",
                         f"-${fijo_std:,.2f}",
                         f"-${iibb_std:,.2f}",
@@ -722,11 +767,14 @@ with tab7:
                     seller_id = str(it.get("seller_id", "Sin ID"))
                     seller_nickname = obtener_nickname_vendedor(seller_id, access_token=token)
 
+                    lbl_f, _ = detectar_financiacion_item(it)
+
                     tabla_comp.append({
                         "Posición": "🥇 Ganador Buy Box" if rank == 1 else f"Puesto #{rank}",
                         "ID Publicación": clean_id if clean_id else "Catálogo",
                         "Título": title,
                         "PVP ($)": f"${price:,.2f}",
+                        "Financiación / Tipo": lbl_f,
                         "Vendedor ID": seller_id,
                         "Nombre Vendedor": seller_nickname,
                         "Enlace": link_real,
@@ -756,6 +804,7 @@ with tab7:
                     <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
                     <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
                     <p><b>PVP Break-Even (Piso Mínimo sin Pérdida):</b> ${pvp_breakeven:,.2f}</p>
+                    <p><b>Recargo por Financiación Aplicado:</b> {tasa_finan_efectiva:.2f}%</p>
                     <p><b>Ventas Acumuladas Registradas:</b> {txt_ventas}</p>
                     <br>
                     <h4>Estructura de Margen y Compra Sugerida (Lista Gold Septiembre 2026):</h4>
