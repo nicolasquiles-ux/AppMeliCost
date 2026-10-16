@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "38.1"
+V_NUMBER = "38.3"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -135,42 +135,32 @@ def obtener_flete_real_api(
     return TABLA_ME2_BASE["De 20 a 25 kg"][1]
 
 
-def obtener_estimacion_mes_anterior(item_id, access_token=None):
-    """Obtiene el acumulado de ventas real y calcula la estimación del último mes activo."""
-    if not item_id or item_id == "Sin ID":
-        return 0, 0
+def extraer_ventas_de_objeto(item_dict, access_token=None):
+    """Extrae sold_quantity escaneando todos los sub-atributos posibles del JSON de MeLi."""
+    if not item_dict:
+        return None
 
-    raw_id = item_id if item_id.startswith("MLA") else f"MLA{item_id}"
-    url = f"https://api.mercadolibre.com/items/{raw_id}"
+    if "sold_quantity" in item_dict and item_dict["sold_quantity"] is not None:
+        return int(item_dict["sold_quantity"])
 
-    try:
-        res = requests.get(url, headers=get_headers(access_token), timeout=4)
-        if res.status_code == 200:
-            data = res.json()
-            sold_quantity = int(data.get("sold_quantity", 0))
-            date_created_str = data.get("date_created", "")
+    bb_winner = item_dict.get("buy_box_winner", {})
+    if "sold_quantity" in bb_winner and bb_winner["sold_quantity"] is not None:
+        return int(bb_winner["sold_quantity"])
 
-            if date_created_str:
-                fecha_inicio = datetime.strptime(
-                    date_created_str.split("T")[0], "%Y-%m-%d"
-                )
-                dias_activo = (datetime.now() - fecha_inicio).days
-                dias_activo = max(1, dias_activo)
+    item_id = str(item_dict.get("id", item_dict.get("item_id", ""))).replace("MLA", "").strip()
+    if item_id:
+        raw_id = f"MLA{item_id}"
+        url = f"https://api.mercadolibre.com/items/{raw_id}"
+        try:
+            res = requests.get(url, headers=get_headers(access_token), timeout=4)
+            if res.status_code == 200:
+                data = res.json()
+                if "sold_quantity" in data and data["sold_quantity"] is not None:
+                    return int(data["sold_quantity"])
+        except Exception:
+            pass
 
-                # Si es un producto de menos de 30 días, tomar el total directo
-                if dias_activo <= 30:
-                    est_mes_anterior = sold_quantity
-                else:
-                    # Aplicar ventana de aceleración proyectada sobre el promedio mensual
-                    promedio_mensual = (sold_quantity / dias_activo) * 30
-                    est_mes_anterior = int(round(promedio_mensual))
-
-                return sold_quantity, est_mes_anterior
-            return sold_quantity, int(sold_quantity / 12) if sold_quantity > 12 else sold_quantity
-    except Exception:
-        pass
-
-    return 0, 0
+    return None
 
 
 # =========================================================
@@ -369,7 +359,7 @@ with st.container():
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
 
 # =========================================================
-# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V38.1
+# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V38.3
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -540,14 +530,14 @@ with tab6:
             " directorio."
         )
 
-# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL (v38.1) ---
+# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL (v38.3) ---
 with tab7:
     st.subheader(
         "🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial"
     )
     st.markdown(
         "Auditoría en tiempo real con **Semáforo de Decisión, PVP Break-Even"
-        " y Promedio de Ventas Estimado del Último Mes**."
+        " Matematicamente Preciso y Volumen de Ventas Oficial MeLi**."
     )
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
@@ -604,10 +594,8 @@ with tab7:
                     or "Producto Mercado Libre"
                 )
 
-                # EXTRACCIÓN DEL ESTIMADO MENSUAL Y ACUMULADO
-                sold_total_real, est_mes_anterior = obtener_estimacion_mes_anterior(
-                    item_id_first, access_token=token
-                )
+                # EXTRAER VENTAS DE FORMA SEGURA SINO MARCAR PRIVADO POR MELI
+                sold_total = extraer_ventas_de_objeto(first_item, access_token=token)
 
                 # Flete oficial extraído de API con descuento reputación
                 flete_std = obtener_flete_real_api(
@@ -639,12 +627,12 @@ with tab7:
                     else 0.0
                 )
 
-                # CÁLCULO DE PVP BREAK-EVEN (PUNTO DE EQUILIBRIO PISO ABSOLUTO)
-                pvp_breakeven = (costo_lista_f + (flete_std / 1.21)) / (
-                    1 - (comision_vender_input / 100) - (iibb_perc / 100)
-                )
+                # FORMULA CORREGIDA Y PROBADA DE PVP BREAK-EVEN (PUNTO DE EQUILIBRIO)
+                # Calibración exacta considerando desgravación de IVA
+                denom = 1 - (comision_vender_input / 100) - ((iibb_perc / 100) / 1.21)
+                pvp_breakeven = (costo_lista_f + (flete_std / 1.21) + (fijo_std / 1.21)) / denom if denom > 0 else 0.0
 
-                # CÁLCULO COMPARATIVO ME2 VS FLEX
+                # CÁLCULO COMPARATIVO FLEX
                 flete_flex_neto = max(0.0, flete_std - TARIFA_FLEX_AMBA)
                 ganancia_extra_flex = (flete_std - flete_flex_neto) / 1.21
 
@@ -702,12 +690,13 @@ with tab7:
                     )
 
                 with col_c3:
+                    txt_ventas = f"{sold_total:,} un" if sold_total is not None else "Privado por MeLi"
                     st.markdown(
                         f"""
                     <div style="background-color: #D1ECF1; border: 2px solid #17A2B8; padding: 15px; border-radius: 10px; text-align: center;">
-                        <h3 style="color: #0C5460; margin:0;">📈 VENTAS EST. ÚLTIMO MES</h3>
+                        <h3 style="color: #0C5460; margin:0;">📈 VENTAS TOTALES ACUMULADAS</h3>
                         <p style="font-size: 1.2rem; font-weight: 800; color: #0C5460; margin: 5px 0;">
-                            ~{est_mes_anterior:,} un/mes <span style="font-size: 0.8rem; font-weight: 400;">(Total: {sold_total_real:,} un)</span>
+                            {txt_ventas}
                         </p>
                     </div>
                     """,
@@ -824,7 +813,7 @@ with tab7:
                     <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
                     <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
                     <p><b>PVP Break-Even (Piso Mínimo sin Pérdida):</b> ${pvp_breakeven:,.2f}</p>
-                    <p><b>Ventas Est. Último Mes:</b> ~{est_mes_anterior:,} un/mes (Total histórico: {sold_total_real:,} un)</p>
+                    <p><b>Ventas Acumuladas Registradas:</b> {txt_ventas}</p>
                     <br>
                     <h4>Estructura de Margen y Compra Sugerida:</h4>
                     <ul>
