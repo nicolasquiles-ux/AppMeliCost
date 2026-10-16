@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "38.3"
+V_NUMBER = "39.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -28,22 +28,85 @@ HEADERS_MELI = {
     "Accept": "application/json",
 }
 
-
 # =========================================================
-# 1. CARGA LOCAL Y TABLA DE FLETES BASE
+# 1. CARGA Y NORMALIZACIÓN DE LA LISTA GOLD SEPTIEMBRE 2026
 # =========================================================
 @st.cache_data(ttl=3600)
-def cargar_base_articulos():
-    """Carga y normaliza la matriz local de productos Centro Estant."""
+def cargar_lista_precios_gold():
+    """Carga y procesa la Lista de Precios Oficial Centro Estant Gold Septiembre 2026."""
+    nombre_archivo = "Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx"
     try:
-        df = pd.read_excel("Matriz Articulos Gemini.xlsm", sheet_name=0)
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        return df
+        df_raw = pd.read_excel(nombre_archivo, header=None)
+        
+        # Buscar la fila donde están los encabezados EAN / Articulos / Descripcion
+        header_row = None
+        for idx, row in df_raw.iterrows():
+            row_str = [str(val).upper() for val in row.values]
+            if "EAN" in row_str or "ARTICULOS" in row_str:
+                header_row = idx
+                break
+        
+        if header_row is not None:
+            df = pd.read_excel(nombre_archivo, skiprows=header_row)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # Mapeo normalizado de columnas
+            col_ean = [c for c in df.columns if "EAN" in c]
+            col_art = [c for c in df.columns if "ART" in c]
+            col_desc = [c for c in df.columns if "DESC" in c]
+            col_precio = [c for c in df.columns if "LISTA" in c or "PRECIO" in c or "SEPT" in c]
+            
+            renames = {}
+            if col_ean: renames[col_ean[0]] = "EAN"
+            if col_art: renames[col_art[0]] = "ARTICULO"
+            if col_desc: renames[col_desc[0]] = "DESCRIPCION"
+            if col_precio: renames[col_precio[0]] = "COSTO_LISTA_GOLD"
+            
+            df = df.rename(columns=renames)
+            df = df.dropna(subset=["EAN", "COSTO_LISTA_GOLD"], how="all")
+            
+            # Limpieza de EAN
+            df["EAN"] = df["EAN"].astype(str).str.replace(".0", "", regex=False).str.strip()
+            df["COSTO_LISTA_GOLD"] = pd.to_numeric(df["COSTO_LISTA_GOLD"], errors="coerce").fillna(0.0)
+            return df
+    except Exception as e:
+        pass
+    
+    # Fallback si no está el archivo nuevo pero sí la matriz Gemini previa
+    try:
+        df_alt = pd.read_excel("Matriz Articulos Gemini.xlsm", sheet_name=0)
+        df_alt.columns = [str(c).strip().upper() for c in df_alt.columns]
+        return df_alt
     except Exception:
         return pd.DataFrame()
 
+df_articulos_base = cargar_lista_precios_gold()
 
-df_articulos_base = cargar_base_articulos()
+def buscar_costo_lista_gold(term_busqueda):
+    """Busca automáticamente el costo lista en el Excel por EAN, SKU o palabra clave."""
+    if df_articulos_base.empty or not term_busqueda:
+        return 70500.0
+    
+    term_str = str(term_busqueda).strip().upper()
+    
+    # 1. Búsqueda exacta por EAN
+    match_ean = df_articulos_base[df_articulos_base["EAN"] == term_str]
+    if not match_ean.empty:
+        return float(match_ean.iloc[0]["COSTO_LISTA_GOLD"])
+    
+    # 2. Búsqueda por SKU / Artículo
+    if "ARTICULO" in df_articulos_base.columns:
+        match_art = df_articulos_base[df_articulos_base["ARTICULO"].astype(str).str.upper() == term_str]
+        if not match_art.empty:
+            return float(match_art.iloc[0]["COSTO_LISTA_GOLD"])
+        
+    # 3. Búsqueda parcial en Descripción
+    if "DESCRIPCION" in df_articulos_base.columns:
+        match_desc = df_articulos_base[df_articulos_base["DESCRIPCION"].astype(str).str.upper().str.contains(term_str)]
+        if not match_desc.empty:
+            return float(match_desc.iloc[0]["COSTO_LISTA_GOLD"])
+            
+    return 70500.0  # Fallback estándar
 
 # TABLA MAESTRA ME2 (Tarifas con Descuento MercadoLíder 50%)
 TABLA_ME2_BASE = {
@@ -359,7 +422,7 @@ with st.container():
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
 
 # =========================================================
-# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V38.3
+# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V39.0
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -367,7 +430,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎯 COSTO OBJETIVO",
     "🕵️ COMPETIDOR",
     "📁 PROCESAMIENTO MASIVO",
-    "🏆 LISTA CENTRO ESTANT",
+    "🏆 LISTA CENTRO ESTANT (GOLD 2026)",
     "🎯 MONITOR DE CATÁLOGO & BUY BOX",
 ])
 
@@ -519,38 +582,41 @@ with tab5:
         )
         st.write("Vista previa cargada:", df_up.head(3))
 
-# --- SOLAPA 6: LISTA CENTRO ESTANT ---
+# --- SOLAPA 6: LISTA CENTRO ESTANT (LISTA GOLD SEPTIEMBRE 2026) ---
 with tab6:
-    st.subheader("🏆 Lista Oficial de Productos Centro Estant")
+    st.subheader("🏆 Lista Oficial Centro Estant — LISTA GOLD SEPTIEMBRE 2026")
     if not df_articulos_base.empty:
         st.dataframe(df_articulos_base, use_container_width=True)
     else:
         st.info(
-            "Cargue o verifique la matriz `Matriz Articulos Gemini.xlsm` en el"
-            " directorio."
+            "Cargue o verifique el archivo `Lista de Precios Centro Estant Septiembre 2026 (LISTA GOLD).xlsx` en el directorio."
         )
 
-# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL (v38.3) ---
+# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL (v39.0) ---
 with tab7:
     st.subheader(
         "🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial"
     )
     st.markdown(
-        "Auditoría en tiempo real con **Semáforo de Decisión, PVP Break-Even"
-        " Matematicamente Preciso y Volumen de Ventas Oficial MeLi**."
+        "Auditoría en tiempo real cruzada con la **Lista Gold Septiembre 2026**, "
+        "calculando la **Bonificación Real a Proveedor** y el **PVP Break-Even**."
     )
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
     with col_s1:
         query_sku = st.text_input(
             "SKU / EAN / Descripción",
-            value="7798274755797",
+            value="7798009182461",
             key="input_sku_tab7",
         )
+    
+    # Búsqueda automática del Costo Lista Gold según lo que el usuario tipea
+    costo_auto_gold = buscar_costo_lista_gold(query_sku)
+
     with col_s2:
         costo_lista_f = st.number_input(
-            "Costo Lista Proveedor ($)",
-            value=70500.0,
+            "Costo Lista Gold Proveedor ($)",
+            value=costo_auto_gold,
             step=1000.0,
             key="costo_f_tab7",
         )
@@ -570,8 +636,7 @@ with tab7:
         token = st.session_state.get("access_token")
 
         with st.spinner(
-            "Consultando Mercado Libre API en vivo y auditando estructura de"
-            " costos..."
+            "Consultando Mercado Libre API en vivo y cruzando con Lista Gold..."
         ):
             items_competencia, metodo_hallado = buscar_items_api_oficial(
                 query_sku, limit=10, access_token=token
@@ -594,7 +659,7 @@ with tab7:
                     or "Producto Mercado Libre"
                 )
 
-                # EXTRAER VENTAS DE FORMA SEGURA SINO MARCAR PRIVADO POR MELI
+                # Extraer ventas registradas oficialmente
                 sold_total = extraer_ventas_de_objeto(first_item, access_token=token)
 
                 # Flete oficial extraído de API con descuento reputación
@@ -627,8 +692,7 @@ with tab7:
                     else 0.0
                 )
 
-                # FORMULA CORREGIDA Y PROBADA DE PVP BREAK-EVEN (PUNTO DE EQUILIBRIO)
-                # Calibración exacta considerando desgravación de IVA
+                # CÁLCULO MATEMÁTICO EXACTO DE PVP BREAK-EVEN
                 denom = 1 - (comision_vender_input / 100) - ((iibb_perc / 100) / 1.21)
                 pvp_breakeven = (costo_lista_f + (flete_std / 1.21) + (fijo_std / 1.21)) / denom if denom > 0 else 0.0
 
@@ -650,7 +714,7 @@ with tab7:
                             f"""
                         <div style="background-color: #D4EDDA; border: 2px solid #28A745; padding: 15px; border-radius: 10px; text-align: center;">
                             <h3 style="color: #155724; margin:0;">🟢 LUZ VERDE</h3>
-                            <p style="color: #155724; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
+                            <p style="color: #155724; margin:5px 0 0 0;">Bonificación Real: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -660,7 +724,7 @@ with tab7:
                             f"""
                         <div style="background-color: #FFF3CD; border: 2px solid #FFC107; padding: 15px; border-radius: 10px; text-align: center;">
                             <h3 style="color: #856404; margin:0;">🟡 LUZ AMARILLA</h3>
-                            <p style="color: #856404; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
+                            <p style="color: #856404; margin:5px 0 0 0;">Bonificación Real: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -670,7 +734,7 @@ with tab7:
                             f"""
                         <div style="background-color: #F8D7DA; border: 2px solid #DC3545; padding: 15px; border-radius: 10px; text-align: center;">
                             <h3 style="color: #721C24; margin:0;">🔴 LUZ ROJA</h3>
-                            <p style="color: #721C24; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
+                            <p style="color: #721C24; margin:5px 0 0 0;">Bonificación Real: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -694,7 +758,7 @@ with tab7:
                     st.markdown(
                         f"""
                     <div style="background-color: #D1ECF1; border: 2px solid #17A2B8; padding: 15px; border-radius: 10px; text-align: center;">
-                        <h3 style="color: #0C5460; margin:0;">📈 VENTAS TOTALES ACUMULADAS</h3>
+                        <h3 style="color: #0C5460; margin:0;">📈 VENTAS ACUMULADAS</h3>
                         <p style="font-size: 1.2rem; font-weight: 800; color: #0C5460; margin: 5px 0;">
                             {txt_ventas}
                         </p>
@@ -712,7 +776,7 @@ with tab7:
                     "📦 Costo Máx Compra Target",
                     f"${max(0.0, costo_max_compra):,.2f}",
                 )
-                m4.metric("📉 Bonificación Necesaria", f"{bonif_requerida:.2f}%")
+                m4.metric("📉 Bonificación Real a Pedir", f"{bonif_requerida:.2f}%")
 
                 st.markdown("---")
 
@@ -815,11 +879,11 @@ with tab7:
                     <p><b>PVP Break-Even (Piso Mínimo sin Pérdida):</b> ${pvp_breakeven:,.2f}</p>
                     <p><b>Ventas Acumuladas Registradas:</b> {txt_ventas}</p>
                     <br>
-                    <h4>Estructura de Margen y Compra Sugerida:</h4>
+                    <h4>Estructura de Margen y Compra Sugerida (Lista Gold Septiembre 2026):</h4>
                     <ul>
-                        <li><b>Costo Lista Proveedor:</b> ${costo_lista_f:,.2f}</li>
+                        <li><b>Costo Lista Gold Proveedor:</b> ${costo_lista_f:,.2f}</li>
                         <li><b>Costo Máximo de Compra Target:</b> ${max(0.0, costo_max_compra):,.2f}</li>
-                        <li><b>Bonificación Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
+                        <li><b>Bonificación Real Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
                         <li><b>Ahorro Adicional por Envío Flex:</b> ${ganancia_extra_flex:,.2f} / un</li>
                     </ul>
                 </div>
