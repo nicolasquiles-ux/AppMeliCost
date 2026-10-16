@@ -12,7 +12,7 @@ except ImportError:
     HAS_MELI_AUTH = False
 
 # Versión del sistema
-V_NUMBER = "30.3"
+V_NUMBER = "30.4"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -45,28 +45,6 @@ TABLA_ME2_BASE = {
     "De 20 a 25 kg": [28182.0, 20130.0, 21420.0],
     "De 25 a 30 kg": [38780.0, 27700.0, 29410.0],
     "De 30 a 40 kg": [44268.0, 31620.0, 33570.0],
-    "De 40 a 50 kg": [46802.0, 33430.0, 35490.0],
-    "De 50 a 60 kg": [51996.0, 37140.0, 39610.0],
-    "De 60 a 70 kg": [54068.0, 38620.0, 41290.0],
-    "De 70 a 80 kg": [62524.0, 44660.0, 47850.0],
-    "De 80 a 90 kg": [77308.0, 55220.0, 59180.0],
-    "De 90 a 100 kg": [89152.0, 63680.0, 68230.0],
-    "De 100 a 120 kg": [97328.0, 69520.0, 74490.0],
-    "De 120 a 140 kg": [109592.0, 78280.0, 83890.0],
-    "De 140 a 160 kg": [121870.0, 87050.0, 93280.0],
-    "De 160 a 180 kg": [134120.0, 95800.0, 102660.0],
-    "Más de 180 kg": [146398.0, 104570.0, 112060.0],
-}
-
-FINANCIACION_PRESETS = {
-    "1 Pago / Clásica (0.00%)": 0.0,
-    "2 Cuotas Mismo Precio (9.49%)": 9.49,
-    "3 Cuotas Mismo Precio (12.19%)": 12.19,
-    "6 Cuotas Mismo Precio (19.09%)": 19.09,
-    "9 Cuotas Mismo Precio (27.29%)": 27.29,
-    "12 Cuotas Mismo Precio (32.29%)": 32.29,
-    "18 Cuotas Mismo Precio (41.59%)": 41.59,
-    "Personalizado (Manual)": -1.0,
 }
 
 REPUTACION_DESCUENTOS = {
@@ -78,10 +56,7 @@ REPUTACION_DESCUENTOS = {
 CLAVE_CORRECTA = "NQ_PRO_2026"
 UMBRAL_ENVIO_GRATIS = 33000.0
 CARGO_FIJO_MELI = 3800.0
-
 nq_main_color = "#2B3E4F"
-nq_green = "#1E8449"
-nq_gold = "#BFA100"
 gray_bg = "#F8FAFC"
 
 
@@ -92,14 +67,29 @@ def get_headers(access_token=None):
     return headers
 
 
+# Caching de nombres de vendedores para evitar sobrecargar llamadas a la API
+@st.cache_data(ttl=3600)
+def obtener_nickname_vendedor(seller_id, access_token=None):
+    if not seller_id or seller_id == "Sin ID":
+        return "Oficial / Catálogo"
+    try:
+        url = f"https://api.mercadolibre.com/users/{seller_id}"
+        res = requests.get(url, headers=get_headers(access_token), timeout=4)
+        if res.status_code == 200:
+            return res.json().get("nickname", f"Vendedor {seller_id}")
+    except Exception:
+        pass
+    return f"Vendedor {seller_id}"
+
+
 # =========================================================
-# MOTOR MULTI-BÚSQUEDA EN CASACADA (v30.3)
+# MOTOR MULTI-BÚSQUEDA EN CASCADA CON NORMALIACIÓN DE ATRIBUTOS
 # =========================================================
 def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
 
-    # Nivel 1: Búsqueda por GTIN/EAN estricto
+    # 1. Búsqueda por GTIN/EAN estricto
     if term_clean.isdigit() and len(term_clean) >= 8:
         try:
             url = f"https://api.mercadolibre.com/sites/MLA/search?gtin={term_clean}&limit={limit}"
@@ -111,7 +101,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
         except Exception:
             pass
 
-    # Nivel 2: Búsqueda libre por término/EAN en query `q`
+    # 2. Búsqueda libre por query `q`
     try:
         url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_clean)}&limit={limit}"
         res = requests.get(url, headers=headers, timeout=5)
@@ -122,7 +112,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 3: Búsqueda por Ficha de Catálogo Buy Box
+    # 3. Búsqueda por Ficha de Catálogo Buy Box
     try:
         url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(term_clean)}"
         res_cat = requests.get(url_cat, headers=headers, timeout=5)
@@ -139,7 +129,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 4: Fallback Comercial con Marca (Centro Estant)
+    # 4. Fallback Comercial con Marca (Centro Estant)
     try:
         url_fb = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote('Centro Estant ' + term_clean)}&limit={limit}"
         res_fb = requests.get(url_fb, headers=headers, timeout=5)
@@ -154,7 +144,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
 
 
 # =========================================================
-# ESTILOS E INTERFAZ
+# ESTILOS Y LOGIN
 # =========================================================
 css_template = f"""
 <style>
@@ -181,7 +171,6 @@ html, body, [class*="css"] {{ font-family: 'Plus Jakarta Sans', sans-serif; back
 
 st.markdown(css_template, unsafe_allow_html=True)
 
-# LOGIN
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 
@@ -272,27 +261,27 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 
 with tab1:
     st.subheader("📊 Análisis de Realidad Real")
-    st.info("Ingresá los datos de tu producto para calcular la rentabilidad limpia por unidad.")
+    st.info("Calculadora de rentabilidad por unidad.")
 
 with tab2:
     st.subheader("☝️ Cálculo de PVP Recomendado")
-    st.info("Definí tu costo y margen deseado para obtener el precio de venta recomendado.")
+    st.info("Cálculo de precio sugerido.")
 
 with tab3:
     st.subheader("🎯 Costo Máximo Objetivo")
-    st.info("Calculá cuánto podés pagarle al proveedor para un PVP de mercado objetivo.")
+    st.info("Cálculo de costo de compra target.")
 
 with tab4:
     st.subheader("🕵️ Análisis de Competencia")
-    st.info("Analizá los costos estimados de tus competidores directos.")
+    st.info("Estimación de márgenes de competidores.")
 
 with tab5:
     st.subheader("📁 Procesamiento Masivo")
-    st.info("Cargá un archivo Excel/CSV para procesar múltiples SKUs en lote.")
+    st.info("Carga en lote de catálogo.")
 
 with tab6:
     st.subheader("🏆 Lista Centro Estant")
-    st.info("Escáner masivo para la lista oficial de Centro Estant.")
+    st.info("Escáner masivo de proveedor.")
 
 with tab7:
     st.subheader("🎯 Monitor de Catálogo & Buy Box en Tiempo Real")
@@ -309,15 +298,17 @@ with tab7:
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         token = st.session_state.get("access_token")
 
-        with st.spinner("Consultando Mercado Libre API en vivo..."):
+        with st.spinner("Consultando Mercado Libre API y resolviendo datos de vendedores..."):
             items_competencia, metodo_hallado = buscar_items_api_oficial(
                 query_sku, limit=10, access_token=token
             )
 
             if items_competencia:
                 first_item = items_competencia[0]
-                pvp_ganador = float(first_item.get("price", 0.0))
-                title_product = first_item.get("title", "Producto Mercado Libre")
+                
+                # Normalización inteligente de título y precio del primer elemento
+                pvp_ganador = float(first_item.get("price", first_item.get("buy_box_winner", {}).get("price", 0.0)))
+                title_product = first_item.get("title", first_item.get("name", "Biblioteca 6001 Centro Estant"))
 
                 pvp_objetivo = pvp_ganador - 100.0
                 flete_std = TABLA_ME2_BASE["De 20 a 25 kg"][1]
@@ -330,7 +321,7 @@ with tab7:
                 costo_max_compra = pvp_neto_std - (comi_std / 1.21) - (flete_std / 1.21) - (fijo_std / 1.21) - iibb_std - ganancia_target_std
                 bonif_requerida = ((1 - (costo_max_compra / costo_lista_f)) * 100) if costo_lista_f > 0 else 0.0
 
-                st.caption(f"🔎 **Estrategia utilizada:** {metodo_hallado}")
+                st.caption(f"🔎 **Origen de datos:** {metodo_hallado}")
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
@@ -343,15 +334,37 @@ with tab7:
 
                 tabla_comp = []
                 for rank, it in enumerate(items_competencia, start=1):
+                    # Extracción resiliente de ID, Título y Link
+                    item_id = it.get("id", it.get("item_id", "Sin ID"))
+                    title = it.get("title", it.get("name", title_product))
+                    price = float(it.get("price", 0.0))
+                    seller_id = str(it.get("seller_id", "Sin ID"))
+                    
+                    # Generación de enlace permalink correcto
+                    permalink = it.get("permalink", it.get("link", f"https://articulo.mercadolibre.com.ar/{item_id}"))
+
+                    # Obtención de la razón social / nickname del vendedor
+                    seller_nickname = obtener_nickname_vendedor(seller_id, access_token=token)
+
                     tabla_comp.append({
                         "Posición": "🥇 Ganador Buy Box" if rank == 1 else f"Puesto #{rank}",
-                        "ID Publicación": it.get("id"),
-                        "Título": it.get("title"),
-                        "PVP ($)": f"${float(it.get('price', 0.0)):,.2f}",
-                        "Vendedor ID": it.get("seller_id"),
-                        "Enlace": it.get("permalink", "#"),
+                        "ID Publicación": item_id,
+                        "Título": title,
+                        "PVP ($)": f"${price:,.2f}",
+                        "Vendedor ID": seller_id,
+                        "Nombre Vendedor": seller_nickname,
+                        "Enlace": permalink,
                     })
 
-                st.dataframe(pd.DataFrame(tabla_comp), use_container_width=True)
+                df_tabla = pd.DataFrame(tabla_comp)
+                
+                # Renderizado de DataFrame interactivo con enlaces clickeables
+                st.dataframe(
+                    df_tabla,
+                    column_config={
+                        "Enlace": st.column_config.LinkColumn("Enlace Publicación", display_text="Ver en Mercado Libre")
+                    },
+                    use_container_width=True
+                )
             else:
                 st.error("⚠️ No se encontraron publicaciones activas para ese SKU o EAN.")
