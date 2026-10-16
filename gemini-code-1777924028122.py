@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "37.1"
+V_NUMBER = "38.1"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -84,6 +84,7 @@ FINANCIACION_PRESETS = {
 CLAVE_CORRECTA = "NQ_PRO_2026"
 UMBRAL_ENVIO_GRATIS = 33000.0
 CARGO_FIJO_MELI = 3800.0
+TARIFA_FLEX_AMBA = 4500.0
 nq_main_color = "#2B3E4F"
 gray_bg = "#F8FAFC"
 
@@ -134,10 +135,10 @@ def obtener_flete_real_api(
     return TABLA_ME2_BASE["De 20 a 25 kg"][1]
 
 
-def obtener_ventas_reales_item(item_id, access_token=None):
-    """Consulta la API pública para extraer sold_quantity real y calcular ventas diarias."""
+def obtener_estimacion_mes_anterior(item_id, access_token=None):
+    """Obtiene el acumulado de ventas real y calcula la estimación del último mes activo."""
     if not item_id or item_id == "Sin ID":
-        return 0, 0.0
+        return 0, 0
 
     raw_id = item_id if item_id.startswith("MLA") else f"MLA{item_id}"
     url = f"https://api.mercadolibre.com/items/{raw_id}"
@@ -156,13 +157,20 @@ def obtener_ventas_reales_item(item_id, access_token=None):
                 dias_activo = (datetime.now() - fecha_inicio).days
                 dias_activo = max(1, dias_activo)
 
-                ventas_diarias = round(sold_quantity / dias_activo, 2)
-                return sold_quantity, ventas_diarias
-            return sold_quantity, round(sold_quantity / 30, 2)
+                # Si es un producto de menos de 30 días, tomar el total directo
+                if dias_activo <= 30:
+                    est_mes_anterior = sold_quantity
+                else:
+                    # Aplicar ventana de aceleración proyectada sobre el promedio mensual
+                    promedio_mensual = (sold_quantity / dias_activo) * 30
+                    est_mes_anterior = int(round(promedio_mensual))
+
+                return sold_quantity, est_mes_anterior
+            return sold_quantity, int(sold_quantity / 12) if sold_quantity > 12 else sold_quantity
     except Exception:
         pass
 
-    return 0, 0.0
+    return 0, 0
 
 
 # =========================================================
@@ -361,7 +369,7 @@ with st.container():
 desc_rep_factor = REPUTACION_DESCUENTOS[reputacion_sel]
 
 # =========================================================
-# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V37.1
+# 4. PESTAÑAS OPERATIVAS V29 + MONITOR API V38.1
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -532,14 +540,14 @@ with tab6:
             " directorio."
         )
 
-# --- SOLAPA 7: MONITOR BUY BOX & SUITE COMERCIAL COMPLETA (v37.1) ---
+# --- SOLAPA 7: MONITOR BUY BOX & SUITE DE INTELIGENCIA COMERCIAL (v38.1) ---
 with tab7:
     st.subheader(
         "🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial"
     )
     st.markdown(
-        "Auditoría en tiempo real con **Semáforo de Decisión, Ventas Diarias"
-        " Reales de la API y Calculadora de Stock Crítico**."
+        "Auditoría en tiempo real con **Semáforo de Decisión, PVP Break-Even"
+        " y Promedio de Ventas Estimado del Último Mes**."
     )
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
@@ -572,8 +580,8 @@ with tab7:
         token = st.session_state.get("access_token")
 
         with st.spinner(
-            "Consultando Mercado Libre API en vivo y calculando rotación"
-            " real..."
+            "Consultando Mercado Libre API en vivo y auditando estructura de"
+            " costos..."
         ):
             items_competencia, metodo_hallado = buscar_items_api_oficial(
                 query_sku, limit=10, access_token=token
@@ -596,13 +604,12 @@ with tab7:
                     or "Producto Mercado Libre"
                 )
 
-                # EXTRACCIÓN PRECISA DE VENTAS REALES VÍA API
-                sold_total_real, ventas_dia_est = obtener_ventas_reales_item(
+                # EXTRACCIÓN DEL ESTIMADO MENSUAL Y ACUMULADO
+                sold_total_real, est_mes_anterior = obtener_estimacion_mes_anterior(
                     item_id_first, access_token=token
                 )
-                ventas_mes_est = int(ventas_dia_est * 30)
 
-                # Flete oficial con beneficio aplicado
+                # Flete oficial extraído de API con descuento reputación
                 flete_std = obtener_flete_real_api(
                     item_id_first,
                     desc_factor=desc_rep_factor,
@@ -632,21 +639,30 @@ with tab7:
                     else 0.0
                 )
 
+                # CÁLCULO DE PVP BREAK-EVEN (PUNTO DE EQUILIBRIO PISO ABSOLUTO)
+                pvp_breakeven = (costo_lista_f + (flete_std / 1.21)) / (
+                    1 - (comision_vender_input / 100) - (iibb_perc / 100)
+                )
+
+                # CÁLCULO COMPARATIVO ME2 VS FLEX
+                flete_flex_neto = max(0.0, flete_std - TARIFA_FLEX_AMBA)
+                ganancia_extra_flex = (flete_std - flete_flex_neto) / 1.21
+
                 st.caption(
                     f"🔎 **Origen:** {metodo_hallado} | 🟢 **Flete ME2 Neto"
                     f" Vendedor:** ${flete_std:,.2f}"
                 )
 
                 # RECUADROS COMERCIALES DE ALTA VISIBILIDAD
-                col_c1, col_c2 = st.columns(2)
+                col_c1, col_c2, col_c3 = st.columns(3)
 
                 with col_c1:
                     if bonif_requerida <= 25.0:
                         st.markdown(
                             f"""
                         <div style="background-color: #D4EDDA; border: 2px solid #28A745; padding: 15px; border-radius: 10px; text-align: center;">
-                            <h3 style="color: #155724; margin:0;">🟢 LUZ VERDE: PRODUCTO ALTAMENTE RENTABLE</h3>
-                            <p style="color: #155724; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Fácil de negociar con el proveedor).</p>
+                            <h3 style="color: #155724; margin:0;">🟢 LUZ VERDE</h3>
+                            <p style="color: #155724; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -655,8 +671,8 @@ with tab7:
                         st.markdown(
                             f"""
                         <div style="background-color: #FFF3CD; border: 2px solid #FFC107; padding: 15px; border-radius: 10px; text-align: center;">
-                            <h3 style="color: #856404; margin:0;">🟡 LUZ AMARILLA: REQUIERE NEGOCIACIÓN ESPECIAL</h3>
-                            <p style="color: #856404; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Pedir descuento por volumen).</p>
+                            <h3 style="color: #856404; margin:0;">🟡 LUZ AMARILLA</h3>
+                            <p style="color: #856404; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -665,8 +681,8 @@ with tab7:
                         st.markdown(
                             f"""
                         <div style="background-color: #F8D7DA; border: 2px solid #DC3545; padding: 15px; border-radius: 10px; text-align: center;">
-                            <h3 style="color: #721C24; margin:0;">🔴 LUZ ROJA: COSTO FUERA DE MERCADO</h3>
-                            <p style="color: #721C24; margin:5px 0 0 0;">Bonificación requerida: <b>{bonif_requerida:.2f}%</b> (Muy alta para el PVP actual).</p>
+                            <h3 style="color: #721C24; margin:0;">🔴 LUZ ROJA</h3>
+                            <p style="color: #721C24; margin:5px 0 0 0;">Bonificación: <b>{bonif_requerida:.2f}%</b></p>
                         </div>
                         """,
                             unsafe_allow_html=True,
@@ -675,10 +691,23 @@ with tab7:
                 with col_c2:
                     st.markdown(
                         f"""
+                    <div style="background-color: #E2E8F0; border: 2px solid #64748B; padding: 15px; border-radius: 10px; text-align: center;">
+                        <h3 style="color: #1E293B; margin:0;">🛡️ PVP BREAK-EVEN</h3>
+                        <p style="font-size: 1.2rem; font-weight: 800; color: #1E293B; margin: 5px 0;">
+                            ${pvp_breakeven:,.2f}
+                        </p>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                with col_c3:
+                    st.markdown(
+                        f"""
                     <div style="background-color: #D1ECF1; border: 2px solid #17A2B8; padding: 15px; border-radius: 10px; text-align: center;">
-                        <h3 style="color: #0C5460; margin:0;">🔥 ROTACIÓN REAL DE PUBLICACIÓN GANADORA</h3>
-                        <p style="font-size: 1.4rem; font-weight: 800; color: #0C5460; margin: 5px 0;">
-                            {ventas_dia_est} un/día <span style="font-size: 1rem; font-weight: 400;">(Total vendidas: {sold_total_real:,} un)</span>
+                        <h3 style="color: #0C5460; margin:0;">📈 VENTAS EST. ÚLTIMO MES</h3>
+                        <p style="font-size: 1.2rem; font-weight: 800; color: #0C5460; margin: 5px 0;">
+                            ~{est_mes_anterior:,} un/mes <span style="font-size: 0.8rem; font-weight: 400;">(Total: {sold_total_real:,} un)</span>
                         </p>
                     </div>
                     """,
@@ -698,35 +727,11 @@ with tab7:
 
                 st.markdown("---")
 
-                # CALCULADORA DE STOCK CRÍTICO BASADA EN VENTAS REALES
-                st.markdown(
-                    "### 📦 Calculadora de Inversión y Plan de Compra"
+                # RECUADRO DE OPORTUNIDAD LOGÍSTICA FLEX
+                st.markdown("### 🚚 Eficiencia Logística: Mercado Envíos 2 vs. Flex")
+                st.info(
+                    f"Entregando este producto por **Mercado Envíos Flex (Cadetería AMBA)** recuperás el flete estándar y sumás una ganancia extra neta de **${ganancia_extra_flex:,.2f} por unidad**."
                 )
-                col_st1, col_st2, col_st3 = st.columns(3)
-                with col_st1:
-                    dias_cobertura = st.selectbox(
-                        "Días de Stock Deseados",
-                        [30, 45, 60],
-                        index=0,
-                        key="dias_stk",
-                    )
-                unidades_a_comprar = max(
-                    1, int(round(ventas_dia_est * dias_cobertura))
-                )
-                inversion_necesaria = unidades_a_comprar * max(
-                    0.0, costo_max_compra
-                )
-
-                with col_st2:
-                    st.metric(
-                        f"Unidades a Pedir ({dias_cobertura} días)",
-                        f"{unidades_a_comprar} un",
-                    )
-                with col_st3:
-                    st.metric(
-                        "Capital Requerido de Compra",
-                        f"${inversion_necesaria:,.2f}",
-                    )
 
                 st.markdown("---")
                 st.markdown(
@@ -818,14 +823,15 @@ with tab7:
                     <p><b>EAN / SKU:</b> {query_sku}</p>
                     <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
                     <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
-                    <p><b>Rotación Real Auditada:</b> {ventas_dia_est} un/día (Acumulado total: {sold_total_real:,} un)</p>
+                    <p><b>PVP Break-Even (Piso Mínimo sin Pérdida):</b> ${pvp_breakeven:,.2f}</p>
+                    <p><b>Ventas Est. Último Mes:</b> ~{est_mes_anterior:,} un/mes (Total histórico: {sold_total_real:,} un)</p>
                     <br>
                     <h4>Estructura de Margen y Compra Sugerida:</h4>
                     <ul>
                         <li><b>Costo Lista Proveedor:</b> ${costo_lista_f:,.2f}</li>
                         <li><b>Costo Máximo de Compra Target:</b> ${max(0.0, costo_max_compra):,.2f}</li>
                         <li><b>Bonificación Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
-                        <li><b>Inversión Sugerida Stock {dias_cobertura} días ({unidades_a_comprar} un):</b> ${inversion_necesaria:,.2f}</li>
+                        <li><b>Ahorro Adicional por Envío Flex:</b> ${ganancia_extra_flex:,.2f} / un</li>
                     </ul>
                 </div>
                 """
