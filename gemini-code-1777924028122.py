@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "42.2 Pro SaaS"
+V_NUMBER = "44.0 Pro SaaS"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -34,7 +34,7 @@ HEADERS_MELI = {
 # 1. MOTOR ROBUSTO DE LECTURA DE LA LISTA GOLD 2026
 # =========================================================
 def procesar_dataframe_lista_gold(df_raw):
-    """Detecta la fila exacta de encabezados y extrae los 118 artículos Gold."""
+    """Detecta la fila exacta de encabezados y extrae los artículos Gold."""
     try:
         header_row = None
         for idx in range(min(15, len(df_raw))):
@@ -563,21 +563,61 @@ with tab6:
     else:
         st.info("No se encontró la matriz local.")
 
-# --- SOLAPA 7: MONITOR BUY BOX ---
+# --- SOLAPA 7: MONITOR BUY BOX (DESPLEGABLE DE EAN CONECTADO A LA MATRIZ) ---
 with tab7:
     st.subheader("🎯 Monitor de Catálogo, Buy Box & Suite de Inteligencia Comercial")
     st.markdown("Auditoría en tiempo real cruzada con la **Lista Gold Septiembre 2026**, calculando la **Bonificación Real a Proveedor** y el **PVP Break-Even**.")
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
-    with col_s1:
-        query_sku = st.text_input("SKU / EAN / Descripción", value="7798009182461", key="input_sku_tab7")
 
-    costo_auto_gold = buscar_costo_lista_gold(query_sku)
+    if not df_articulos_base.empty:
+        # Generar lista estructurada para el desplegable (EAN | Art | Desc | Precio)
+        dict_opciones = {}
+        for idx, row in df_articulos_base.iterrows():
+            ean_s = str(row.get("EAN", "")).strip()
+            art_s = str(row.get("ARTICULO", "")).strip()
+            desc_s = str(row.get("DESCRIPCION", "")).strip()
+            p_val = float(row.get("COSTO_LISTA_GOLD", 0.0))
+            
+            label_opcion = f"EAN: {ean_s} | Modelo: {art_s} | {desc_s} | Costo: ${p_val:,.2f}"
+            dict_opciones[label_opcion] = {
+                "ean": ean_s,
+                "costo": p_val
+            }
 
-    with col_s2:
-        costo_lista_f = st.number_input("Costo Lista Gold Proveedor ($)", value=costo_auto_gold, step=1000.0, key="costo_f_tab7")
-    with col_s3:
-        margen_objetivo_tab7 = st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7") / 100
+        lista_opciones_combo = list(dict_opciones.keys())
+        # Opción extra para ingreso manual si se desea
+        lista_opciones_combo.append("✏️ Ingresar EAN / SKU Manualmente...")
+
+        with col_s1:
+            prod_seleccionado_label = st.selectbox("📋 Seleccionar Producto de la Matriz Gold:", lista_opciones_combo, key="combo_ean_tab7")
+
+        if prod_seleccionado_label == "✏️ Ingresar EAN / SKU Manualmente...":
+            query_sku = st.text_input("Ingresar EAN o SKU Manual", value="7798009182461", key="input_sku_manual_tab7")
+            costo_auto_gold = buscar_costo_lista_gold(query_sku)
+        else:
+            item_data = dict_opciones[prod_seleccionado_label]
+            query_sku = item_data["ean"]
+            costo_auto_gold = item_data["costo"]
+
+        with col_s2:
+            costo_lista_f = st.number_input(
+                "Costo Lista Gold Proveedor ($)",
+                value=costo_auto_gold,
+                step=1000.0,
+                key=f"costo_f_{query_sku}"  # Clave dinámica para que actualice en vivo
+            )
+        with col_s3:
+            margen_objetivo_tab7 = st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7") / 100
+
+    else:
+        with col_s1:
+            query_sku = st.text_input("SKU / EAN / Descripción", value="7798009182461", key="input_sku_tab7_fallback")
+        costo_auto_gold = buscar_costo_lista_gold(query_sku)
+        with col_s2:
+            costo_lista_f = st.number_input("Costo Lista Gold Proveedor ($)", value=costo_auto_gold, step=1000.0, key="costo_f_tab7_fb")
+        with col_s3:
+            margen_objetivo_tab7 = st.number_input("% Margen Objetivo", value=10.0, step=0.5, key="m_target_tab7_fb") / 100
 
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         token = st.session_state.get("access_token")
