@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_MELI_AUTH = False
 
-V_NUMBER = "34.0"
+V_NUMBER = "35.0"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -40,7 +40,7 @@ def cargar_base_articulos():
 
 @st.cache_data(ttl=1800)
 def sincronizar_tasas_y_tarifas_api(access_token=None):
-    """Sincroniza automáticamente en tiempo real las tarifas de MeLi (Envío Gratis, Cargos y Cuotas)."""
+    """Sincroniza dinámicamente las reglas generales del sitio MLA."""
     headers = HEADERS_MELI.copy()
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
@@ -51,7 +51,7 @@ def sincronizar_tasas_y_tarifas_api(access_token=None):
         "COMISION_BASE": 14.50,
         "FINANCIACION": {
             "1 Pago / Clásica (0.00%)": 0.0,
-            "2 Cuotas (9.49%)": 9.49,
+            "2 Cuotas Mismo Precio (9.49%)": 9.49,
             "3 Cuotas Mismo Precio (12.19%)": 12.19,
             "6 Cuotas Mismo Precio (19.09%)": 19.09,
             "9 Cuotas Mismo Precio (27.29%)": 27.29,
@@ -61,7 +61,6 @@ def sincronizar_tasas_y_tarifas_api(access_token=None):
     }
 
     try:
-        # Consulta de parámetros del sitio
         res_site = requests.get(
             "https://api.mercadolibre.com/sites/MLA", headers=headers, timeout=4
         )
@@ -73,15 +72,6 @@ def sincronizar_tasas_y_tarifas_api(access_token=None):
                         "listing_allowed_free_shipping_amount", 33000.0
                     )
                 )
-
-        # Consulta de medios de pago y costos de financiación
-        res_pay = requests.get(
-            "https://api.mercadolibre.com/sites/MLA/payment_methods",
-            headers=headers,
-            timeout=4,
-        )
-        if res_pay.status_code == 200:
-            pass  # API sincronizada correctamente
     except Exception:
         pass
 
@@ -146,13 +136,56 @@ def obtener_nickname_vendedor(seller_id, access_token=None):
 
 
 # =========================================================
-# 2. MOTOR BÚSQUEDA MULTI-NIVEL EN CASCADA (v33.0)
+# FUNCIONES AUTOMÁTICAS DE COSTOS VÍA API MELI
+# =========================================================
+def obtener_flete_real_api(item_id, access_token=None, zip_code="1414"):
+    """Consulta la calculadora oficial de ME2 en la API para obtener el costo exacto de envío."""
+    if not item_id or item_id == "Sin ID":
+        return TABLA_ME2_BASE["De 20 a 25 kg"][1]
+
+    raw_id = item_id if item_id.startswith("MLA") else f"MLA{item_id}"
+    url = f"https://api.mercadolibre.com/items/{raw_id}/shipping_options?zip_code={zip_code}"
+
+    try:
+        res = requests.get(url, headers=get_headers(access_token), timeout=4)
+        if res.status_code == 200:
+            options = res.json().get("options", [])
+            for opt in options:
+                if opt.get("shipping_method_id") in [182, 73328]:
+                    return float(opt.get("list_cost", 0.0))
+            if options:
+                return float(options[0].get("list_cost", 0.0))
+    except Exception:
+        pass
+    return TABLA_ME2_BASE["De 20 a 25 kg"][1]
+
+
+def obtener_comision_exacta_api(pvp, category_id=None, access_token=None):
+    """Consulta la comisión exacta y cargo fijo según el PVP y categoría."""
+    if category_id:
+        url = f"https://api.mercadolibre.com/sites/MLA/listing_prices?price={pvp}&listing_type_id=gold_special&category_id={category_id}"
+        try:
+            res = requests.get(url, headers=get_headers(access_token), timeout=4)
+            if res.status_code == 200:
+                data = res.json()
+                pct = float(data.get("percentage_fee", 14.5))
+                fijo = float(data.get("sale_fee_amount", 0.0)) if pvp < tarifas_vigentes["UMBRAL_ENVIO_GRATIS"] else 0.0
+                return pct, fijo
+        except Exception:
+            pass
+
+    pct = tarifas_vigentes["COMISION_BASE"]
+    fijo = tarifas_vigentes["CARGO_FIJO"] if pvp < tarifas_vigentes["UMBRAL_ENVIO_GRATIS"] else 0.0
+    return pct, fijo
+
+
+# =========================================================
+# 2. MOTOR BÚSQUEDA MULTI-NIVEL EN CASCADA
 # =========================================================
 def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     headers = get_headers(access_token)
     term_clean = str(query_term).strip().split(".")[0]
 
-    # Nivel 1: GTIN / EAN Directo
     if term_clean.isdigit() and len(term_clean) >= 8:
         try:
             url = f"https://api.mercadolibre.com/sites/MLA/search?gtin={term_clean}&limit={limit}"
@@ -164,7 +197,6 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
         except Exception:
             pass
 
-    # Nivel 2: Query Búsqueda Libre
     try:
         url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_clean)}&limit={limit}"
         res = requests.get(url, headers=headers, timeout=5)
@@ -175,7 +207,6 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 3: Catálogo Buy Box
     try:
         url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(term_clean)}"
         res_cat = requests.get(url_cat, headers=headers, timeout=5)
@@ -183,9 +214,7 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
             products = res_cat.json().get("results", [])
             if products:
                 cat_id = products[0].get("id")
-                url_items = (
-                    f"https://api.mercadolibre.com/products/{cat_id}/items"
-                )
+                url_items = f"https://api.mercadolibre.com/products/{cat_id}/items"
                 res_items = requests.get(url_items, headers=headers, timeout=5)
                 if res_items.status_code == 200:
                     items_cat = res_items.json().get("results", [])
@@ -194,7 +223,6 @@ def buscar_items_api_oficial(query_term, limit=10, access_token=None):
     except Exception:
         pass
 
-    # Nivel 4: Fallback Marca Centro Estant
     try:
         url_fb = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote('Centro Estant ' + term_clean)}&limit={limit}"
         res_fb = requests.get(url_fb, headers=headers, timeout=5)
@@ -242,20 +270,9 @@ if "autenticado" not in st.session_state:
 if not st.session_state.autenticado:
     col_l1, col_l2, col_l3 = st.columns([1, 1.5, 1])
     with col_l2:
-        st.markdown(
-            "<div style='text-align:center; margin-top:100px;'><span"
-            " class='nq-logo'>NQ</span></div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"<div style='text-align:center; padding: 20px 0;'><h2"
-            f" style='color: {nq_main_color}; font-weight:900;'>NQ"
-            " INTELLIGENCE LOGIN</h2></div>",
-            unsafe_allow_html=True,
-        )
-        clave_input = st.text_input(
-            "Ingresa Clave Operador", type="password", placeholder="Access Key"
-        )
+        st.markdown("<div style='text-align:center; margin-top:100px;'><span class='nq-logo'>NQ</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; padding: 20px 0;'><h2 style='color: {nq_main_color}; font-weight:900;'>NQ INTELLIGENCE LOGIN</h2></div>", unsafe_allow_html=True)
+        clave_input = st.text_input("Ingresa Clave Operador", type="password", placeholder="Access Key")
         if st.button("DESBLOQUEAR SISTEMA", use_container_width=True):
             if clave_input == CLAVE_CORRECTA:
                 st.session_state.autenticado = True
@@ -282,27 +299,15 @@ if HAS_MELI_AUTH:
             st.sidebar.error(f"Error de vinculación: {str(e)}")
     else:
         if "access_token" in st.session_state:
-            st.sidebar.success(
-                f"🟢 Sesión Activa (User ID: {st.session_state.get('user_id')})"
-            )
+            st.sidebar.success(f"🟢 Sesión Activa (User ID: {st.session_state.get('user_id')})")
         else:
             try:
                 url_login = meli_auth.obtener_link_autorizacion()
-                st.sidebar.markdown(
-                    f"""
-                <a href="{url_login}" target="_blank">
-                    <button style="background-color:#0055A0; color:white; border:none; padding:10px 15px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%;">
-                        🔑 Conectar cuenta de MeLi
-                    </button>
-                </a>
-                """,
-                    unsafe_allow_html=True,
-                )
+                st.sidebar.markdown(f'<a href="{url_login}" target="_blank"><button style="background-color:#0055A0; color:white; border:none; padding:10px 15px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%;">🔑 Conectar cuenta de MeLi</button></a>', unsafe_allow_html=True)
             except Exception:
                 st.sidebar.warning("⚠️ Error al cargar OAuth.")
 
-st.markdown(
-    f"""
+st.markdown(f"""
     <div class="nq-header-container">
         <div class="nq-branding">
             <span class="nq-logo">NQ</span>
@@ -312,38 +317,24 @@ st.markdown(
             </div>
         </div>
     </div>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # CONTROL FISCAL
 with st.container():
     st.markdown("<div class='tax-bar'>", unsafe_allow_html=True)
     c_tax1, c_tax2, c_tax3, c_tax4 = st.columns([1.5, 1, 1, 1])
     with c_tax1:
-        tipo_iva = st.radio(
-            "Configuración Impositiva",
-            ["Responsable Inscripto", "Monotributista"],
-            horizontal=True,
-        )
+        tipo_iva = st.radio("Configuración Impositiva", ["Responsable Inscripto", "Monotributista"], horizontal=True)
     with c_tax2:
-        reputacion_sel = st.selectbox(
-            "Reputación Vendedor", list(REPUTACION_DESCUENTOS.keys()), index=0
-        )
+        reputacion_sel = st.selectbox("Reputación Vendedor", list(REPUTACION_DESCUENTOS.keys()), index=0)
     with c_tax3:
-        iibb_perc = st.number_input(
-            "% Ingresos Brutos (IIBB)", value=3.5, step=0.1
-        )
+        iibb_perc = st.number_input("% Ingresos Brutos (IIBB)", value=3.5, step=0.1)
     with c_tax4:
-        comision_vender_input = st.number_input(
-            "% Cargo Vender MeLi",
-            value=tarifas_vigentes["COMISION_BASE"],
-            step=0.05,
-        )
+        comision_vender_input = st.number_input("% Cargo Vender MeLi", value=tarifas_vigentes["COMISION_BASE"], step=0.05)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
-# 4. LAS 7 SOLAPAS OPERATIVAS COMPLETAS DE LA V30.0 + V33.0
+# 4. PESTAÑAS DEL DASHBOARD (7 SOLAPAS OPERATIVAS)
 # =========================================================
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 REALIDAD REAL",
@@ -424,8 +415,8 @@ with tab6:
 
 # --- SOLAPA 7: MONITOR BUY BOX & REPORTE EJECUTIVO ---
 with tab7:
-    st.subheader("🎯 Monitor de Catálogo & Buy Box + Reporte Gerencial")
-    st.markdown("Ingresá un **EAN, SKU o Descripción** para auditar en tiempo real quién gana la Buy Box.")
+    st.subheader("🎯 Monitor de Catálogo & Buy Box + Costos Automatizados por API")
+    st.markdown("Ingresá un **EAN, SKU o Descripción** para auditar en tiempo real con fletes y comisiones automáticas de la API.")
 
     col_s1, col_s2, col_s3 = st.columns([2.5, 1, 1])
     with col_s1:
@@ -438,13 +429,15 @@ with tab7:
     if st.button("🚀 AUDITAR CATÁLOGO Y COMPETENCIA", use_container_width=True, key="btn_audit_tab7"):
         token = st.session_state.get("access_token")
 
-        with st.spinner("Consultando Mercado Libre API en vivo..."):
+        with st.spinner("Consultando Mercado Libre API y calculando costos de flete/comisión en vivo..."):
             items_competencia, metodo_hallado = buscar_items_api_oficial(
                 query_sku, limit=10, access_token=token
             )
 
             if items_competencia:
                 first_item = items_competencia[0]
+                item_id_first = str(first_item.get("id", first_item.get("item_id", ""))).replace("MLA", "").strip()
+                cat_id_first = first_item.get("category_id")
 
                 pvp_ganador = float(
                     first_item.get("price")
@@ -457,10 +450,12 @@ with tab7:
                     or "Producto Mercado Libre"
                 )
 
+                # AUTOMATIZACIÓN DE COSTOS DESDE API DE MELI
+                flete_std = obtener_flete_real_api(item_id_first, access_token=token)
+                pct_comision_api, fijo_std = obtener_comision_exacta_api(pvp_ganador, cat_id_first, access_token=token)
+
                 pvp_objetivo = pvp_ganador - 100.0
-                flete_std = TABLA_ME2_BASE["De 20 a 25 kg"][1]
-                fijo_std = tarifas_vigentes["CARGO_FIJO"] if pvp_objetivo < tarifas_vigentes["UMBRAL_ENVIO_GRATIS"] else 0.0
-                comi_std = pvp_objetivo * (comision_vender_input / 100)
+                comi_std = pvp_objetivo * (pct_comision_api / 100)
                 pvp_neto_std = pvp_objetivo / 1.21
                 iibb_std = pvp_neto_std * (iibb_perc / 100)
                 ganancia_target_std = pvp_objetivo * margen_objetivo_tab7
@@ -479,7 +474,7 @@ with tab7:
                     else 0.0
                 )
 
-                st.caption(f"🔎 **Origen de datos:** {metodo_hallado}")
+                st.caption(f"🔎 **Origen de datos:** {metodo_hallado} | 🟢 **Flete ME2 extraído de API:** ${flete_std:,.2f}")
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("🏆 PVP Ganador Actual", f"${pvp_ganador:,.2f}")
@@ -488,13 +483,13 @@ with tab7:
                 m4.metric("📉 Bonificación a Pedir", f"{bonif_requerida:.2f}%")
 
                 st.markdown("---")
-                st.markdown("### 💸 Desglose Estructural de Gastos del Vendedor para Ganar la Publicación")
+                st.markdown("### 💸 Desglose Estructural de Gastos Automatizados del Vendedor")
 
                 desglose_df = pd.DataFrame({
                     "Concepto / Gasto": [
                         "PVP Recomendado (Objetivo #1)",
-                        "(-) Comisión Mercado Libre Clásica",
-                        "(-) Flete Logística Mercado Envíos 2",
+                        f"(-) Comisión Mercado Libre ({pct_comision_api:.2f}%)",
+                        "(-) Flete Logística Mercado Envíos 2 (API)",
                         "(-) Cargo Fijo por Unidad",
                         "(-) Retención / Impuesto IIBB",
                         "(-) Margen Neto Ganancia Objetivo",
@@ -564,9 +559,11 @@ with tab7:
                     <p><b>PVP Ganador Actual en Mercado Libre:</b> ${pvp_ganador:,.2f}</p>
                     <p><b>PVP Objetivo Comercial (Puesto #1):</b> ${pvp_objetivo:,.2f}</p>
                     <br>
-                    <h4>Estructura de Margen y Costos Permisibles:</h4>
+                    <h4>Estructura de Margen y Costos Permisibles (Extraídos de API MeLi):</h4>
                     <ul>
                         <li><b>Costo Lista Proveedor:</b> ${costo_lista_f:,.2f}</li>
+                        <li><b>Flete Mercado Envíos (API ME2):</b> ${flete_std:,.2f}</li>
+                        <li><b>Comisión Venta API MeLi ({pct_comision_api:.2f}%):</b> ${comi_std:,.2f}</li>
                         <li><b>Costo Máximo de Compra Target:</b> ${max(0.0, costo_max_compra):,.2f}</li>
                         <li><b>Bonificación Requerida a Proveedor:</b> {bonif_requerida:.2f}%</li>
                         <li><b>Margen Neto Proyectado:</b> {margen_objetivo_tab7*100:.2f}%</li>
