@@ -420,4 +420,25 @@ with tab4:
             tit = p.get("title", "Producto Centro Estant")
 
             reporte_html = f"""
-            <div style="padding
+            <div style="padding: 20px; border: 2px solid #2B3E4F; border-radius: 10px; font-family: Arial;">
+                <h1 style="color: #0055A0;">NQ Sales Intelligence — Informe Ejecutivo</h1>
+                <hr>
+                <h3>Producto: {tit}</h3>
+                <p><b>EAN / SKU:</b> {rep_sku}</p>
+                <p><b>PVP Ganador en Mercado Libre:</b> ${pvp_g:,.2f}</p>
+                <p><b>PVP Objetivo Comercial NQ:</b> ${pvp_g - 100:,.2f}</p>
+                <hr>
+                <h4>Estructura Sugerida de Compra:</h4>
+                <ul>
+                    <li>Comisión Mercado Libre: 14.5%</li>
+                    <li>Costo Flete Estimado ME2: $20,130.00</li>
+                    <li>Margen Comercial Pretendido: 10%</li>
+                </ul>
+                <br>
+                <p style="font-size: 0.8rem; color: #666;">Generado automáticamente por NQ Matrix v{V_NUMBER} el 16/10/2026.</p>
+            </div>
+            """
+            st.markdown(reporte_html, unsafe_allow_html=True)
+            st.download_button("📥 Descargar Reporte Imprimible (.html)", data=reporte_html, file_name=f"Reporte_NQ_{rep_sku}.html", mime="text/html")
+        else:
+            st.error("No se encontraron datos para generar el reporte.")
