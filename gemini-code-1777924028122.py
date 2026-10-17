@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 # ==========================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS
+# 1. CONFIGURACIÓN DE PÁGINA
 # ==========================================
 st.set_page_config(
     page_title="NQ Sales Intelligence Matrix Pro",
@@ -21,32 +21,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CARGA SEGURA DE CREDENCIALES DESDE SECRETS
-# ==========================================
-# Recuperamos de forma segura las credenciales configuradas en el entorno (Streamlit Secrets)
-try:
-    MELI_CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", st.secrets.get("mercadolibre", {}).get("client_id", ""))
-    MELI_CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", st.secrets.get("mercadolibre", {}).get("client_secret", ""))
-    MELI_ACCESS_TOKEN_SECRET = st.secrets.get("MELI_ACCESS_TOKEN", st.secrets.get("mercadolibre", {}).get("access_token", ""))
-except Exception:
-    MELI_CLIENT_ID = ""
-    MELI_CLIENT_SECRET = ""
-    MELI_ACCESS_TOKEN_SECRET = ""
-
-# ==========================================
-# 3. ESTADO DE SESIÓN (SESSION STATE)
+# 2. ESTADO DE SESIÓN (SESSION STATE)
 # ==========================================
 if "authenticated" not in st.session_state:
-    # Si hay un token en secrets, autenticamos automáticamente de entrada
-    if MELI_ACCESS_TOKEN_SECRET:
-        st.session_state["authenticated"] = True
-        st.session_state["access_token"] = MELI_ACCESS_TOKEN_SECRET
-    else:
-        st.session_state["authenticated"] = False
-
+    st.session_state["authenticated"] = False
 if "access_token" not in st.session_state:
-    st.session_state["access_token"] = MELI_ACCESS_TOKEN_SECRET
-
+    st.session_state["access_token"] = ""
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
@@ -57,10 +37,10 @@ if "selected_item_data" not in st.session_state:
     st.session_state["selected_item_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API MERCADO LIBRE
+# 3. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
 def validar_token_meli(token: str):
-    """Verifica el estado del token consultando la API de MeLi."""
+    """Consulta la API de MeLi para verificar el token del usuario."""
     if not token or not token.strip():
         return False, None
     url = "https://api.mercadolibre.com/users/me"
@@ -74,7 +54,7 @@ def validar_token_meli(token: str):
     return False, None
 
 def obtener_item_meli(item_id: str, access_token: str = None):
-    """Consulta los datos de un ítem o publicación."""
+    """Consulta los datos de una publicación en MeLi."""
     if not item_id or not item_id.strip():
         return None
     url = f"https://api.mercadolibre.com/items/{item_id.strip()}"
@@ -95,9 +75,9 @@ def publicar_item_en_catalogo(
     condition: str = "new",
     access_token: str = None
 ):
-    """Ejecuta el POST /items para la publicación directa en catálogo de MeLi."""
+    """Ejecuta el POST /items para publicar directo en catálogo de Mercado Libre."""
     if not access_token or not access_token.strip():
-        return False, "⚠️ Se requiere un Access Token activo para publicar."
+        return False, "⚠️ Se requiere un Access Token activo de Mercado Libre para publicar."
 
     url = "https://api.mercadolibre.com/items"
     headers = {
@@ -134,7 +114,7 @@ def publicar_item_en_catalogo(
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
 # ==========================================
-# 5. PANTALLA DE INICIO & LOGIN SEGURO
+# 4. LOGIN LOCAL DE LA APLICACIÓN
 # ==========================================
 if not st.session_state["authenticated"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -142,26 +122,22 @@ if not st.session_state["authenticated"]:
     
     with c_main:
         st.title("⚡ NQ Sales Intelligence Matrix")
-        st.subheader("Acceso Seguro a la Plataforma")
-        st.write("Conectate mediante el sistema integrado de credenciales seguras.")
+        st.subheader("Acceso a la Plataforma SaaS")
+        
+        user_input = st.text_input("Usuario", value="admin")
+        pass_input = st.text_input("Contraseña", type="password", value="admin123")
         
         col_b1, col_b2 = st.columns(2)
         
-        if col_b1.button("🔑 CONECTAR CON CREDENCIALES SEGURAS", type="primary", use_container_width=True):
-            token_a_usar = MELI_ACCESS_TOKEN_SECRET
-            if token_a_usar:
-                valido, u_data = validar_token_meli(token_a_usar)
-                if valido:
-                    st.session_state["authenticated"] = True
-                    st.session_state["access_token"] = token_a_usar
-                    st.session_state["user_info"] = u_data
-                    st.rerun()
-                else:
-                    st.error("El token configurado en los secrets expiró o no es válido.")
+        if col_b1.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
+            if pass_input:
+                st.session_state["authenticated"] = True
+                st.session_state["user_info"] = {"nickname": user_input}
+                st.rerun()
             else:
-                st.warning("No se detectó un token en los secrets de la aplicación.")
+                st.error("Por favor, ingresá la contraseña.")
                 
-        if col_b2.button("👁️ MODO DEMO / VISTA PREVIA", use_container_width=True):
+        if col_b2.button("👁️ MODO DEMO", use_container_width=True):
             st.session_state["authenticated"] = True
             st.session_state["user_info"] = {"nickname": "Demo_User"}
             st.rerun()
@@ -169,18 +145,38 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# 6. BARRA LATERAL (PANEL DE CONTROL)
+# 5. BARRA LATERAL (CONEXIÓN Y ARCHIVOS)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
-    nickname_activo = st.session_state["user_info"].get("nickname", "Vendedor")
-    st.success(f"🟢 Sesión: **{nickname_activo}**")
+    user_name = st.session_state["user_info"].get("nickname", "Usuario")
+    st.write(f"👤 Usuario: **{user_name}**")
     
     if st.button("🔴 Cerrar Sesión", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["access_token"] = ""
         st.session_state["user_info"] = {}
         st.rerun()
+
+    st.markdown("---")
+    st.subheader("🔑 Conexión Mercado Libre")
+    
+    token_input = st.text_input(
+        "Access Token (OAuth)",
+        value=st.session_state["access_token"],
+        type="password",
+        help="Pegá tu Access Token de Mercado Libre para habilitar consultas en vivo y publicaciones."
+    )
+    st.session_state["access_token"] = token_input
+
+    if token_input:
+        is_valid, meli_user = validar_token_meli(token_input)
+        if is_valid:
+            st.success(f"🟢 Conectado: {meli_user.get('nickname', 'Vendedor')}")
+        else:
+            st.warning("⚠️ Token no verificado o expirado.")
+    else:
+        st.info("Sin conexión a MeLi. Modos offline/simulación activos.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -191,7 +187,7 @@ with st.sidebar:
                 st.session_state["lista_gold_df"] = pd.read_csv(uploaded_gold)
             else:
                 st.session_state["lista_gold_df"] = pd.read_excel(uploaded_gold)
-            st.success("✅ Lista Gold sincronizada.")
+            st.success("✅ Lista Gold vinculada.")
         except Exception as e:
             st.error(f"Error al leer Lista Gold: {e}")
 
@@ -209,10 +205,10 @@ with st.sidebar:
             st.error(f"Error al leer la matriz: {e}")
 
 # ==========================================
-# 7. PESTAÑAS PRINCIPALES (1 A 7)
+# 6. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v45.1 — Dashboard Operativo con Autenticación Segura y Publicador Directo")
+st.caption("v45.0 — Dashboard Operativo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -225,13 +221,12 @@ tabs = st.tabs([
 ])
 
 # ------------------------------------------
-# TAB 1: RESUMEN GENERAL
+# TAB 1: RESUMEN
 # ------------------------------------------
 with tabs[0]:
-    st.header("📊 Dashboard de Control Operativo")
+    st.header("📊 Dashboard de Control")
     m1, m2, m3, m4 = st.columns(4)
-    
-    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Modo Demo 🟡")
+    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Sin Token ⚪")
     m2.metric("Lista Gold", "Cargada 🟢" if st.session_state["lista_gold_df"] is not None else "Pendiente ⚪")
     m3.metric("Matriz Productos", "Cargada 🟢" if st.session_state["matriz_productos_df"] is not None else "Pendiente ⚪")
     m4.metric("Moneda Base", "ARS ($)")
@@ -240,30 +235,24 @@ with tabs[0]:
         st.markdown("---")
         st.subheader("📦 Vista de la Matriz de Productos")
         st.dataframe(st.session_state["matriz_productos_df"].head(10), use_container_width=True)
-    else:
-        st.info("💡 Subí la Lista Gold y la Matriz de Productos desde el panel lateral para visualizarlas.")
 
 # ------------------------------------------
-# TAB 2: AUDITORÍA DE COMPETENCIA
+# TAB 2: COMPETENCIA
 # ------------------------------------------
 with tabs[1]:
     st.header("🔍 Auditoría de Competencia")
     col_c1, col_c2 = st.columns([3, 1])
     item_id_input = col_c1.text_input("ID de Publicación MeLi", value="MLA138291029")
-    
     if col_c2.button("Buscar en MeLi", use_container_width=True):
         data_item = obtener_item_meli(item_id_input, st.session_state["access_token"])
         if data_item:
             st.session_state["selected_item_data"] = data_item
             st.success(f"Producto: **{data_item.get('title')}**")
-            
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Precio Competencia", f"${data_item.get('price', 0):,.2f}")
             k2.metric("Catalog Product ID", data_item.get("catalog_product_id", "Sin Catálogo"))
             k3.metric("Tipo de Lista", data_item.get("listing_type_id", "N/A"))
             k4.metric("Vendidos", data_item.get("sold_quantity", 0))
-        else:
-            st.error("No se pudo obtener la publicación de Mercado Libre.")
 
 # ------------------------------------------
 # TAB 3: COSTOS & LISTA GOLD
@@ -273,11 +262,9 @@ with tabs[2]:
     if st.session_state["lista_gold_df"] is not None:
         df_g = st.session_state["lista_gold_df"]
         st.dataframe(df_g, use_container_width=True)
-        
         sku_col = df_g.columns[0]
         skus = df_g[sku_col].dropna().unique()
-        sel_sku = st.selectbox("Seleccionar SKU/Producto para calcular costo baseline", skus)
-        
+        sel_sku = st.selectbox("Seleccionar SKU/Producto", skus)
         match = df_g[df_g[sku_col] == sel_sku]
         if not match.empty and len(df_g.columns) > 1:
             try:
@@ -289,20 +276,18 @@ with tabs[2]:
         st.warning("Subí tu archivo de Lista Gold en la barra lateral.")
 
 # ------------------------------------------
-# TAB 4: FINANCIACIÓN & CUOTAS
+# TAB 4: FINANCIACIÓN
 # ------------------------------------------
 with tabs[3]:
     st.header("💳 Calculadora de Financiación")
     col_f1, col_f2 = st.columns(2)
     plan_cuotas = col_f1.selectbox("Plan de Financiación", ["Clásica (1 pago)", "3 Cuotas sin interés", "6 Cuotas Premium (gold_pro)", "12 Cuotas sin interés"])
     monto_ref = col_f2.number_input("Precio de Venta Base ($)", value=25000.0, step=1000.0)
-    
     pct_recargo = 0.15 if "6 Cuotas" in plan_cuotas else (0.28 if "12 Cuotas" in plan_cuotas else 0.0)
-    costo_fin = monto_ref * pct_recargo
-    st.metric("Cargo por Financiación Estimado", f"${costo_fin:,.2f}", delta=f"{pct_recargo*100:.1f}%")
+    st.metric("Cargo por Financiación Estimado", f"${monto_ref * pct_recargo:,.2f}", delta=f"{pct_recargo*100:.1f}%")
 
 # ------------------------------------------
-# TAB 5: ENVÍOS & LOGÍSTICA
+# TAB 5: ENVÍOS
 # ------------------------------------------
 with tabs[4]:
     st.header("🚚 Costos Logísticos (Mercado Envíos / Flex)")
@@ -311,7 +296,7 @@ with tabs[4]:
     st.metric("Costo de Envío Estimado", f"${costo_envio:,.2f}")
 
 # ------------------------------------------
-# TAB 6: MATRIZ DE MARGEN NETO
+# TAB 6: MATRIZ DE MARGEN
 # ------------------------------------------
 with tabs[5]:
     st.header("📈 Simulación de Margen Neto")
@@ -319,16 +304,14 @@ with tabs[5]:
     pvp_val = col_m1.number_input("Precio Propuesto ($)", value=35000.0)
     costo_val = col_m2.number_input("Costo Directo ($)", value=12000.0)
     comision_pct = col_m3.slider("Comisión MeLi (%)", 10.0, 35.0, 28.0)
-    
     margen_neto = pvp_val - costo_val - (pvp_val * (comision_pct / 100.0))
     st.metric("Margen Neto Estimado", f"${margen_neto:,.2f}")
 
 # ------------------------------------------
-# TAB 7: PUBLICADOR DIRECTO EN CATÁLOGO
+# TAB 7: PUBLICADOR DIRECTO
 # ------------------------------------------
 with tabs[6]:
     st.header("📦 Publicador Directo en Catálogo (`POST /items`)")
-    
     cat_def = st.session_state["selected_item_data"].get("catalog_product_id", "MLA20491823") if st.session_state["selected_item_data"] else "MLA20491823"
     
     col_p1, col_p2 = st.columns(2)
