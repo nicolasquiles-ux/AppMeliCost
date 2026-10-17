@@ -6,7 +6,7 @@ import requests
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ==========================================
 st.set_page_config(
-    page_title="NQ Sales Intelligence Matrix",
+    page_title="NQ Sales Intelligence Matrix Pro",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -21,12 +21,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. ESTADO DE SESIÓN (SESSION STATE)
+# 2. CARGA SEGURA DE CREDENCIALES DESDE SECRETS
+# ==========================================
+# Recuperamos de forma segura las credenciales configuradas en el entorno (Streamlit Secrets)
+try:
+    MELI_CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", st.secrets.get("mercadolibre", {}).get("client_id", ""))
+    MELI_CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", st.secrets.get("mercadolibre", {}).get("client_secret", ""))
+    MELI_ACCESS_TOKEN_SECRET = st.secrets.get("MELI_ACCESS_TOKEN", st.secrets.get("mercadolibre", {}).get("access_token", ""))
+except Exception:
+    MELI_CLIENT_ID = ""
+    MELI_CLIENT_SECRET = ""
+    MELI_ACCESS_TOKEN_SECRET = ""
+
+# ==========================================
+# 3. ESTADO DE SESIÓN (SESSION STATE)
 # ==========================================
 if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+    # Si hay un token en secrets, autenticamos automáticamente de entrada
+    if MELI_ACCESS_TOKEN_SECRET:
+        st.session_state["authenticated"] = True
+        st.session_state["access_token"] = MELI_ACCESS_TOKEN_SECRET
+    else:
+        st.session_state["authenticated"] = False
+
 if "access_token" not in st.session_state:
-    st.session_state["access_token"] = ""
+    st.session_state["access_token"] = MELI_ACCESS_TOKEN_SECRET
+
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
@@ -37,10 +57,10 @@ if "selected_item_data" not in st.session_state:
     st.session_state["selected_item_data"] = {}
 
 # ==========================================
-# 3. FUNCIONES DE CONEXIÓN A MERCADO LIBRE
+# 4. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
 def validar_token_meli(token: str):
-    """Consulta la API de MeLi para validar el Access Token del usuario."""
+    """Verifica el estado del token consultando la API de MeLi."""
     if not token or not token.strip():
         return False, None
     url = "https://api.mercadolibre.com/users/me"
@@ -54,7 +74,7 @@ def validar_token_meli(token: str):
     return False, None
 
 def obtener_item_meli(item_id: str, access_token: str = None):
-    """Consulta datos de una publicación en MeLi."""
+    """Consulta los datos de un ítem o publicación."""
     if not item_id or not item_id.strip():
         return None
     url = f"https://api.mercadolibre.com/items/{item_id.strip()}"
@@ -75,9 +95,9 @@ def publicar_item_en_catalogo(
     condition: str = "new",
     access_token: str = None
 ):
-    """Ejecuta la publicación directa vinculada al Catálogo de Mercado Libre."""
+    """Ejecuta el POST /items para la publicación directa en catálogo de MeLi."""
     if not access_token or not access_token.strip():
-        return False, "⚠️ Se requiere un Access Token activo de Mercado Libre para publicar."
+        return False, "⚠️ Se requiere un Access Token activo para publicar."
 
     url = "https://api.mercadolibre.com/items"
     headers = {
@@ -104,7 +124,7 @@ def publicar_item_en_catalogo(
             return True, {
                 "item_id": data.get("id"),
                 "permalink": data.get("permalink"),
-                "message": f"✅ ¡Publicación creada en Catálogo! ID: {data.get('id')}"
+                "message": f"✅ ¡Publicación creada con éxito! ID: {data.get('id')}"
             }
         else:
             err_data = response.json() if response.content else {}
@@ -114,7 +134,7 @@ def publicar_item_en_catalogo(
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
 # ==========================================
-# 4. PANTALLA DE LOGIN DE LA APLICACIÓN
+# 5. PANTALLA DE INICIO & LOGIN SEGURO
 # ==========================================
 if not st.session_state["authenticated"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -122,20 +142,24 @@ if not st.session_state["authenticated"]:
     
     with c_main:
         st.title("⚡ NQ Sales Intelligence Matrix")
-        st.subheader("Acceso al Sistema Operativo")
-        
-        usuario_login = st.text_input("Usuario", value="admin")
-        password_login = st.text_input("Contraseña", type="password", value="admin123")
+        st.subheader("Acceso Seguro a la Plataforma")
+        st.write("Conectate mediante el sistema integrado de credenciales seguras.")
         
         col_b1, col_b2 = st.columns(2)
         
-        if col_b1.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
-            if password_login:  # Acceso directo con contraseña
-                st.session_state["authenticated"] = True
-                st.session_state["user_info"] = {"nickname": usuario_login}
-                st.rerun()
+        if col_b1.button("🔑 CONECTAR CON CREDENCIALES SEGURAS", type="primary", use_container_width=True):
+            token_a_usar = MELI_ACCESS_TOKEN_SECRET
+            if token_a_usar:
+                valido, u_data = validar_token_meli(token_a_usar)
+                if valido:
+                    st.session_state["authenticated"] = True
+                    st.session_state["access_token"] = token_a_usar
+                    st.session_state["user_info"] = u_data
+                    st.rerun()
+                else:
+                    st.error("El token configurado en los secrets expiró o no es válido.")
             else:
-                st.error("Ingresá una contraseña para continuar.")
+                st.warning("No se detectó un token en los secrets de la aplicación.")
                 
         if col_b2.button("👁️ MODO DEMO / VISTA PREVIA", use_container_width=True):
             st.session_state["authenticated"] = True
@@ -145,12 +169,12 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# 5. BARRA LATERAL (CONEXIÓN Y ARCHIVOS)
+# 6. BARRA LATERAL (PANEL DE CONTROL)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
-    user_name = st.session_state["user_info"].get("nickname", "Usuario")
-    st.write(f"👤 Usuario: **{user_name}**")
+    nickname_activo = st.session_state["user_info"].get("nickname", "Vendedor")
+    st.success(f"🟢 Sesión: **{nickname_activo}**")
     
     if st.button("🔴 Cerrar Sesión", use_container_width=True):
         st.session_state["authenticated"] = False
@@ -159,26 +183,8 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🔑 Conexión a Mercado Libre")
-    token_input = st.text_input(
-        "Access Token (OAuth)",
-        value=st.session_state["access_token"],
-        type="password",
-        help="Pegá tu token activo para operar con la API"
-    )
-    if token_input != st.session_state["access_token"]:
-        st.session_state["access_token"] = token_input
-
-    if st.session_state["access_token"]:
-        valid, data_user = validar_token_meli(st.session_state["access_token"])
-        if valid:
-            st.success(f"🟢 Conectado: {data_user.get('nickname')}")
-        else:
-            st.warning("⚠️ Token no verificado o expirado.")
-
-    st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
-    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos Baseline)", type=["xlsx", "xls", "csv"], key="gold_up")
+    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "xls", "csv"], key="gold_up")
     if uploaded_gold is not None:
         try:
             if uploaded_gold.name.endswith('.csv'):
@@ -203,10 +209,10 @@ with st.sidebar:
             st.error(f"Error al leer la matriz: {e}")
 
 # ==========================================
-# 6. PESTAÑAS PRINCIPALES (1 A 7)
+# 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v45.0 — Dashboard Inteligente y Publicador Directo")
+st.caption("v45.1 — Dashboard Operativo con Autenticación Segura y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -222,10 +228,10 @@ tabs = st.tabs([
 # TAB 1: RESUMEN GENERAL
 # ------------------------------------------
 with tabs[0]:
-    st.header("📊 Dashboard de Control")
+    st.header("📊 Dashboard de Control Operativo")
     m1, m2, m3, m4 = st.columns(4)
     
-    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Sin Token ⚪")
+    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Modo Demo 🟡")
     m2.metric("Lista Gold", "Cargada 🟢" if st.session_state["lista_gold_df"] is not None else "Pendiente ⚪")
     m3.metric("Matriz Productos", "Cargada 🟢" if st.session_state["matriz_productos_df"] is not None else "Pendiente ⚪")
     m4.metric("Moneda Base", "ARS ($)")
@@ -257,7 +263,7 @@ with tabs[1]:
             k3.metric("Tipo de Lista", data_item.get("listing_type_id", "N/A"))
             k4.metric("Vendidos", data_item.get("sold_quantity", 0))
         else:
-            st.error("No se pudo obtener la publicación.")
+            st.error("No se pudo obtener la publicación de Mercado Libre.")
 
 # ------------------------------------------
 # TAB 3: COSTOS & LISTA GOLD
