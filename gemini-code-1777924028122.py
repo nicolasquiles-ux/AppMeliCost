@@ -25,7 +25,7 @@ st.markdown("""
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "TU_CLIENT_ID")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "TU_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://tu-app-streamlit.streamlit.app")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app/")
 
 # ==========================================
 # 3. ESTADO DE SESIÓN (SESSION STATE)
