@@ -21,9 +21,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CREDENCIALES DE APLICACIÓN MERCADO LIBRE
+# 2. CREDENCIALES Y CONFIGURACIÓN OAUTH
 # ==========================================
-# Intentamos leer de st.secrets si existen, o usamos los valores por defecto
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "TU_CLIENT_ID")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "TU_CLIENT_SECRET")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://tu-app-streamlit.streamlit.app")
@@ -41,18 +40,16 @@ if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
 if "matriz_productos_df" not in st.session_state:
     st.session_state["matriz_productos_df"] = None
-if "selected_item_data" not in st.session_state:
-    st.session_state["selected_item_data"] = {}
+if "selected_catalog_data" not in st.session_state:
+    st.session_state["selected_catalog_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE AUTENTICACIÓN Y API MELI
+# 4. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
 def obtener_url_login_meli():
-    """Genera la URL para autorizar la app en Mercado Libre."""
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
 def intercambiar_code_por_token(code: str):
-    """Intercambia el 'code' retornado por Mercado Libre por el token real."""
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "authorization_code",
@@ -72,7 +69,6 @@ def intercambiar_code_por_token(code: str):
         return False, str(e)
 
 def obtener_perfil_meli(token: str):
-    """Consulta la API de MeLi para obtener los datos del usuario."""
     if not token:
         return {}
     url = "https://api.mercadolibre.com/users/me"
@@ -85,19 +81,29 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
-def obtener_item_meli(item_id: str, access_token: str = None):
-    """Consulta los datos de una publicación por ID."""
-    if not item_id or not item_id.strip():
-        return None
-    url = f"https://api.mercadolibre.com/items/{item_id.strip()}"
+def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
+    """Obtiene los datos del producto de catálogo y su competencia / Buy Box."""
+    url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
-        res = requests.get(url, headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
             return res.json()
     except Exception:
         pass
     return None
+
+def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
+    """Busca las publicaciones activas asociadas a este product_id para ver el Top de Vendedores."""
+    url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    try:
+        res = requests.get(url, headers=headers, timeout=8)
+        if res.status_code == 200:
+            return res.json().get("results", [])
+    except Exception:
+        pass
+    return []
 
 def publicar_item_en_catalogo(
     catalog_product_id: str,
@@ -145,11 +151,11 @@ def publicar_item_en_catalogo(
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
-# Capta la respuesta de Mercado Libre cuando redirige con el 'code'
+# Capturar parámetro 'code' de OAuth
 query_params = st.query_params
 if "code" in query_params:
-    code_autorizacion = query_params["code"]
-    exito, token_resp = intercambiar_code_por_token(code_autorizacion)
+    code_auth = query_params["code"]
+    exito, token_resp = intercambiar_code_por_token(code_auth)
     if exito:
         st.session_state["access_token"] = token_resp.get("access_token")
         st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
@@ -157,7 +163,7 @@ if "code" in query_params:
         st.rerun()
 
 # ==========================================
-# 5. PANTALLA 1: LOGIN LOCAL DE LA APLICACIÓN
+# 5. PANTALLA DE LOGIN LOCAL
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -171,22 +177,19 @@ if not st.session_state["authenticated_app"]:
         password_input = st.text_input("Contraseña", type="password", value="admin123")
         
         col_b1, col_b2 = st.columns(2)
-        
         if col_b1.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
             if password_input:
                 st.session_state["authenticated_app"] = True
                 st.rerun()
             else:
-                st.error("Por favor, ingresá tu contraseña.")
-                
+                st.error("Ingresá tu contraseña.")
         if col_b2.button("👁️ MODO DEMO", use_container_width=True):
             st.session_state["authenticated_app"] = True
             st.rerun()
-            
     st.stop()
 
 # ==========================================
-# 6. BARRA LATERAL (CONEXIÓN Y ARCHIVOS)
+# 6. BARRA LATERAL (PANEL DE CONTROL)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -199,16 +202,15 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🔗 Conexión a Mercado Libre")
-    
     if st.session_state["access_token"]:
-        nombre_vendedor = st.session_state["user_info"].get("nickname", "Vendedor Conectado")
-        st.success(f"🟢 Conectado como: **{nombre_vendedor}**")
-        if st.button("Desconectar Mercado Libre"):
+        nickname_v = st.session_state["user_info"].get("nickname", "Conectado")
+        st.success(f"🟢 Vendedor: **{nickname_v}**")
+        if st.button("Desconectar MeLi"):
             st.session_state["access_token"] = ""
             st.session_state["user_info"] = {}
             st.rerun()
     else:
-        st.warning("⚠️ Sin conexión activa con Mercado Libre")
+        st.warning("⚠️ Sin conexión con Mercado Libre")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
@@ -242,7 +244,7 @@ with st.sidebar:
 # 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v45.0 — Dashboard Inteligente y Publicador Directo")
+st.caption("v46.5 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -251,7 +253,7 @@ tabs = st.tabs([
     "4. Financiación & Cuotas",
     "5. Envíos & Logística",
     "6. Matriz de Margen",
-    "7. Publicador Directo"
+    "7. Analizador de Catálogo & Publicador"
 ])
 
 # ------------------------------------------
@@ -275,20 +277,15 @@ with tabs[0]:
 # ------------------------------------------
 with tabs[1]:
     st.header("🔍 Auditoría de Competencia")
-    col_c1, col_c2 = st.columns([3, 1])
-    item_id_input = col_c1.text_input("ID de Publicación MeLi", value="MLA138291029")
-    if col_c2.button("Buscar en MeLi", use_container_width=True):
-        data_item = obtener_item_meli(item_id_input, st.session_state["access_token"])
-        if data_item:
-            st.session_state["selected_item_data"] = data_item
-            st.success(f"Producto: **{data_item.get('title')}**")
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Precio Competencia", f"${data_item.get('price', 0):,.2f}")
-            k2.metric("Catalog Product ID", data_item.get("catalog_product_id", "Sin Catálogo"))
-            k3.metric("Tipo de Lista", data_item.get("listing_type_id", "N/A"))
-            k4.metric("Vendidos", data_item.get("sold_quantity", 0))
-        else:
-            st.error("No se pudo obtener la publicación.")
+    item_id_input = st.text_input("ID de Publicación MeLi", value="MLA138291029")
+    if st.button("Buscar en MeLi"):
+        res_item = requests.get(f"https://api.mercadolibre.com/items/{item_id_input}").json()
+        if "id" in res_item:
+            st.success(f"Producto: {res_item.get('title')}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Precio", f"${res_item.get('price'):,.2f}")
+            c2.metric("Catalog ID", res_item.get("catalog_product_id", "N/A"))
+            c3.metric("Stock", res_item.get("available_quantity"))
 
 # ------------------------------------------
 # TAB 3: COSTOS & LISTA GOLD
@@ -299,78 +296,114 @@ with tabs[2]:
         df_g = st.session_state["lista_gold_df"]
         st.dataframe(df_g, use_container_width=True)
         sku_col = df_g.columns[0]
-        skus = df_g[sku_col].dropna().unique()
-        sel_sku = st.selectbox("Seleccionar SKU/Producto", skus)
+        sel_sku = st.selectbox("Seleccionar SKU", df_g[sku_col].dropna().unique())
         match = df_g[df_g[sku_col] == sel_sku]
-        if not match.empty and len(df_g.columns) > 1:
-            try:
-                val_costo = float(match.iloc[0, 1])
-                st.success(f"💵 Costo base para **{sel_sku}**: **${val_costo:,.2f}**")
-            except Exception:
-                st.warning("El costo baseline no es un valor numérico estándar.")
+        if not match.empty:
+            st.success(f"Costo detectado: ${float(match.iloc[0, 1]):,.2f}")
     else:
-        st.warning("Subí tu archivo de Lista Gold en la barra lateral.")
+        st.warning("Subí la Lista Gold en el panel lateral.")
 
 # ------------------------------------------
 # TAB 4: FINANCIACIÓN
 # ------------------------------------------
 with tabs[3]:
-    st.header("💳 Calculadora de Financiación")
-    col_f1, col_f2 = st.columns(2)
-    plan_cuotas = col_f1.selectbox("Plan de Financiación", ["Clásica (1 pago)", "3 Cuotas sin interés", "6 Cuotas Premium (gold_pro)", "12 Cuotas sin interés"])
-    monto_ref = col_f2.number_input("Precio de Venta Base ($)", value=25000.0, step=1000.0)
-    pct_recargo = 0.15 if "6 Cuotas" in plan_cuotas else (0.28 if "12 Cuotas" in plan_cuotas else 0.0)
-    st.metric("Cargo por Financiación Estimado", f"${monto_ref * pct_recargo:,.2f}", delta=f"{pct_recargo*100:.1f}%")
+    st.header("💳 Financiación & Cuotas")
+    plan = st.selectbox("Plan", ["Clásica", "3 Cuotas", "6 Cuotas Premium", "12 Cuotas"])
+    monto = st.number_input("Monto Ref ($)", value=25000.0)
+    pct = 0.15 if "6 Cuotas" in plan else (0.28 if "12 Cuotas" in plan else 0.0)
+    st.metric("Costo Financiero", f"${monto * pct:,.2f}")
 
 # ------------------------------------------
 # TAB 5: ENVÍOS
 # ------------------------------------------
 with tabs[4]:
-    st.header("🚚 Costos Logísticos (Mercado Envíos / Flex)")
-    peso_paq = st.number_input("Peso estimado (kg)", min_value=0.1, value=1.0)
-    costo_envio = 2800.0 if peso_paq <= 2.0 else 5200.0
-    st.metric("Costo de Envío Estimado", f"${costo_envio:,.2f}")
+    st.header("🚚 Envíos & Logística")
+    peso = st.number_input("Peso (kg)", value=1.0)
+    st.metric("Costo Envío", f"${2800.0 if peso <= 2 else 5200.0:,.2f}")
 
 # ------------------------------------------
 # TAB 6: MATRIZ DE MARGEN
 # ------------------------------------------
 with tabs[5]:
-    st.header("📈 Simulación de Margen Neto")
-    col_m1, col_m2, col_m3 = st.columns(3)
-    pvp_val = col_m1.number_input("Precio Propuesto ($)", value=35000.0)
-    costo_val = col_m2.number_input("Costo Directo ($)", value=12000.0)
-    comision_pct = col_m3.slider("Comisión MeLi (%)", 10.0, 35.0, 28.0)
-    margen_neto = pvp_val - costo_val - (pvp_val * (comision_pct / 100.0))
-    st.metric("Margen Neto Estimado", f"${margen_neto:,.2f}")
+    st.header("📈 Simulación de Margen")
+    pvp = st.number_input("PVP ($)", value=35000.0)
+    costo = st.number_input("Costo ($)", value=12000.0)
+    com = st.slider("Comisión (%)", 10.0, 35.0, 28.0)
+    st.metric("Margen Neto", f"${pvp - costo - (pvp * com / 100):,.2f}")
 
 # ------------------------------------------
-# TAB 7: PUBLICADOR DIRECTO
+# TAB 7: ANALIZADOR DE CATÁLOGO & TOP DE VENDEDORES (RESTAURADO)
 # ------------------------------------------
 with tabs[6]:
-    st.header("📦 Publicador Directo en Catálogo (`POST /items`)")
-    cat_def = st.session_state["selected_item_data"].get("catalog_product_id", "MLA20491823") if st.session_state["selected_item_data"] else "MLA20491823"
-    
-    col_p1, col_p2 = st.columns(2)
-    cat_id = col_p1.text_input("Catalog Product ID", value=cat_def)
-    precio_pub = col_p2.number_input("Precio Final ($ ARS)", value=38000.0)
-    
-    col_p3, col_p4 = st.columns(2)
-    list_type = col_p3.selectbox("Tipo de Publicación", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
-    list_code = "gold_pro" if "gold_pro" in list_type else "gold_special"
-    stock_pub = col_p4.number_input("Stock Disponible", min_value=1, value=5)
-    
-    st.markdown("---")
-    if st.button("🚀 PUBLICAR EN MERCADO LIBRE", type="primary", use_container_width=True):
-        with st.spinner("Procesando publicación..."):
-            ok, resp = publicar_item_en_catalogo(
-                catalog_product_id=cat_id,
-                precio_venta=precio_pub,
-                listing_type_id=list_code,
-                quantity=int(stock_pub),
-                access_token=st.session_state.get("access_token")
-            )
-            if ok:
-                st.success(resp["message"])
-                st.markdown(f"👉 [Ver Publicación en Mercado Libre]({resp['permalink']})")
-            else:
-                st.error(resp)
+    st.header("📦 Analizador por Producto / Catálogo & Top de Vendedores")
+    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) para analizar la competencia, ver el Top de Vendedores y evaluar el costo de tu Lista Gold.")
+
+    col_a1, col_a2 = st.columns([2, 1])
+    with col_a1:
+        cat_search_id = st.text_input("Catalog Product ID", value="MLA20491823")
+    with col_a2:
+        st.write("")
+        analizar_btn = st.button("🔍 Analizar Competencia y Buy Box", type="primary", use_container_width=True)
+
+    if analizar_btn or cat_search_id:
+        with st.spinner("Consultando datos de catálogo y competidores en Mercado Libre..."):
+            cat_details = consultar_catalogo_meli(cat_search_id, st.session_state["access_token"])
+            vendedores_items = buscar_items_por_catalogo(cat_search_id, st.session_state["access_token"])
+
+        if cat_details:
+            st.success(f"**Producto:** {cat_details.get('title', 'Sin Título')} | **Categoría:** {cat_details.get('category_id', 'N/A')}")
+        
+        if vendedores_items:
+            st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
+            
+            data_competencia = []
+            for item in vendedores_items[:10]: # Top 10
+                seller_id = item.get("seller", {}).get("id")
+                precio_item = item.get("price", 0)
+                permalink_item = item.get("permalink")
+                listing_t = item.get("listing_type_id")
+                
+                data_competencia.append({
+                    "Título Publicación": item.get("title"),
+                    "Precio ($ ARS)": precio_item,
+                    "Tipo Listado": listing_t,
+                    "Stock": item.get("available_quantity"),
+                    "Vendedor ID": seller_id,
+                    "Link": permalink_item
+                })
+            
+            df_comp = pd.DataFrame(data_competencia)
+            st.dataframe(df_comp, use_container_width=True)
+            
+            # Precio mínimo de la competencia en el catálogo
+            precio_minimo_mercado = df_comp["Precio ($ ARS)"].min() if not df_comp.empty else 0.0
+            st.info(f"💡 **Precio mínimo detectado en la competencia:** ${precio_minimo_mercado:,.2f}")
+        else:
+            st.warning("No se encontraron publicaciones competidoras activas para este ID de catálogo exacto.")
+
+        st.markdown("---")
+        st.subheader("🚀 Simulador y Ejecutor de Publicación en Catálogo (`POST /items`)")
+
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1:
+            precio_final_pub = st.number_input("Precio de Venta Objetivo ($)", min_value=0.0, value=38000.0, step=500.0)
+        with col_p2:
+            tipo_list_pub = st.selectbox("Modalidad de Listado", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
+            code_list_pub = "gold_pro" if "gold_pro" in tipo_list_pub else "gold_special"
+        with col_p3:
+            stock_pub = st.number_input("Stock Inicial", min_value=1, value=5)
+
+        if st.button("🚀 PUBLICAR EN EL CATÁLOGO DE MERCADO LIBRE", type="primary", use_container_width=True):
+            with st.spinner("Enviando publicación..."):
+                exito, respuesta = publicar_item_en_catalogo(
+                    catalog_product_id=cat_search_id,
+                    precio_venta=precio_final_pub,
+                    listing_type_id=code_list_pub,
+                    quantity=int(stock_pub),
+                    access_token=st.session_state.get("access_token")
+                )
+                if exito:
+                    st.success(respuesta["message"])
+                    st.markdown(f"👉 [Abrir publicación creada en Mercado Libre]({respuesta['permalink']})")
+                else:
+                    st.error(respuesta)
