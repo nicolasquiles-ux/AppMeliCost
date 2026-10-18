@@ -25,7 +25,7 @@ st.markdown("""
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "TU_CLIENT_ID")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "TU_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app/")
 
 if REDIRECT_URI.endswith("/"):
     REDIRECT_URI = REDIRECT_URI[:-1]
