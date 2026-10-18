@@ -21,7 +21,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. ESTADO DE SESIÓN
+# 2. ESTADO DE SESIÓN (SESSION STATE)
 # ==========================================
 if "authenticated_app" not in st.session_state:
     st.session_state["authenticated_app"] = False
@@ -38,7 +38,7 @@ if "matriz_productos_df" not in st.session_state:
 # 3. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
 def validar_token_meli(token: str):
-    """Valida el Access Token ingresado contra la API de Mercado Libre."""
+    """Verifica el token contra la API de MeLi."""
     if not token or not token.strip():
         return False, {}
     url = "https://api.mercadolibre.com/users/me"
@@ -82,11 +82,11 @@ def publicar_item_en_catalogo(
     access_token: str = None
 ):
     if not access_token:
-        return False, "⚠️ Ingresá y validá tu Access Token en la barra lateral antes de publicar."
+        return False, "⚠️ Ingresá tu Access Token en la barra lateral para poder publicar."
 
     url = "https://api.mercadolibre.com/items"
     headers = {
-        "Authorization": f"Bearer {access_token}",
+        "Authorization": f"Bearer {access_token.strip()}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
@@ -119,7 +119,7 @@ def publicar_item_en_catalogo(
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
 # ==========================================
-# 4. LOGIN LOCAL DE LA APLICACIÓN
+# 4. PANTALLA DE LOGIN LOCAL DE LA APP
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -145,7 +145,7 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 5. BARRA LATERAL (CONTROL PANEL & TOKEN)
+# 5. BARRA LATERAL (PANEL DE CONTROL & TOKEN FIJO)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -159,25 +159,26 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🔑 Conexión a Mercado Libre")
     
+    token_input = st.text_input(
+        "Access Token de MeLi",
+        value=st.session_state["access_token"],
+        type="password",
+        placeholder="APP_USR-...",
+        help="Pegá tu token de Mercado Libre aquí. Queda guardado para toda tu sesión de trabajo."
+    )
+    
+    if token_input != st.session_state["access_token"]:
+        st.session_state["access_token"] = token_input
+
     if st.session_state["access_token"]:
-        nickname_v = st.session_state["user_info"].get("nickname", "Conectado")
-        st.success(f"🟢 Vendedor: **{nickname_v}**")
-        if st.button("Desconectar MeLi"):
-            st.session_state["access_token"] = ""
-            st.session_state["user_info"] = {}
-            st.rerun()
+        valido, info_u = validar_token_meli(st.session_state["access_token"])
+        if valido:
+            st.session_state["user_info"] = info_u
+            st.success(f"🟢 Conectado: **{info_u.get('nickname', 'Vendedor')}**")
+        else:
+            st.warning("⚠️ Token no verificado o expirado.")
     else:
-        st.warning("⚠️ Sin token activo")
-        manual_token = st.text_input("Access Token MeLi", type="password", placeholder="APP_USR-...")
-        if st.button("Validar y Conectar Token", type="primary"):
-            val, info = validar_token_meli(manual_token)
-            if val:
-                st.session_state["access_token"] = manual_token.strip()
-                st.session_state["user_info"] = info
-                st.success(f"¡Conectado como {info.get('nickname')}!")
-                st.rerun()
-            else:
-                st.error("Token inválido o expirado.")
+        st.info("💡 Ingresá tu token para habilitar consultas en vivo y publicaciones.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -209,7 +210,7 @@ with st.sidebar:
 # 6. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v47.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v47.1 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -227,7 +228,7 @@ tabs = st.tabs([
 with tabs[0]:
     st.header("📊 Dashboard de Control")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Desconectado 🔴")
+    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Sin Token ⚪")
     m2.metric("Lista Gold", "Cargada 🟢" if st.session_state["lista_gold_df"] is not None else "Pendiente ⚪")
     m3.metric("Matriz Productos", "Cargada 🟢" if st.session_state["matriz_productos_df"] is not None else "Pendiente ⚪")
     m4.metric("Moneda Base", "ARS ($)")
