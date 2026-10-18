@@ -35,10 +35,10 @@ if "matriz_productos_df" not in st.session_state:
     st.session_state["matriz_productos_df"] = None
 
 # ==========================================
-# 3. FUNCIONES DE API MERCADO LIBRE
+# 3. FUNCIONES DE API MERCADO LIBRE Y AUXILIARES
 # ==========================================
 def validar_token_meli(token: str):
-    """Verifica y valida el token contra la API de MeLi."""
+    """Valida el token ingresado contra la API de MeLi."""
     if not token or not token.strip():
         return False, {}
     url = "https://api.mercadolibre.com/users/me"
@@ -52,9 +52,11 @@ def validar_token_meli(token: str):
     return False, {}
 
 def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
-    """Consulta los datos de un producto de catálogo."""
+    """Consulta los datos de un producto de catálogo en MeLi."""
+    if not catalog_id or not catalog_id.strip():
+        return None
     url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
@@ -64,9 +66,11 @@ def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
     return None
 
 def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
-    """Busca las publicaciones activas asociadas al catálogo (Top de Vendedores / Buy Box)."""
+    """Busca las publicaciones activas del catálogo para construir el Top de Vendedores."""
+    if not catalog_id or not catalog_id.strip():
+        return []
     url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
@@ -83,7 +87,7 @@ def publicar_item_en_catalogo(
     condition: str = "new",
     access_token: str = None
 ):
-    """Ejecuta el POST /items para publicación directa en catálogo de Mercado Libre."""
+    """Ejecuta el POST /items para publicar en catálogo."""
     if not access_token or not access_token.strip():
         return False, "⚠️ Ingresá tu Access Token en la barra lateral para poder publicar."
 
@@ -122,7 +126,7 @@ def publicar_item_en_catalogo(
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
 # ==========================================
-# 4. PANTALLA DE LOGIN LOCAL DE LA APLICACIÓN
+# 4. PANTALLA DE LOGIN LOCAL DE LA APP
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -148,7 +152,7 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 5. BARRA LATERAL (PANEL DE CONTROL & TOKEN)
+# 5. BARRA LATERAL (CONTROL PANEL & TOKEN)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -167,7 +171,7 @@ with st.sidebar:
         value=st.session_state["access_token"],
         type="password",
         placeholder="APP_USR-...",
-        help="Pegá tu token de Mercado Libre aquí para habilitar consultas en vivo y publicaciones."
+        help="Pegá tu token activo para operar con la API"
     )
     
     if token_input != st.session_state["access_token"]:
@@ -213,7 +217,7 @@ with st.sidebar:
 # 6. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v49.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v50.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -249,29 +253,43 @@ with tabs[1]:
     item_id_input = st.text_input("ID de Publicación MeLi", value="MLA138291029")
     if st.button("Buscar en MeLi"):
         headers = {"Authorization": f"Bearer {st.session_state['access_token']}"} if st.session_state["access_token"] else {}
-        res_item = requests.get(f"https://api.mercadolibre.com/items/{item_id_input}", headers=headers).json()
-        if "id" in res_item:
-            st.success(f"Producto: {res_item.get('title')}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Precio", f"${res_item.get('price'):,.2f}")
-            c2.metric("Catalog ID", res_item.get("catalog_product_id", "N/A"))
-            c3.metric("Stock", res_item.get("available_quantity"))
-        else:
-            st.error("No se pudo obtener la publicación. Verificá tu token en la barra lateral.")
+        try:
+            res_item = requests.get(f"https://api.mercadolibre.com/items/{item_id_input.strip()}", headers=headers).json()
+            if "id" in res_item:
+                st.success(f"Producto: **{res_item.get('title')}**")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Precio", f"${res_item.get('price', 0):,.2f}")
+                c2.metric("Catalog ID", res_item.get("catalog_product_id", "N/A"))
+                c3.metric("Stock", res_item.get("available_quantity", 0))
+            else:
+                st.error("No se pudo obtener la publicación.")
+        except Exception as e:
+            st.error(f"Error al consultar la publicación: {e}")
 
 # ------------------------------------------
-# TAB 3: COSTOS & LISTA GOLD
+# TAB 3: COSTOS & LISTA GOLD (BLINDADA)
 # ------------------------------------------
 with tabs[2]:
     st.header("📋 Matriz de Costos (Lista Gold)")
     if st.session_state["lista_gold_df"] is not None:
         df_g = st.session_state["lista_gold_df"]
         st.dataframe(df_g, use_container_width=True)
-        sku_col = df_g.columns[0]
-        sel_sku = st.selectbox("Seleccionar SKU", df_g[sku_col].dropna().unique())
-        match = df_g[df_g[sku_col] == sel_sku]
+        
+        col_sku = df_g.columns[0]
+        sel_sku = st.selectbox("Seleccionar SKU/Artículo", df_g[col_sku].dropna().unique())
+        match = df_g[df_g[col_sku] == sel_sku]
+        
         if not match.empty:
-            st.success(f"Costo detectado: ${float(match.iloc[0, 1]):,.2f}")
+            # Búsqueda segura de la columna de costo sin asumir la posición 1
+            cost_cols = [c for c in df_g.columns if "costo" in str(c).lower() or "precio" in str(c).lower()]
+            col_costo_usr = cost_cols[0] if cost_cols else (df_g.columns[1] if len(df_g.columns) > 1 else df_g.columns[0])
+            
+            raw_val = match.iloc[0][col_costo_usr]
+            try:
+                clean_val = float(str(raw_val).replace("$", "").replace(".", "").replace(",", ".").strip())
+                st.success(f"💵 Costo detectado para **{sel_sku}** (`{col_costo_usr}`): **${clean_val:,.2f}**")
+            except Exception:
+                st.warning(f"Valor no numérico en columna `{col_costo_usr}`: **{raw_val}**")
     else:
         st.warning("Subí la Lista Gold en el panel lateral.")
 
