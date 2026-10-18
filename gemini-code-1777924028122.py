@@ -21,7 +21,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. ESTADO DE SESIÓN (SESSION STATE)
+# 2. CREDENCIALES DE CONFIGURACIÓN OAUTH MELI
+# ==========================================
+CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
+CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app")
+
+# ==========================================
+# 3. ESTADO DE SESIÓN (SESSION STATE)
 # ==========================================
 if "authenticated_app" not in st.session_state:
     st.session_state["authenticated_app"] = False
@@ -35,28 +42,48 @@ if "matriz_productos_df" not in st.session_state:
     st.session_state["matriz_productos_df"] = None
 
 # ==========================================
-# 3. FUNCIONES DE API MERCADO LIBRE Y AUXILIARES
+# 4. FUNCIONES DE API Y OAUTH MERCADO LIBRE
 # ==========================================
-def validar_token_meli(token: str):
-    """Valida el token ingresado contra la API de MeLi."""
-    if not token or not token.strip():
-        return False, {}
+def obtener_url_login_meli():
+    """Genera la URL exacta para el flujo OAuth oficial de Mercado Libre."""
+    return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
+
+def intercambiar_code_por_token(code: str):
+    """Intercambia el código temporal de MeLi por el Access Token definitivo."""
+    url = "https://api.mercadolibre.com/oauth/token"
+    payload = {
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "code": code,
+        "redirect_uri": REDIRECT_URI
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    try:
+        res = requests.post(url, data=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return True, res.json()
+        else:
+            return False, res.json().get("message", "Error al intercambiar el código")
+    except Exception as e:
+        return False, str(e)
+
+def obtener_perfil_meli(token: str):
+    if not token:
+        return {}
     url = "https://api.mercadolibre.com/users/me"
-    headers = {"Authorization": f"Bearer {token.strip()}"}
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
-            return True, res.json()
+            return res.json()
     except Exception:
         pass
-    return False, {}
+    return {}
 
 def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
-    """Consulta los datos de un producto de catálogo en MeLi."""
-    if not catalog_id or not catalog_id.strip():
-        return None
     url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
-    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
@@ -66,11 +93,8 @@ def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
     return None
 
 def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
-    """Busca las publicaciones activas del catálogo para construir el Top de Vendedores."""
-    if not catalog_id or not catalog_id.strip():
-        return []
     url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
-    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
@@ -87,13 +111,12 @@ def publicar_item_en_catalogo(
     condition: str = "new",
     access_token: str = None
 ):
-    """Ejecuta el POST /items para publicar en catálogo."""
-    if not access_token or not access_token.strip():
-        return False, "⚠️ Ingresá tu Access Token en la barra lateral para poder publicar."
+    if not access_token:
+        return False, "⚠️ Se requiere conectar la cuenta de Mercado Libre para publicar."
 
     url = "https://api.mercadolibre.com/items"
     headers = {
-        "Authorization": f"Bearer {access_token.strip()}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
@@ -125,8 +148,20 @@ def publicar_item_en_catalogo(
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
+# Captura automática del código devuelto por Mercado Libre en la URL
+query_params = st.query_params
+if "code" in query_params:
+    code_auth = query_params["code"]
+    exito, token_resp = intercambiar_code_por_token(code_auth)
+    if exito:
+        st.session_state["access_token"] = token_resp.get("access_token")
+        st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+        st.session_state["authenticated_app"] = True
+        st.query_params.clear()
+        st.rerun()
+
 # ==========================================
-# 4. PANTALLA DE LOGIN LOCAL DE LA APP
+# 5. PANTALLA DE LOGIN LOCAL DE LA APLICACIÓN
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -152,7 +187,7 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 5. BARRA LATERAL (CONTROL PANEL & TOKEN)
+# 6. BARRA LATERAL (CONTROL PANEL & OAUTH)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -164,28 +199,19 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🔑 Conexión a Mercado Libre")
+    st.subheader("🔗 Conexión a Mercado Libre")
     
-    token_input = st.text_input(
-        "Access Token de MeLi",
-        value=st.session_state["access_token"],
-        type="password",
-        placeholder="APP_USR-...",
-        help="Pegá tu token activo para operar con la API"
-    )
-    
-    if token_input != st.session_state["access_token"]:
-        st.session_state["access_token"] = token_input
-
     if st.session_state["access_token"]:
-        valido, info_u = validar_token_meli(st.session_state["access_token"])
-        if valido:
-            st.session_state["user_info"] = info_u
-            st.success(f"🟢 Conectado: **{info_u.get('nickname', 'Vendedor')}**")
-        else:
-            st.warning("⚠️ Token no verificado o expirado.")
+        nickname_v = st.session_state["user_info"].get("nickname", "Conectado")
+        st.success(f"🟢 Vendedor: **{nickname_v}**")
+        if st.button("Desconectar MeLi"):
+            st.session_state["access_token"] = ""
+            st.session_state["user_info"] = {}
+            st.rerun()
     else:
-        st.info("💡 Ingresá tu token para operar en vivo.")
+        st.warning("⚠️ Sin conexión con Mercado Libre")
+        url_auth = obtener_url_login_meli()
+        st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -214,10 +240,10 @@ with st.sidebar:
             st.error(f"Error al leer la matriz: {e}")
 
 # ==========================================
-# 6. PESTAÑAS PRINCIPALES (1 A 7)
+# 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v50.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v51.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -235,7 +261,7 @@ tabs = st.tabs([
 with tabs[0]:
     st.header("📊 Dashboard de Control")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Sin Token ⚪")
+    m1.metric("API Mercado Libre", "Conectado 🟢" if st.session_state["access_token"] else "Desconectado 🔴")
     m2.metric("Lista Gold", "Cargada 🟢" if st.session_state["lista_gold_df"] is not None else "Pendiente ⚪")
     m3.metric("Matriz Productos", "Cargada 🟢" if st.session_state["matriz_productos_df"] is not None else "Pendiente ⚪")
     m4.metric("Moneda Base", "ARS ($)")
@@ -280,7 +306,6 @@ with tabs[2]:
         match = df_g[df_g[col_sku] == sel_sku]
         
         if not match.empty:
-            # Búsqueda segura de la columna de costo sin asumir la posición 1
             cost_cols = [c for c in df_g.columns if "costo" in str(c).lower() or "precio" in str(c).lower()]
             col_costo_usr = cost_cols[0] if cost_cols else (df_g.columns[1] if len(df_g.columns) > 1 else df_g.columns[0])
             
@@ -289,9 +314,9 @@ with tabs[2]:
                 clean_val = float(str(raw_val).replace("$", "").replace(".", "").replace(",", ".").strip())
                 st.success(f"💵 Costo detectado para **{sel_sku}** (`{col_costo_usr}`): **${clean_val:,.2f}**")
             except Exception:
-                st.warning(f"Valor no numérico en columna `{col_costo_usr}`: **{raw_val}**")
+                st.warning(f"Costo registrado para **{sel_sku}**: **{raw_val}**")
     else:
-        st.warning("Subí la Lista Gold en el panel lateral.")
+        st.warning("Subí tu archivo de Lista Gold en la barra lateral.")
 
 # ------------------------------------------
 # TAB 4: FINANCIACIÓN
