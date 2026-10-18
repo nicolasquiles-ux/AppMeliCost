@@ -21,13 +21,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CREDENCIALES (SECRETS O INPUT)
+# 2. CREDENCIALES
 # ==========================================
-CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", st.secrets.get("client_id", ""))
-CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", st.secrets.get("client_secret", ""))
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app/")
+CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "TU_CLIENT_ID")
+CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "TU_CLIENT_SECRET")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app")
 
-# Normalizar la URL de redirección (sin barra al final)
 if REDIRECT_URI.endswith("/"):
     REDIRECT_URI = REDIRECT_URI[:-1]
 
@@ -46,8 +45,22 @@ if "matriz_productos_df" not in st.session_state:
     st.session_state["matriz_productos_df"] = None
 
 # ==========================================
-# 4. FUNCIONES OAUTH Y API MELI
+# 4. FUNCIONES DE VALIDACIÓN Y API MELI
 # ==========================================
+def validar_token_meli(token: str):
+    """Valida si un Access Token manual es correcto consultando a MeLi."""
+    if not token or not token.strip():
+        return False, {}
+    url = "https://api.mercadolibre.com/users/me"
+    headers = {"Authorization": f"Bearer {token.strip()}"}
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            return True, res.json()
+    except Exception:
+        pass
+    return False, {}
+
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
@@ -66,22 +79,9 @@ def intercambiar_code_por_token(code: str):
         if res.status_code == 200:
             return True, res.json()
         else:
-            return False, res.json().get("message", f"Error HTTP {res.status_code}")
+            return False, res.json().get("message", "Error de autorización")
     except Exception as e:
         return False, str(e)
-
-def obtener_perfil_meli(token: str):
-    if not token:
-        return {}
-    url = "https://api.mercadolibre.com/users/me"
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            return res.json()
-    except Exception:
-        pass
-    return {}
 
 def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
     url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
@@ -150,20 +150,21 @@ def publicar_item_en_catalogo(
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
-# Captura del parámetro 'code' de OAuth al retornar de Mercado Libre
+# Captura de parámetro 'code' si retorna de OAuth
 query_params = st.query_params
 if "code" in query_params:
     code_auth = query_params["code"]
     exito, token_resp = intercambiar_code_por_token(code_auth)
     if exito:
         st.session_state["access_token"] = token_resp.get("access_token")
-        st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+        u_val, u_data = validar_token_meli(st.session_state["access_token"])
+        st.session_state["user_info"] = u_data
         st.session_state["authenticated_app"] = True
         st.query_params.clear()
         st.rerun()
 
 # ==========================================
-# 5. PANTALLA 1: LOGIN LOCAL DE LA APP
+# 5. LOGIN LOCAL DE LA APLICACIÓN
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -189,7 +190,7 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 6. BARRA LATERAL (CONTROL PANEL)
+# 6. BARRA LATERAL (CONTROL PANEL & DOBLE CONEXIÓN)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -211,12 +212,23 @@ with st.sidebar:
             st.session_state["user_info"] = {}
             st.rerun()
     else:
-        st.warning("⚠️ Sin conexión con Mercado Libre")
-        if CLIENT_ID:
-            url_auth = obtener_url_login_meli()
-            st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
-        else:
-            st.error("⚠️ Falta configurar MELI_CLIENT_ID en Secrets.")
+        st.warning("⚠️ Sin conexión activa")
+        # Botón OAuth automático
+        url_auth = obtener_url_login_meli()
+        st.link_button("🔗 CONECTAR VÍA WEB (OAuth)", url_auth, type="primary", use_container_width=True)
+        
+        st.markdown("---")
+        st.caption("O ingresá tu Access Token directo:")
+        manual_token = st.text_input("Access Token", type="password", key="manual_tok")
+        if st.button("Validar Token Manual"):
+            val, info = validar_token_meli(manual_token)
+            if val:
+                st.session_state["access_token"] = manual_token.strip()
+                st.session_state["user_info"] = info
+                st.success(f"¡Conectado como {info.get('nickname')}!")
+                st.rerun()
+            else:
+                st.error("Token inválido o expirado.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -248,7 +260,7 @@ with st.sidebar:
 # 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v46.8 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v46.9 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
