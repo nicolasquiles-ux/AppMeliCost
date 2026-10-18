@@ -21,14 +21,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CREDENCIALES DE APLICACIÓN MELI
+# 2. CREDENCIALES
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "TU_CLIENT_ID")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "TU_CLIENT_SECRET")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://tu-app-streamlit.streamlit.app")
+REDIRECT_URI = "https://melicost.streamlit.app"
 
 # ==========================================
-# 3. ESTADO DE SESIÓN (SESSION STATE)
+# 3. ESTADO DE SESIÓN
 # ==========================================
 if "authenticated_app" not in st.session_state:
     st.session_state["authenticated_app"] = False
@@ -44,14 +44,12 @@ if "selected_catalog_data" not in st.session_state:
     st.session_state["selected_catalog_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES OAUTH Y API MERCADO LIBRE
+# 4. FUNCIONES OAUTH Y API MELI
 # ==========================================
 def obtener_url_login_meli():
-    """Genera la URL para redirigir a la autenticación de Mercado Libre."""
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
 def intercambiar_code_por_token(code: str):
-    """Intercambia el código devuelto en la URL por el Access Token."""
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "authorization_code",
@@ -66,12 +64,11 @@ def intercambiar_code_por_token(code: str):
         if res.status_code == 200:
             return True, res.json()
         else:
-            return False, res.json().get("message", "Error de autorización en Mercado Libre")
+            return False, res.json().get("message", "Error de autorización")
     except Exception as e:
         return False, str(e)
 
 def obtener_perfil_meli(token: str):
-    """Obtiene información del usuario conectado."""
     if not token:
         return {}
     url = "https://api.mercadolibre.com/users/me"
@@ -85,7 +82,6 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
-    """Consulta detalles de un producto de catálogo."""
     url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
@@ -97,7 +93,6 @@ def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
     return None
 
 def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
-    """Busca publicaciones asociadas a un catálogo para construir el Top de Vendedores."""
     url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
@@ -116,7 +111,6 @@ def publicar_item_en_catalogo(
     condition: str = "new",
     access_token: str = None
 ):
-    """Ejecuta POST /items para publicar en el catálogo."""
     if not access_token:
         return False, "⚠️ Conectá tu cuenta de Mercado Libre antes de publicar."
 
@@ -154,7 +148,7 @@ def publicar_item_en_catalogo(
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
-# Intercepta el retorno de OAuth (parámetro 'code' en la URL)
+# Captura de parámetro 'code' de OAuth
 query_params = st.query_params
 if "code" in query_params:
     code_auth = query_params["code"]
@@ -167,7 +161,7 @@ if "code" in query_params:
         st.rerun()
 
 # ==========================================
-# 5. PANTALLA 1: LOGIN LOCAL DE LA APP
+# 5. LOGIN LOCAL DE LA APP
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -217,13 +211,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ Sin conexión con Mercado Libre")
         url_auth = obtener_url_login_meli()
-        st.markdown(f'''
-            <a href="{url_auth}" target="_self" style="text-decoration: none;">
-                <div style="background-color: #ff4b4b; color: white; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold;">
-                    🔗 CONECTAR CON MERCADO LIBRE
-                </div>
-            </a>
-        ''', unsafe_allow_html=True)
+        st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -255,7 +243,7 @@ with st.sidebar:
 # 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v46.6 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v46.7 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
