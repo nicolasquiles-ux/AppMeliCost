@@ -120,10 +120,6 @@ def procesar_archivo_lista_gold(file):
         return None
 
 def calcular_costo_envio_por_peso_facturable(peso_facturable: float) -> float:
-    """
-    Calcula el costo logístico oficial estimado en base al peso facturable (kg) 
-    para bultos y muebles en Mercado Envíos (escala ponderada de mercado).
-    """
     if pd.isna(peso_facturable) or peso_facturable <= 0:
         return 15000.0
     elif peso_facturable <= 3:
@@ -141,7 +137,6 @@ def calcular_costo_envio_por_peso_facturable(peso_facturable: float) -> float:
     elif peso_facturable <= 50:
         return 48000.0
     else:
-        # Bultos muy pesados / grandes especiales
         return 65000.0
 
 def procesar_matriz_articulos_df(df):
@@ -152,8 +147,6 @@ def procesar_matriz_articulos_df(df):
         df['Volumen_cm3'] = df['Ancho_cm'] * df['Alto_cm'] * df['Prof_cm']
         df['Peso_Volumetrico_Kg'] = (df['Volumen_cm3'] / 4000).round(2)
         df['Peso_Facturable_Kg'] = df[['Peso embalado (Kg)', 'Peso_Volumetrico_Kg']].max(axis=1)
-        
-        # Asignar costo logístico automático por cada artículo de la matriz
         df['Costo_Logistico_Estimado'] = df['Peso_Facturable_Kg'].apply(calcular_costo_envio_por_peso_facturable)
         return df
     except Exception as e:
@@ -422,6 +415,16 @@ def publicar_definitivo_multimodo(payload_dict: dict, access_token: str):
         "Content-Type": "application/json"
     }
 
+    # Auto-inyectar atributos obligatorios de familia si faltan
+    attrs = payload_dict.get("attributes", [])
+    attr_ids = [str(a.get("id")).upper() for a in attrs]
+    
+    if "FAMILY_NAME" not in attr_ids:
+        titulo_ref = payload_dict.get("title", "Mueble Centro Estant")[:30]
+        attrs.append({"id": "FAMILY_NAME", "value_name": titulo_ref})
+    
+    payload_dict["attributes"] = attrs
+
     try:
         res = requests.post(url, json=payload_dict, headers=headers, timeout=12)
         if res.status_code in [200, 201]:
@@ -431,19 +434,6 @@ def publicar_definitivo_multimodo(payload_dict: dict, access_token: str):
         
         err_json = res.json() if res.content else {}
         err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
-
-        if "family_name" in err_msg.lower() or res.status_code == 400:
-            payload_alt = payload_dict.copy()
-            attrs = payload_alt.get("attributes", [])
-            fam_val = payload_alt.get("title", "Mueble Centro Estant")[:30]
-            attrs.append({"id": "FAMILY_NAME", "value_name": fam_val})
-            payload_alt["attributes"] = attrs
-            
-            res_alt = requests.post(url, json=payload_alt, headers=headers, timeout=12)
-            if res_alt.status_code in [200, 201]:
-                data_alt = res_alt.json()
-                url_created_alt = construir_url_canonica_meli(data_alt.get("id"), data_alt.get("permalink", ""))
-                return True, f"✅ ¡Publicación creada con éxito (Atributo Familia)! ID: **{data_alt.get('id')}** — [Abrir en Mercado Libre]({url_created_alt})"
 
         causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
         if causes:
@@ -529,7 +519,7 @@ with st.sidebar:
 # 8. SOLAPAS OPERATIVAS (MATRIZ ALIMENTANDO COSTOS)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v97.3 — Panel Operativo Oficial MeLi con Matriz Logística Integrada y Activa")
+st.caption("v97.4 — Panel Operativo Oficial MeLi con Publicador Corregido y Matriz Integrada")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -543,7 +533,7 @@ tabs = st.tabs([
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Ingrese un **SKU, EAN, MLA o URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz** para actualizar el envío automáticamente:")
+    st.write("Ingrese un **SKU, EAN, MLA ou URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz** para actualizar el envío automáticamente:")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
@@ -757,11 +747,11 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO
+# SOLAPA 3: PUBLICADOR DIRECTO (CORREGIDO CON FAMILY_NAME)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo Mercado Libre (`POST /items`)")
-    st.write("Alta de publicaciones oficiales con **Motor Multimodo de Auto-Resolución**:")
+    st.write("Alta de publicaciones oficiales con **Motor Multimodo de Auto-Resolución y Atributos de Familia**:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
@@ -777,7 +767,7 @@ with tabs[2]:
         tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
     st.markdown("---")
-    st.subheader("🛠️ Atributos Básicos del Producto")
+    st.subheader("🛠️ Atributos Básicos del Producto (Incluyendo Familia)")
     
     col_t1, col_t2 = st.columns(2)
     with col_t1:
@@ -797,7 +787,8 @@ with tabs[2]:
         "site_id": "MLA",
         "attributes": [
             {"id": "BRAND", "value_name": marca_val},
-            {"id": "MODEL", "value_name": modelo_val}
+            {"id": "MODEL", "value_name": modelo_val},
+            {"id": "FAMILY_NAME", "value_name": titulo_input[:30]}
         ],
         "pictures": [
             {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
