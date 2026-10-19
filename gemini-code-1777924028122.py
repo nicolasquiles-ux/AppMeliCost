@@ -21,7 +21,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CREDENCIALES Y OAUTH DE MERCADO LIBRE (VERSIÓN 39)
+# 2. CREDENCIALES Y OAUTH DE MERCADO LIBRE
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
@@ -216,6 +216,19 @@ with st.sidebar:
         st.warning("⚠️ Sin conexión con Mercado Libre")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
+        
+        # Opción de respaldo integrada por si MeLi bloquea la ventana OAuth
+        with st.expander("⚙️ Alternativa de emergencia"):
+            token_emergencia = st.text_input("Ingresar Token manual si falla OAuth", type="password")
+            if st.button("Vincular Token de Emergencia"):
+                u_perfil = obtener_perfil_meli(token_emergencia)
+                if u_perfil:
+                    st.session_state["access_token"] = token_emergencia.strip()
+                    st.session_state["user_info"] = u_perfil
+                    st.success("¡Vinculado con éxito!")
+                    st.rerun()
+                else:
+                    st.error("Token no válido.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -247,7 +260,7 @@ with st.sidebar:
 # 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v53.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v54.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
