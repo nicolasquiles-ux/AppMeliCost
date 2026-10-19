@@ -19,6 +19,7 @@ st.markdown("""
     .stButton>button { border-radius: 8px; font-weight: 600; }
     .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
     .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
+    .badge-missing { background-color: #ff4d4d; color: white; padding: 8px 12px; border-radius: 6px; font-weight: bold; display: inline-block; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -40,9 +41,11 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
+if "selected_pub_data" not in st.session_state:
+    st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE CONEXIÓN Y CONSULTA API
+# 4. FUNCIONES DE CONEXIÓN Y BUSCADOR EAN
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -80,62 +83,135 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
-def buscar_competencia_por_ean(ean_code: str, access_token: str = None):
+def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     """
-    Búsqueda robusta por EAN/GTIN:
-    1. Consulta por product_identifier en catálogo MeLi.
-    2. Consulta por búsqueda libre del código de barras.
-    3. Extrae las publicaciones competidoras.
+    Búsqueda multinivel por EAN, Catalog ID o SKU:
+    Garantiza obtener todos los vendedores competidores sin importar el formato.
     """
-    clean_ean = ean_code.strip()
+    clean_key = query_key.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    items = []
+    results = []
     catalog_id = ""
-    title_found = ""
+    product_title = ""
 
-    # Paso 1: Intentar buscar ID de catálogo por EAN
-    if clean_ean.isdigit():
-        url_cat = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_ean}"
+    # 1. Si ingresó Catalog ID directo (MLA...)
+    if clean_key.upper().startswith("MLA") and not clean_key.isdigit():
+        catalog_id = clean_key
+        url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
         try:
             res = requests.get(url_cat, headers=headers, timeout=8)
             if res.status_code == 200:
                 results = res.json().get("results", [])
-                if results:
-                    catalog_id = results[0].get("id", "")
-                    title_found = results[0].get("name", "")
         except Exception:
             pass
 
-    # Paso 2: Si existe Catalog ID, traer sus ítems
-    if catalog_id:
-        url_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
+    # 2. Si es EAN numérico -> Buscar por identificador GTIN/EAN
+    if clean_key.isdigit():
+        url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_key}"
         try:
-            res_items = requests.get(url_items, headers=headers, timeout=8)
-            if res_items.status_code == 200:
-                items = res_items.json().get("results", [])
+            res_p = requests.get(url_ean, headers=headers, timeout=8)
+            if res_p.status_code == 200:
+                p_results = res_p.json().get("results", [])
+                if p_results:
+                    catalog_id = p_results[0].get("id", "")
+                    product_title = p_results[0].get("name", "")
         except Exception:
             pass
 
-    # Paso 3: Fallback por búsqueda libre del EAN
-    if not items:
-        url_search = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_ean}"
+        if catalog_id:
+            url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
+            try:
+                res_ci = requests.get(url_c_items, headers=headers, timeout=8)
+                if res_ci.status_code == 200:
+                    results = res_ci.json().get("results", [])
+            except Exception:
+                pass
+
+    # 3. Fallback General por Búsqueda Libre (Query)
+    if not results:
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(clean_key)}"
         try:
-            res_s = requests.get(url_search, headers=headers, timeout=8)
-            if res_s.status_code == 200:
-                items = res_s.json().get("results", [])
+            res_q = requests.get(url_q, headers=headers, timeout=8)
+            if res_q.status_code == 200:
+                results = res_q.json().get("results", [])
         except Exception:
             pass
 
-    return catalog_id if catalog_id else "N/A", title_found, items
+    return catalog_id, product_title, results
+
+def buscar_costo_en_lista_gold(clave_busqueda: str):
+    """Busca el costo en la Lista Gold por EAN, SKU o Código. Retorna (encontrado, costo)."""
+    if st.session_state["lista_gold_df"] is None:
+        return False, 0.0
+
+    df = st.session_state["lista_gold_df"]
+    q = clave_busqueda.strip().lower()
+
+    for col in df.columns:
+        # Buscar en columnas relevantes (EAN, SKU, Código, Artículo)
+        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo"]):
+            matches = df[df[col].astype(str).str.lower().str.strip() == q]
+            if not matches.empty:
+                # Buscar columna de costo
+                cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "valor"])]
+                val_col = cost_cols[0] if cost_cols else df.columns[1]
+                raw_val = matches.iloc[0][val_col]
+                try:
+                    clean_val = float(str(raw_val).replace("$", "").replace(".", "").replace(",", ".").strip())
+                    return True, clean_val
+                except Exception:
+                    pass
+    return False, 0.0
+
+def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, precio: float, stock: int, tipo_listado: str, access_token: str):
+    if not access_token:
+        return False, "⚠️ Debés conectar Mercado Libre o ingresar un Access Token directo."
+
+    url = "https://api.mercadolibre.com/items"
+    headers = {
+        "Authorization": f"Bearer {access_token.strip()}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "title": titulo[:60] if titulo else "Producto Publicado",
+        "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
+        "price": round(float(precio), 2),
+        "currency_id": "ARS",
+        "available_quantity": int(stock),
+        "buying_mode": "buy_it_now",
+        "listing_type_id": tipo_listado,
+        "condition": "new",
+        "site_id": "MLA"
+    }
+
+    if catalog_id and catalog_id.upper().startswith("MLA"):
+        payload["catalog_product_id"] = catalog_id.strip()
+
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code in [200, 201]:
+            data = res.json()
+            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({data.get('permalink')})"
+        else:
+            err = res.json() if res.content else {}
+            msg = err.get("message", f"Error HTTP {res.status_code}")
+            if "cause" in err:
+                causes = [c.get("message", "") for c in err.get("cause", []) if c.get("message")]
+                if causes:
+                    msg += " (" + ", ".join(causes) + ")"
+            return False, f"❌ Error API MeLi: {msg}"
+    except Exception as e:
+        return False, f"❌ Error de conexión: {str(e)}"
 
 # ==========================================
-# 5. CAPTURA Y PROCESAMIENTO OAUTH
+# 5. CAPTURA DE CALLBACK OAUTH
 # ==========================================
 query_params = st.query_params
 code_auth = query_params.get("code", None)
 
 if code_auth and not st.session_state["access_token"]:
-    with st.spinner("Procesando autenticación con Mercado Libre..."):
+    with st.spinner("Conectando con Mercado Libre..."):
         exito, token_resp = intercambiar_code_por_token(code_auth)
         if exito:
             st.session_state["access_token"] = token_resp.get("access_token", "")
@@ -145,7 +221,7 @@ if code_auth and not st.session_state["access_token"]:
             st.rerun()
 
 # ==========================================
-# 6. LOGIN DE APLICACIÓN LOCAL
+# 6. LOGIN LOCAL DE LA APLICACIÓN
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -161,12 +237,12 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 7. BARRA LATERAL (CONTROL & ARCHIVO GOLD)
+# 7. BARRA LATERAL (CONTROL & LISTA GOLD)
 # ==========================================
 with st.sidebar:
     st.title("⚡ Control Panel")
     
-    if st.button("🔴 Cerrar Sesión", use_container_width=True):
+    if st.button("🔴 Cerrar Sesión App", use_container_width=True):
         st.session_state["authenticated_app"] = False
         st.session_state["access_token"] = ""
         st.session_state["user_info"] = {}
@@ -195,7 +271,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
-    uploaded_gold = st.file_uploader("Subir Archivo de Costos (.xlsx / .csv)", type=["xlsx", "csv"])
+    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"])
     if uploaded_gold is not None:
         try:
             if uploaded_gold.name.endswith('.csv'):
@@ -207,167 +283,199 @@ with st.sidebar:
             st.error(f"Error al leer archivo: {e}")
 
 # ==========================================
-# 8. PANEL PRINCIPAL Y SOLAPAS
+# 8. TRES SOLAPAS REQUERIDAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v67.0 — Motor de Análisis de Competencia, Estructura de Costos y Viabilidad de Publicación")
+st.caption("v68.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
-    "1. 🏆 Analizador por EAN & Top Vendedores",
-    "2. 📋 Matriz Lista Gold & Costos"
+    "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
+    "2. 🏆 Competencia por EAN en Catálogo",
+    "3. 🚀 Publicador Directo Mercado Libre"
 ])
 
 # ------------------------------------------
-# SOLAPA 1: ANALIZADOR DE COMPETENCIA Y MATRIZ DE VIABILIDAD
+# SOLAPA 1: TODOS LOS COSTOS MELI (SKU / EAN / MLA)
 # ------------------------------------------
 with tabs[0]:
-    st.header("🔍 Análisis de Mercado y Viabilidad por Código EAN")
-    
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        ean_input = st.text_input("Código EAN / GTIN de Producto", value="7798009182461")
-    with col_btn:
-        st.write("")
-        btn_analizar = st.button("🔎 BUSCAR COMPETENCIA", type="primary", use_container_width=True)
+    st.header("🧮 Análisis Estructurado de Costos y Rentabilidad")
+    st.write("Ingresá un **SKU, EAN o MLA** para evaluar los costos de Mercado Libre y la rentabilidad neta:")
 
-    if btn_analizar or ean_input:
-        with st.spinner("Consultando publicaciones competidoras en Mercado Libre..."):
-            cat_id_res, title_res, items_comp = buscar_competencia_por_ean(ean_input, st.session_state["access_token"])
+    c_s1, c_s2 = st.columns([3, 1])
+    with c_s1:
+        query_costos = st.text_input("Código SKU / EAN / MLA", value="7798009182461")
+    with c_s2:
+        st.write("")
+        btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
+
+    if btn_calc_costos or query_costos:
+        found_gold, costo_gold_val = buscar_costo_en_lista_gold(query_costos)
+
+        st.markdown("---")
+        # Marcado en Rojo si NO existe en la Lista Gold
+        if not found_gold:
+            st.markdown(
+                f'<div class="badge-missing">❌ El código "{query_costos.strip()}" NO existe en la Lista Gold cargada. Cargar costo manualmente para simular.</div><br>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.success(f"✅ Costo encontrado en Lista Gold para `{query_costos.strip()}`: **${costo_gold_val:,.2f}**")
+
+        c_p1, c_p2 = st.columns(2)
+        with c_p1:
+            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=38000.0, step=500.0)
+            tipo_pub_sim = st.selectbox("Modalidad de Publicación", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
+            pct_com_sim = 28.0 if "gold_pro" in tipo_pub_sim else 14.0
+            st.info(f"Comisión seleccionada: **{pct_com_sim}%**")
+            costo_envio_sim = st.number_input("Costo Envío / Logística ($ ARS)", min_value=0.0, value=3500.0, step=100.0)
+
+        with c_p2:
+            pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
+            pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
+            costo_prod_input = st.number_input("Costo del Producto ($ ARS)", min_value=0.0, value=costo_gold_val if found_gold else 15000.0, step=500.0)
+
+        # DEDUCCIONES Y RESULTADO NETO
+        m_com = pvp_sim * (pct_com_sim / 100.0)
+        m_iibb = pvp_sim * (pct_iibb_sim / 100.0)
+        m_iva = pvp_sim * (pct_iva_sim / 100.0)
+        total_deducciones = m_com + m_iibb + m_iva + costo_envio_sim
+        ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
+        margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
+
+        st.markdown("### 📊 Resultado Financiero Neto")
+        res1, res2, res3 = st.columns(3)
+        res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
+        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
+        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
+
+        if ganancia_neta > 0:
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+
+        st.markdown("#### 🧾 Desglose Detallado de Deducciones")
+        df_desglose = pd.DataFrame([
+            {"Concepto": "PVP Venta Objetivo", "Monto ($)": pvp_sim, "Porcentaje": "100.0%"},
+            {"Concepto": f"Comisión MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
+            {"Concepto": "Costo Envío / Logística", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
+            {"Concepto": f"Ingresos Brutos IIBB ({pct_iibb_sim}%)", "Monto ($)": -m_iibb, "Porcentaje": f"-{pct_iibb_sim}%"},
+            {"Concepto": f"IVA / Retenciones ({pct_iva_sim}%)", "Monto ($)": -m_iva, "Porcentaje": f"-{pct_iva_sim}%"},
+            {"Concepto": "Costo de Producto (Lista Gold)", "Monto ($)": -costo_prod_input, "Porcentaje": f"-{(costo_prod_input/pvp_sim)*100:.1f}%"},
+            {"Concepto": "RESULTADO NETO FINAL", "Monto ($)": ganancia_neta, "Porcentaje": f"{margen_pct:.1f}%"}
+        ])
+        st.table(df_desglose)
+
+# ------------------------------------------
+# SOLAPA 2: COMPETENCIA POR EAN EN CATÁLOGO
+# ------------------------------------------
+with tabs[1]:
+    st.header("🏆 Analizador de Competencia por Código EAN / Catálogo")
+    st.write("Ingresá un código **EAN / GTIN** para ver todas las publicaciones y vendedores competidores activos:")
+
+    col_e1, col_e2 = st.columns([3, 1])
+    with col_e1:
+        query_ean_comp = st.text_input("Buscador EAN / Catálogo", value="7798009182461")
+    with col_e2:
+        st.write("")
+        btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
+
+    if btn_buscar_ean or query_ean_comp:
+        found_gold_comp, costo_gold_comp = buscar_costo_en_lista_gold(query_ean_comp)
+
+        with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
+            cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
+
+        if not found_gold_comp:
+            st.markdown(f'<div class="badge-missing">❌ El EAN "{query_ean_comp.strip()}" NO está registrado en la Lista Gold cargada.</div><br>', unsafe_allow_html=True)
+        else:
+            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}**")
 
         if items_comp:
-            st.subheader(f"📊 Competidores Encontrados ({len(items_comp)} publicaciones)")
-            if title_res:
-                st.info(f"📦 **Producto Identificado:** {title_res} | **Catalog ID:** `{cat_id_res}`")
-
-            data_tabla = []
-            for item in items_comp[:20]:
+            st.subheader(f"📊 Todos los Vendedores Competidores ({len(items_comp)} publicaciones)")
+            data_t = []
+            for item in items_comp[:25]:
                 inst = item.get("installments", {})
-                q_cuotas = inst.get("quantity", 1) if inst else 1
-                
-                data_tabla.append({
-                    "EAN Buscado": ean_input.strip(),
+                q_c = inst.get("quantity", 1) if inst else 1
+                data_t.append({
+                    "EAN": query_ean_comp.strip(),
                     "ID Publicación": item.get("id"),
                     "Vendedor ID": item.get("seller", {}).get("id", "N/A"),
                     "Precio ($ ARS)": item.get("price", 0.0),
-                    "Cuotas": f"{q_cuotas} cuotas",
+                    "Cuotas": f"{q_c} cuotas",
                     "Tipo Listado": item.get("listing_type_id", "gold_pro"),
                     "Stock": item.get("available_quantity", 0),
                     "Título Publicación": item.get("title", ""),
-                    "Link Publicación": item.get("permalink")
+                    "Link Publicación": item.get("permalink", "#")
                 })
 
-            df_competencia = pd.DataFrame(data_tabla).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
+            df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
+            st.dataframe(df_comp, use_container_width=True)
+
+            # MUNICIÓN COMERCIAL BUY BOX
+            ganador_bb = df_comp.iloc[0]
+            pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
+            cuotas_ganador_bb = ganador_bb["Cuotas"]
+            link_ganador_bb = ganador_bb["Link Publicación"]
+            pub_id_win = ganador_bb["ID Publicación"]
+
+            # Guardar datos para publicar en Solapa 3
+            st.session_state["selected_pub_data"] = {
+                "catalog_id": cat_id_comp,
+                "title": ganador_bb["Título Publicación"],
+                "price": pvp_ganador_bb
+            }
+
+            # CÁLCULO DE COSTO NECESARIO Y % DE DESCUENTO EN LISTA GOLD
+            deducciones_estimadas = (pvp_ganador_bb * 0.28) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 3500.0
+            costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
             
-            # Mostrar Tabla de Resultados con EAN, Código, Precio, Cuotas y Link
-            st.dataframe(
-                df_competencia[["EAN Buscado", "ID Publicación", "Precio ($ ARS)", "Cuotas", "Tipo Listado", "Stock", "Título Publicación", "Link Publicación"]],
-                use_container_width=True
-            )
+            pct_desc_requerido = 0.0
+            if found_gold_comp and costo_gold_comp > costo_max_necesario_win and costo_gold_comp > 0:
+                pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
 
-            # Datos del Ganador (Buy Box)
-            ganador = df_competencia.iloc[0]
-            pvp_ganador = float(ganador["Precio ($ ARS)"])
-            cuotas_ganador = ganador["Cuotas"]
-            link_ganador = ganador["Link Publicación"]
-            tipo_listado_ganador = ganador["Tipo Listado"]
+            st.markdown("### 🎯 Estrategia para Ganar el Buy Box")
+            mb1, mb2, mb3 = st.columns(3)
+            mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
+            mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
+            mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
 
-            st.markdown("---")
-            st.subheader("🧮 Simulación de Costos y Viabilidad para Publicar y Ganar")
-
-            # Intentar matchear con Lista Gold si existe
-            costo_lista_gold = 0.0
-            if st.session_state["lista_gold_df"] is not None:
-                df_g = st.session_state["lista_gold_df"]
-                col_ean_g = [c for c in df_g.columns if "ean" in str(c).lower() or "codigo" in str(c).lower() or "gtin" in str(c).lower()]
-                col_costo_g = [c for c in df_g.columns if "costo" in str(c).lower() or "precio" in str(c).lower()]
-                
-                if col_ean_g and col_costo_g:
-                    match_gold = df_g[df_g[col_ean_g[0]].astype(str).str.contains(ean_input.strip())]
-                    if not match_gold.empty:
-                        try:
-                            raw_c = match_gold.iloc[0][col_costo_g[0]]
-                            costo_lista_gold = float(str(raw_c).replace("$", "").replace(".", "").replace(",", ".").strip())
-                        except Exception:
-                            pass
-
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                pvp_objetivo = st.number_input("PVP de Venta Objetivo ($ ARS)", min_value=100.0, value=pvp_ganador, step=500.0)
-                pct_comision = st.number_input("Comisión Mercado Libre (%)", min_value=0.0, max_value=50.0, value=28.0 if "pro" in tipo_listado_ganador else 14.0)
-                costo_envio = st.number_input("Costo Envío / Logística ($ ARS)", min_value=0.0, value=3500.0, step=100.0)
-            
-            with col_c2:
-                pct_iibb = st.number_input("Impuestos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
-                pct_iva = st.number_input("IVA / Impuestos Directos (%)", min_value=0.0, max_value=30.0, value=21.0)
-                costo_gold_user = st.number_input("Costo Actual en Lista Gold ($ ARS)", min_value=0.0, value=costo_lista_gold if costo_lista_gold > 0 else (pvp_objetivo * 0.45), step=500.0)
-
-            # CALCULO DE DEDUCCIONES
-            monto_comision = pvp_objetivo * (pct_comision / 100.0)
-            monto_iibb = pvp_objetivo * (pct_iibb / 100.0)
-            monto_iva = pvp_objetivo * (pct_iva / 100.0)
-            total_deducciones_meli_tax = monto_comision + monto_iibb + monto_iva + costo_envio
-
-            # Costo Máximo Necesario para publicar y tener 15% de margen ganándole al Buy Box
-            margen_deseado_pct = 0.15
-            costo_maximo_necesario = pvp_objetivo - total_deducciones_meli_tax - (pvp_objetivo * margen_deseado_pct)
-
-            # Cálculo de % de descuento requerido en Lista Gold
-            pct_descuento_requerido = 0.0
-            if costo_gold_user > costo_maximo_necesario and costo_gold_user > 0:
-                pct_descuento_requerido = ((costo_gold_user - costo_maximo_necesario) / costo_gold_user) * 100.0
-
-            ganancia_neta_actual = pvp_objetivo - total_deducciones_meli_tax - costo_gold_user
-            margin_neto_pct_actual = (ganancia_neta_actual / pvp_objetivo) * 100.0 if pvp_objetivo > 0 else 0.0
-
-            # METRICAS DESTACADAS EN BOTONES / TARJETAS
-            st.markdown("### 📌 Indicadores Clave de Viabilidad Comercial")
-            
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador:,.2f}")
-            m2.metric("🎯 Costo Máximo Necesario", f"${costo_maximo_necesario:,.2f}")
-            m3.metric("📉 % Descuento Necesario en Gold", f"{pct_descuento_requerido:.1f}%" if pct_descuento_requerido > 0 else "0.0% (OK)")
-            m4.metric("💰 Margen Neto Actual", f"{margin_neto_pct_actual:.1f}% (${ganancia_neta_actual:,.2f})")
-
-            # TARJETA DE VIABILIDAD CONCRETA
-            if ganancia_neta_actual > 0:
-                st.markdown(f"""
-                <div class="card-viable">
-                    <h3>✅ PRODUCTO VIABLE PARA PUBLICAR EN MERCADO LIBRE</h3>
-                    <p>Obtenés un margen neto positivo de <b>${ganancia_neta_actual:,.2f} ({margin_neto_pct_actual:.1f}%)</b> compitiendo con el precio del Buy Box.</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="card-noviable">
-                    <h3>❌ PRODUCTO NO VIABLE CON COSTO ACTUAL</h3>
-                    <p>El costo registrado en Lista Gold (<b>${costo_gold_user:,.2f}</b>) supera el costo máximo objetivo (<b>${costo_maximo_necesario:,.2f}</b>). Requerís solicitar un <b>{pct_descuento_requerido:.1f}% de descuento</b> a tu proveedor para poder competir.</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # DESGLOSE COMPLETO DE COSTOS
-            st.markdown("#### 🧾 Desglose Estructurado de Deducciones sobre el PVP")
-            df_desglose = pd.DataFrame([
-                {"Concepto": "PVP Objetivo de Venta", "Monto ($)": pvp_objetivo, "Porcentaje": "100.0%"},
-                {"Concepto": f"Comisión Mercado Libre ({pct_comision}%)", "Monto ($)": -monto_comision, "Porcentaje": f"-{pct_comision}%"},
-                {"Concepto": "Costo de Envío / Logística", "Monto ($)": -costo_envio, "Porcentaje": f"-{(costo_envio/pvp_objetivo)*100:.1f}%"},
-                {"Concepto": f"Impuestos IIBB ({pct_iibb}%)", "Monto ($)": -monto_iibb, "Porcentaje": f"-{pct_iibb}%"},
-                {"Concepto": f"IVA / Retenciones ({pct_iva}%)", "Monto ($)": -monto_iva, "Porcentaje": f"-{pct_iva}%"},
-                {"Concepto": "Costo de Producto (Lista Gold)", "Monto ($)": -costo_gold_user, "Porcentaje": f"-{(costo_gold_user/pvp_objetivo)*100:.1f}%"},
-                {"Concepto": "RESULTADO NETO FINAL", "Monto ($)": ganancia_neta_actual, "Porcentaje": f"{margin_neto_pct_actual:.1f}%"}
-            ])
-            st.table(df_desglose)
-
-            st.markdown(f"👉 **Enlace a la publicación ganadora:** [{ganador['Título Publicación']}]({link_ganador})")
-
+            st.markdown(f"👉 **Enlace directo a la publicación del líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
         else:
-            st.warning("No se encontraron vendedores activos compitiendo para este código EAN en Mercado Libre.")
+            st.warning("No se encontraron publicaciones competidoras activas para este código EAN exacto.")
 
 # ------------------------------------------
-# SOLAPA 2: MATRIZ LISTA GOLD
+# SOLAPA 3: PUBLICADOR DIRECTO MERCADO LIBRE
 # ------------------------------------------
-with tabs[1]:
-    st.header("📋 Matriz de Costos Registrados (Lista Gold)")
-    if st.session_state["lista_gold_df"] is not None:
-        st.dataframe(st.session_state["lista_gold_df"], use_container_width=True)
-    else:
-        st.info("Cargá tu archivo de Lista Gold en formato Excel o CSV desde la barra lateral izquierda para vincular tus costos de compra automáticamente.")
+with tabs[2]:
+    st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
+    st.write("Creá la publicación directamente en tu cuenta de Mercado Libre:")
+
+    pub_data_state = st.session_state.get("selected_pub_data", {})
+
+    col_pub1, col_pub2 = st.columns(2)
+    with col_pub1:
+        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Biblioteca 5 Estantes Centro Estant"))
+        p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", ""))
+        p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
+
+    with col_pub2:
+        p_precio = st.number_input("Precio de Venta Objective ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 38000.0)), step=500.0)
+        p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
+        p_tipo = st.selectbox("Modalidad de Listado", ["gold_pro", "gold_special"], format_func=lambda x: "Premium / Cuotas (gold_pro)" if x=="gold_pro" else "Clásica (gold_special)")
+
+    st.markdown("---")
+    if st.button("🚀 CREAR PUBLICACIÓN EN MERCADO LIBRE", type="primary", use_container_width=True):
+        with st.spinner("Enviando publicación a Mercado Libre..."):
+            exito_pub, msg_pub = publicar_en_mercado_libre(
+                catalog_id=p_cat_id,
+                titulo=p_titulo,
+                categoria=p_categoria,
+                precio=p_precio,
+                stock=p_stock,
+                tipo_listado=p_tipo,
+                access_token=st.session_state.get("access_token")
+            )
+            if exito_pub:
+                st.success(msg_pub)
+            else:
+                st.error(msg_pub)
