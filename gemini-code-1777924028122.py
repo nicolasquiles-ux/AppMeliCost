@@ -38,11 +38,9 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
-if "selected_catalog_id" not in st.session_state:
-    st.session_state["selected_catalog_id"] = ""
 
 # ==========================================
-# 4. FUNCIONES DE API MERCADO LIBRE
+# 4. FUNCIONES ORIGINALES DE API MERCADO LIBRE (v39/v58)
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -80,44 +78,74 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
-def buscar_vendedores_por_clave(clave_ingresada: str, access_token: str = None):
+def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
+    """Lógica exacta v38/v58: Resuelve EAN o Catalog ID a producto completo."""
+    val = input_text.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    val = clave_ingresada.strip()
     
     catalog_id = ""
+    title = ""
+    category_id = ""
+
     if val.upper().startswith("MLA"):
         catalog_id = val
-    elif val.isdigit():
-        url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
+    else:
+        # Búsqueda por EAN o texto
+        url_search = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
         try:
-            res_ean = requests.get(url_ean, headers=headers, timeout=8)
-            if res_ean.status_code == 200:
-                results_ean = res_ean.json().get("results", [])
-                if results_ean:
-                    catalog_id = results_ean[0].get("id", "")
+            res = requests.get(url_search, headers=headers, timeout=8)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+                if results:
+                    catalog_id = results[0].get("id", "")
+                    title = results[0].get("name", "")
+                    category_id = results[0].get("domain_id", "")
         except Exception:
             pass
 
-    items = []
     if catalog_id:
-        url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
+        url_prod = f"https://api.mercadolibre.com/products/{catalog_id}"
+        try:
+            res_p = requests.get(url_prod, headers=headers, timeout=8)
+            if res_p.status_code == 200:
+                pdata = res_p.json()
+                title = pdata.get("name", pdata.get("title", title))
+                category_id = pdata.get("category_id", pdata.get("domain_id", category_id))
+        except Exception:
+            pass
+
+    return {
+        "id": catalog_id if catalog_id else val,
+        "title": title if title else val,
+        "category_id": category_id
+    }
+
+def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: str = None):
+    """Lógica encadenada v39: Busca por Catálogo y hace fallback por Query si no halla resultados."""
+    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
+    results = []
+
+    if catalog_id and catalog_id.upper().startswith("MLA"):
+        url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
         try:
             res = requests.get(url_cat, headers=headers, timeout=8)
             if res.status_code == 200:
-                items = res.json().get("results", [])
+                results = res.json().get("results", [])
         except Exception:
             pass
 
-    if not items:
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(val[:40])}"
+    # Fallback por título o EAN
+    if not results and titulo:
+        query_clean = requests.utils.quote(titulo[:40])
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={query_clean}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
             if res_q.status_code == 200:
-                items = res_q.json().get("results", [])
+                results = res_q.json().get("results", [])
         except Exception:
             pass
 
-    return catalog_id if catalog_id else val, items
+    return results
 
 def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, precio: float, stock: int, tipo_listado: str, access_token: str):
     if not access_token:
@@ -177,7 +205,7 @@ if code_auth and not st.session_state["access_token"]:
             st.rerun()
 
 # ==========================================
-# 6. PANTALLA DE LOGIN DE APLICACIÓN
+# 6. PANTALLA DE LOGIN LOCAL
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -239,10 +267,10 @@ with st.sidebar:
             st.error(f"Error al leer archivo: {e}")
 
 # ==========================================
-# 8. ESTRUCTURA REORGANIZADA DE PESTAÑAS (3 SOLAPAS)
+# 8. ESTRUCTURA CON TRATAMIENTO DE BÚSQUEDA v39
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v65.0 — Panel Simplificado de Inteligencia de Mercado y Publicación")
+st.caption("v66.0 — Panel de Inteligencia de Mercado y Publicación")
 
 tabs = st.tabs([
     "1. 📊 Resumen & Lista Gold",
@@ -268,25 +296,29 @@ with tabs[0]:
         st.info("Subí tu archivo de Lista Gold desde la barra lateral para ver tus costos cargados.")
 
 # ------------------------------------------
-# SOLAPA 2: ANALIZADOR DE COMPETENCIA
+# SOLAPA 2: ANALIZADOR DE COMPETENCIA (v39 Restaurado)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia & Top de Vendedores")
-    st.write("Ingresá un **ID de Catálogo** (ej. `MLA20491823`), **EAN** (ej. `7798009182461`) o **Título del Producto**:")
+    st.write("Ingresá un **ID de Catálogo** (ej. `MLA20491823`), **EAN** (ej. `7798274750037`) o **Título del Producto**:")
 
     col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
-        query_input = st.text_input("Buscador", value="7798009182461", label_visibility="collapsed")
+        query_input = st.text_input("Buscador", value="7798274750037", label_visibility="collapsed")
     with col_s2:
         btn_buscar = st.button("🔍 Buscar Competencia", type="primary", use_container_width=True)
 
     if btn_buscar or query_input:
-        with st.spinner("Analizando mercado en Mercado Libre..."):
-            cat_found_id, items_list = buscar_vendedores_por_clave(query_input, st.session_state["access_token"])
+        with st.spinner("Consultando producto de catálogo en Mercado Libre..."):
+            resolved = resolver_id_catalogo_o_ean(query_input, st.session_state["access_token"])
+            cat_id = resolved.get("id", "")
+            title_p = resolved.get("title", "")
+            
+            items_list = buscar_items_por_catalogo(cat_id, title_p, st.session_state["access_token"])
 
         if items_list:
-            st.session_state["selected_catalog_id"] = cat_found_id
-            st.success(f"✅ Se encontraron **{len(items_list)} publicaciones activas** en la competencia.")
+            st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID / Ref:** `{cat_id}`")
+            st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
             
             data_comp = []
             for item in items_list[:15]:
@@ -313,12 +345,12 @@ with tabs[1]:
             m2.metric("💳 Cuotas Ganadoras", cuotas_win)
             m3.metric("🎯 Costo Máximo Sugerido (30% Margen)", f"${precio_min * 0.70:,.2f}")
 
-            st.markdown(f"👉 **Enlace al líder del mercado:** [{df_c.iloc[0]['Título Publicación']}]({link_win})")
+            st.markdown(f"👉 **Enlace directo a la publicación ganadora:** [{df_c.iloc[0]['Título Publicación']}]({link_win})")
         else:
             st.warning("No se encontraron vendedores activos para esta búsqueda. Probá ingresando el nombre del producto o revisá el código.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR EXCLUSIVO
+# SOLAPA 3: PUBLICADOR
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre")
@@ -327,7 +359,7 @@ with tabs[2]:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         pub_titulo = st.text_input("Título de la Publicación", value="Biblioteca 5 Estantes Centro Estant")
-        pub_cat_id = st.text_input("ID de Catálogo (Opcional)", value=st.session_state.get("selected_catalog_id", ""))
+        pub_cat_id = st.text_input("ID de Catálogo (Opcional)", value="")
         pub_categoria = st.text_input("Categoría MeLi", value="MLA35254")
     
     with col_p2:
