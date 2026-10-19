@@ -25,7 +25,7 @@ st.markdown("""
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
 # ==========================================
 # 3. ESTADO DE SESIÓN (SESSION STATE)
@@ -64,7 +64,8 @@ def intercambiar_code_por_token(code: str):
         if res.status_code == 200:
             return True, res.json()
         else:
-            return False, res.json().get("message", "Error al intercambiar el código")
+            err_data = res.json() if res.content else {}
+            return False, err_data.get("message", f"Error HTTP {res.status_code}")
     except Exception as e:
         return False, str(e)
 
@@ -152,20 +153,27 @@ def publicar_item_en_catalogo(
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
 
-# Captura automática del código OAuth devuelto por Mercado Libre
+# ==========================================
+# 5. CAPTURA Y PROCESAMIENTO AUTOMÁTICO DE OAUTH
+# ==========================================
+# Obtener parámetros de URL de forma compatible
 query_params = st.query_params
-if "code" in query_params:
-    code_auth = query_params["code"]
-    exito, token_resp = intercambiar_code_por_token(code_auth)
-    if exito:
-        st.session_state["access_token"] = token_resp.get("access_token")
-        st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
-        st.session_state["authenticated_app"] = True
-        st.query_params.clear()
-        st.rerun()
+code_auth = query_params.get("code", None)
+
+if code_auth and not st.session_state["access_token"]:
+    with st.spinner("Procesando autenticación con Mercado Libre..."):
+        exito, token_resp = intercambiar_code_por_token(code_auth)
+        if exito:
+            st.session_state["access_token"] = token_resp.get("access_token", "")
+            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+            st.session_state["authenticated_app"] = True
+            st.query_params.clear()
+            st.rerun()
+        else:
+            st.error(f"❌ Falló el intercambio de Token con MeLi: {token_resp}")
 
 # ==========================================
-# 5. PANTALLA DE LOGIN LOCAL DE LA APLICACIÓN
+# 6. PANTALLA DE LOGIN LOCAL DE LA APLICACIÓN
 # ==========================================
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -191,7 +199,7 @@ if not st.session_state["authenticated_app"]:
     st.stop()
 
 # ==========================================
-# 6. BARRA LATERAL (CONTROL PANEL & OAUTH)
+# 7. BARRA LATERAL (CONTROL PANEL & OAUTH)
 # ==========================================
 with st.sidebar:
     st.title("⚡ NQ Control Panel")
@@ -217,7 +225,6 @@ with st.sidebar:
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
         
-        # Opción de respaldo integrada por si MeLi bloquea la ventana OAuth
         with st.expander("⚙️ Alternativa de emergencia"):
             token_emergencia = st.text_input("Ingresar Token manual si falla OAuth", type="password")
             if st.button("Vincular Token de Emergencia"):
@@ -257,10 +264,10 @@ with st.sidebar:
             st.error(f"Error al leer la matriz: {e}")
 
 # ==========================================
-# 7. PESTAÑAS PRINCIPALES (1 A 7)
+# 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v54.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v55.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
