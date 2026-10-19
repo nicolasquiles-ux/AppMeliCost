@@ -54,13 +54,13 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
-if "selected_pub_data" not in st.session_state:
-    st.session_state["selected_pub_data"] = {}
 if "matriz_custom_df" not in st.session_state:
     st.session_state["matriz_custom_df"] = None
+if "selected_pub_data" not in st.session_state:
+    st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API Y CÁLCULOS
+# 4. FUNCIONES DE API, LOGÍSTICA Y CÁLCULOS
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -119,6 +119,31 @@ def procesar_archivo_lista_gold(file):
         st.error(f"Error al procesar archivo: {e}")
         return None
 
+def calcular_costo_envio_por_peso_facturable(peso_facturable: float) -> float:
+    """
+    Calcula el costo logístico oficial estimado en base al peso facturable (kg) 
+    para bultos y muebles en Mercado Envíos (escala ponderada de mercado).
+    """
+    if pd.isna(peso_facturable) or peso_facturable <= 0:
+        return 15000.0
+    elif peso_facturable <= 3:
+        return 8500.0
+    elif peso_facturable <= 5:
+        return 12000.0
+    elif peso_facturable <= 10:
+        return 17500.0
+    elif peso_facturable <= 15:
+        return 22000.0
+    elif peso_facturable <= 20:
+        return 28500.0
+    elif peso_facturable <= 30:
+        return 36000.0
+    elif peso_facturable <= 50:
+        return 48000.0
+    else:
+        # Bultos muy pesados / grandes especiales
+        return 65000.0
+
 def procesar_matriz_articulos_df(df):
     try:
         df['Ancho_cm'] = df['Ancho caja (mm)'] / 10
@@ -127,17 +152,18 @@ def procesar_matriz_articulos_df(df):
         df['Volumen_cm3'] = df['Ancho_cm'] * df['Alto_cm'] * df['Prof_cm']
         df['Peso_Volumetrico_Kg'] = (df['Volumen_cm3'] / 4000).round(2)
         df['Peso_Facturable_Kg'] = df[['Peso embalado (Kg)', 'Peso_Volumetrico_Kg']].max(axis=1)
+        
+        # Asignar costo logístico automático por cada artículo de la matriz
+        df['Costo_Logistico_Estimado'] = df['Peso_Facturable_Kg'].apply(calcular_costo_envio_por_peso_facturable)
         return df
     except Exception as e:
         st.error(f"Error procesando columnas de la matriz: {e}")
         return df
 
 def cargar_matriz_articulos_oficial():
-    # 1. Si el usuario subió una matriz manualmente en la sesión
     if st.session_state["matriz_custom_df"] is not None:
         return st.session_state["matriz_custom_df"]
     
-    # 2. Si existe el archivo físico localmente
     file_path = "Matriz Articulos Gemini.xlsx"
     if os.path.exists(file_path):
         try:
@@ -147,6 +173,36 @@ def cargar_matriz_articulos_oficial():
             pass
             
     return None
+
+def buscar_datos_en_matriz(clave_busqueda: str):
+    matriz_df = cargar_matriz_articulos_oficial()
+    if matriz_df is None:
+        return False, 0.0, 0.0, 0.0, ""
+
+    q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
+    if not q_clean:
+        return False, 0.0, 0.0, 0.0, ""
+
+    for col in ['ean', 'Articulo']:
+        if col in matriz_df.columns:
+            series_clean = (
+                matriz_df[col]
+                .fillna('')
+                .astype(str)
+                .str.split('.')
+                .str[0]
+                .str.replace(r'\D', '', regex=True)
+            )
+            matches = matriz_df[series_clean == q_clean]
+            if not matches.empty:
+                row = matches.iloc[0]
+                peso_fact = float(row.get('Peso_Facturable_Kg', 10.0))
+                costo_env = float(row.get('Costo_Logistico_Estimado', 28500.0))
+                peso_real = float(row.get('Peso embalado (Kg)', 0.0))
+                desc = str(row.get('Descripcion', ''))
+                return True, costo_env, peso_fact, peso_real, desc
+
+    return False, 0.0, 0.0, 0.0, ""
 
 def extraer_opciones_ean_lista_gold():
     if st.session_state["lista_gold_df"] is None:
@@ -462,7 +518,7 @@ with st.sidebar:
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📄 Carga de Lista Gold")
+    st.subheader("📄 Carga de Lista Gold (Costos)")
     uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"], key="uploader_gold")
     if uploaded_gold is not None:
         st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
@@ -470,10 +526,10 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 # ==========================================
-# 8. SOLAPAS OPERATIVAS (INCLUYENDO MATRIZ ANEXADA Y UPLOADER)
+# 8. SOLAPAS OPERATIVAS (MATRIZ ALIMENTANDO COSTOS)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v97.2 — Panel Operativo Oficial MeLi con Carga Dinámica de Matriz")
+st.caption("v97.3 — Panel Operativo Oficial MeLi con Matriz Logística Integrada y Activa")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -487,7 +543,7 @@ tabs = st.tabs([
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Ingrese un **SKU, EAN, MLA o URL** para calcular comisiones, cuotas y envíos por peso/volumen:")
+    st.write("Ingrese un **SKU, EAN, MLA o URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz** para actualizar el envío automáticamente:")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
@@ -498,15 +554,23 @@ with tabs[0]:
 
     if btn_calc_costos or query_costos:
         found_gold, costo_gold_val, desc_g, art_g = buscar_costo_y_titulo_en_lista_gold(query_costos)
+        found_matrix, costo_envio_matriz, peso_fact_matriz, peso_real_matriz, desc_matriz = buscar_datos_en_matriz(query_costos)
 
         st.markdown("---")
-        if not found_gold:
-            st.markdown(
-                f'<div class="badge-missing">❌ El código "{query_costos.strip()}" NO existe en la Lista Gold cargada. Ingrese costo manual para simular.</div><br>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.success(f"✅ Costo base en Lista Gold: **${costo_gold_val:,.2f}** ({desc_g} - {art_g})")
+        
+        col_st1, col_st2 = st.columns(2)
+        with col_st1:
+            if not found_gold:
+                st.markdown(f'<div class="badge-missing">❌ SKU no hallado en Lista Gold. Usando base manual.</div>', unsafe_allow_html=True)
+            else:
+                st.success(f"✅ Costo base Lista Gold: **${costo_gold_val:,.2f}** ({desc_g})")
+        with col_st2:
+            if not found_matrix:
+                st.warning("⚠️ SKU no hallado en Matriz Logística. Usando costo de envío por defecto.")
+                costo_envio_default = 28500.0
+            else:
+                st.success(f"📦 Envío Automático por Matriz: **${costo_envio_matriz:,.2f}** (Peso fact.: {peso_fact_matriz} kg)")
+                costo_envio_default = costo_envio_matriz
 
         c_p1, c_p2, c_p3 = st.columns(3)
         with c_p1:
@@ -533,7 +597,7 @@ with tabs[0]:
                 pct_com_sim = 46.79
 
         with c_p2:
-            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos Volumétrico)", min_value=0.0, value=28500.0, step=500.0)
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Actualizado desde Matriz)", min_value=0.0, value=costo_envio_default, step=500.0)
             pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
 
         with c_p3:
@@ -566,7 +630,7 @@ with tabs[0]:
         df_desglose = pd.DataFrame([
             {"Concepto": "PVP Venta Objetivo", "Monto ($)": pvp_sim, "Porcentaje": "100.0%"},
             {"Concepto": f"Comisión y Financiación MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
-            {"Concepto": "Costo Logística Volumétrico MeLi (Bulto Pesado)", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
+            {"Concepto": f"Costo Logística Volumétrico Matriz ({peso_fact_matriz} kg fact.)", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
             {"Concepto": f"Ingresos Brutos IIBB ({pct_iibb_sim}%)", "Monto ($)": -m_iibb, "Porcentaje": f"-{pct_iibb_sim}%"},
             {"Concepto": f"IVA / Retenciones ({pct_iva_sim}%)", "Monto ($)": -m_iva, "Porcentaje": f"-{pct_iva_sim}%"},
             {"Concepto": f"Costo Producto Efectivo (-{pct_descuento_proveedor}% desc.)", "Monto ($)": -costo_prod_input, "Porcentaje": f"-{(costo_prod_input/pvp_sim)*100:.1f}%"},
@@ -587,7 +651,7 @@ with tabs[1]:
     if opciones_ean_gold:
         st.subheader("📋 Seleccionar Producto desde la Lista Gold Cargada")
         labels_gold = [op[0] for op in opciones_ean_gold]
-        selected_label = st.selectbox("EAN / Producto en Lista Gold", labels_gold)
+        selected_label = st.selectbox("EAN / Producto en Lista Gold", labels_gold, key="sel_gold_comp")
         
         if selected_label:
             for lbl, ean_val in opciones_ean_gold:
@@ -605,6 +669,7 @@ with tabs[1]:
 
     if btn_buscar_ean or query_ean_comp:
         found_gold_comp, costo_gold_comp, desc_gold_comp, art_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
+        found_mat_comp, costo_env_mat_comp, peso_fact_mat_comp, _, _ = buscar_datos_en_matriz(query_ean_comp)
 
         with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
             cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
@@ -657,7 +722,7 @@ with tabs[1]:
             }
 
             pct_com_win = 33.59 if "Premium" in tipo_win else 14.5
-            costo_envio_win = 28500.0 if pvp_ganador_bb >= 30000.0 else 0.0
+            costo_envio_win = costo_env_mat_comp if found_mat_comp else 28500.0
             
             deducc_com_win = pvp_ganador_bb * (pct_com_win / 100.0)
             deducc_iibb_win = pvp_ganador_bb * 0.035
@@ -676,11 +741,11 @@ with tabs[1]:
             mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
             mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
 
-            st.markdown("#### 🧾 Desglose de Deducciones del Líder del Buy Box")
+            st.markdown("#### 🧾 Desglose de Deducciones del Líder del Buy Box (Con Envío Logístico de Matriz)")
             df_desglose_bb = pd.DataFrame([
                 {"Concepto": "PVP Ganador Objetivo", "Monto ($)": pvp_ganador_bb, "Porcentaje": "100.0%"},
                 {"Concepto": f"Comisión / Financiación MeLi ({pct_com_win}%)", "Monto ($)": -deducc_com_win, "Porcentaje": f"-{pct_com_win}%"},
-                {"Concepto": "Envío Logística Bulto Pesado", "Monto ($)": -costo_envio_win, "Porcentaje": f"-{(costo_envio_win/pvp_ganador_bb)*100:.1f}%"},
+                {"Concepto": f"Envío Logística Matriz ({peso_fact_mat_comp} kg fact.)", "Monto ($)": -costo_envio_win, "Porcentaje": f"-{(costo_envio_win/pvp_ganador_bb)*100:.1f}%"},
                 {"Concepto": "Ingresos Brutos IIBB (3.5%)", "Monto ($)": -deducc_iibb_win, "Porcentaje": "-3.5%"},
                 {"Concepto": "IVA / Retenciones (21.0%)", "Monto ($)": -deducc_iva_win, "Porcentaje": "-21.0%"},
                 {"Concepto": "COSTO MÁXIMO SOPORTADO EN LISTA GOLD", "Monto ($)": costo_max_necesario_win, "Porcentaje": f"{(costo_max_necesario_win/pvp_ganador_bb)*100:.1f}%"}
@@ -762,7 +827,6 @@ with tabs[3]:
     st.header("📦 Matriz de Artículos & Costos Logísticos")
     st.caption("Carga y visualización de la base oficial de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable para Mercado Envíos / Flex / Full.")
 
-    # Widget de carga dinámica para resolver si no está en el servidor local
     uploaded_matriz = st.file_uploader("📂 Subir Archivo de Matriz de Artículos (Excel)", type=["xlsx", "xls"], key="uploader_matriz_file")
     if uploaded_matriz is not None:
         try:
@@ -797,6 +861,7 @@ with tabs[3]:
             df_filtered_m[[
                 'Articulo', 'Descripcion', 'subcategoria', 'ean',
                 'Peso embalado (Kg)', 'Peso_Volumetrico_Kg', 'Peso_Facturable_Kg',
+                'Costo_Logistico_Estimado',
                 'Ancho caja (mm)', 'Alto caja (mm)', 'Prof caja (mm)',
                 'Unidades por caja', 'Lote de producción'
             ]],
