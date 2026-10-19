@@ -45,7 +45,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE CONEXIÓN Y BUSCADOR EAN
+# 4. FUNCIONES DE API Y BÚSQUEDA EN CASCADA
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -83,10 +83,40 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
+def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
+    """Busca en la Lista Gold y retorna (encontrado: bool, costo: float, titulo_o_desc: str)."""
+    if st.session_state["lista_gold_df"] is None:
+        return False, 0.0, ""
+
+    df = st.session_state["lista_gold_df"]
+    q = clave_busqueda.strip().lower()
+
+    for col in df.columns:
+        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo"]):
+            matches = df[df[col].astype(str).str.lower().str.strip() == q]
+            if not matches.empty:
+                # Extraer costo
+                cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "valor"])]
+                val_col = cost_cols[0] if cost_cols else df.columns[1]
+                
+                # Extraer título / descripción
+                title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto"])]
+                title_val = str(matches.iloc[0][title_cols[0]]) if title_cols else ""
+
+                try:
+                    clean_cost = float(str(matches.iloc[0][val_col]).replace("$", "").replace(".", "").replace(",", ".").strip())
+                    return True, clean_cost, title_val
+                except Exception:
+                    return True, 0.0, title_val
+    return False, 0.0, ""
+
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     """
-    Búsqueda multinivel por EAN, Catalog ID o SKU:
-    Garantiza obtener todos los vendedores competidores sin importar el formato.
+    Búsqueda Cascada 4-Pasos:
+    Paso 1: /products/search?product_identifier=
+    Paso 2: /sites/MLA/search?catalog_product_id=
+    Paso 3: /sites/MLA/search?q={EAN}
+    Paso 4: /sites/MLA/search?q={Título_Lista_Gold}
     """
     clean_key = query_key.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
@@ -94,7 +124,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     catalog_id = ""
     product_title = ""
 
-    # 1. Si ingresó Catalog ID directo (MLA...)
+    # 1. Si es ID de Catálogo (MLA...)
     if clean_key.upper().startswith("MLA") and not clean_key.isdigit():
         catalog_id = clean_key
         url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
@@ -105,7 +135,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # 2. Si es EAN numérico -> Buscar por identificador GTIN/EAN
+    # 2. Si es EAN numérico -> Buscar por catálogo MeLi
     if clean_key.isdigit():
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_key}"
         try:
@@ -127,9 +157,9 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             except Exception:
                 pass
 
-    # 3. Fallback General por Búsqueda Libre (Query)
+    # 3. Fallback: Búsqueda Libre por el número EAN
     if not results:
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(clean_key)}"
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_key}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
             if res_q.status_code == 200:
@@ -137,31 +167,20 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    return catalog_id, product_title, results
+    # 4. Fallback Avanzado: Búsqueda por Nombre extraído de Lista Gold
+    if not results:
+        found_g, _, title_g = buscar_costo_y_titulo_en_lista_gold(clean_key)
+        if found_g and title_g:
+            query_clean = requests.utils.quote(title_g[:35])
+            url_g_search = f"https://api.mercadolibre.com/sites/MLA/search?q={query_clean}"
+            try:
+                res_gs = requests.get(url_g_search, headers=headers, timeout=8)
+                if res_gs.status_code == 200:
+                    results = res_gs.json().get("results", [])
+            except Exception:
+                pass
 
-def buscar_costo_en_lista_gold(clave_busqueda: str):
-    """Busca el costo en la Lista Gold por EAN, SKU o Código. Retorna (encontrado, costo)."""
-    if st.session_state["lista_gold_df"] is None:
-        return False, 0.0
-
-    df = st.session_state["lista_gold_df"]
-    q = clave_busqueda.strip().lower()
-
-    for col in df.columns:
-        # Buscar en columnas relevantes (EAN, SKU, Código, Artículo)
-        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo"]):
-            matches = df[df[col].astype(str).str.lower().str.strip() == q]
-            if not matches.empty:
-                # Buscar columna de costo
-                cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "valor"])]
-                val_col = cost_cols[0] if cost_cols else df.columns[1]
-                raw_val = matches.iloc[0][val_col]
-                try:
-                    clean_val = float(str(raw_val).replace("$", "").replace(".", "").replace(",", ".").strip())
-                    return True, clean_val
-                except Exception:
-                    pass
-    return False, 0.0
+    return catalog_id if catalog_id else "N/A", product_title, results
 
 def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, precio: float, stock: int, tipo_listado: str, access_token: str):
     if not access_token:
@@ -283,10 +302,10 @@ with st.sidebar:
             st.error(f"Error al leer archivo: {e}")
 
 # ==========================================
-# 8. TRES SOLAPAS REQUERIDAS
+# 8. LAS 3 SOLAPAS REQUERIDAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v68.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v69.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -295,7 +314,7 @@ tabs = st.tabs([
 ])
 
 # ------------------------------------------
-# SOLAPA 1: TODOS LOS COSTOS MELI (SKU / EAN / MLA)
+# SOLAPA 1: COSTOS Y RENTABILIDAD (SKU / EAN / MLA)
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos y Rentabilidad")
@@ -303,16 +322,15 @@ with tabs[0]:
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
-        query_costos = st.text_input("Código SKU / EAN / MLA", value="7798009182461")
+        query_costos = st.text_input("Código SKU / EAN / MLA", value="7798274750754")
     with c_s2:
         st.write("")
         btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
 
     if btn_calc_costos or query_costos:
-        found_gold, costo_gold_val = buscar_costo_en_lista_gold(query_costos)
+        found_gold, costo_gold_val, _ = buscar_costo_y_titulo_en_lista_gold(query_costos)
 
         st.markdown("---")
-        # Marcado en Rojo si NO existe en la Lista Gold
         if not found_gold:
             st.markdown(
                 f'<div class="badge-missing">❌ El código "{query_costos.strip()}" NO existe en la Lista Gold cargada. Cargar costo manualmente para simular.</div><br>',
@@ -334,7 +352,6 @@ with tabs[0]:
             pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
             costo_prod_input = st.number_input("Costo del Producto ($ ARS)", min_value=0.0, value=costo_gold_val if found_gold else 15000.0, step=500.0)
 
-        # DEDUCCIONES Y RESULTADO NETO
         m_com = pvp_sim * (pct_com_sim / 100.0)
         m_iibb = pvp_sim * (pct_iibb_sim / 100.0)
         m_iva = pvp_sim * (pct_iva_sim / 100.0)
@@ -374,13 +391,13 @@ with tabs[1]:
 
     col_e1, col_e2 = st.columns([3, 1])
     with col_e1:
-        query_ean_comp = st.text_input("Buscador EAN / Catálogo", value="7798009182461")
+        query_ean_comp = st.text_input("Buscador EAN / Catálogo", value="7798274750754")
     with col_e2:
         st.write("")
         btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
 
     if btn_buscar_ean or query_ean_comp:
-        found_gold_comp, costo_gold_comp = buscar_costo_en_lista_gold(query_ean_comp)
+        found_gold_comp, costo_gold_comp, title_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
 
         with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
             cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
@@ -388,7 +405,7 @@ with tabs[1]:
         if not found_gold_comp:
             st.markdown(f'<div class="badge-missing">❌ El EAN "{query_ean_comp.strip()}" NO está registrado en la Lista Gold cargada.</div><br>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}**")
+            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({title_gold_comp})")
 
         if items_comp:
             st.subheader(f"📊 Todos los Vendedores Competidores ({len(items_comp)} publicaciones)")
@@ -411,21 +428,17 @@ with tabs[1]:
             df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
             st.dataframe(df_comp, use_container_width=True)
 
-            # MUNICIÓN COMERCIAL BUY BOX
             ganador_bb = df_comp.iloc[0]
             pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
-            cuotas_ganador_bb = ganador_bb["Cuotas"]
             link_ganador_bb = ganador_bb["Link Publicación"]
             pub_id_win = ganador_bb["ID Publicación"]
 
-            # Guardar datos para publicar en Solapa 3
             st.session_state["selected_pub_data"] = {
                 "catalog_id": cat_id_comp,
                 "title": ganador_bb["Título Publicación"],
                 "price": pvp_ganador_bb
             }
 
-            # CÁLCULO DE COSTO NECESARIO Y % DE DESCUENTO EN LISTA GOLD
             deducciones_estimadas = (pvp_ganador_bb * 0.28) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 3500.0
             costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
             
@@ -459,7 +472,7 @@ with tabs[2]:
         p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
 
     with col_pub2:
-        p_precio = st.number_input("Precio de Venta Objective ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 38000.0)), step=500.0)
+        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 38000.0)), step=500.0)
         p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
         p_tipo = st.selectbox("Modalidad de Listado", ["gold_pro", "gold_special"], format_func=lambda x: "Premium / Cuotas (gold_pro)" if x=="gold_pro" else "Clásica (gold_special)")
 
