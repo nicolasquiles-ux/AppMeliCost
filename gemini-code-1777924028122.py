@@ -45,7 +45,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API Y BÚSQUEDA EN CASCADA
+# 4. FUNCIONES DE API Y BÚSQUEDA ROBUSTA
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -84,22 +84,22 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
-    """Busca en la Lista Gold y retorna (encontrado: bool, costo: float, titulo_o_desc: str)."""
+    """Busca limpiando decimales de Excel (ej: 7798... .0) y retorna (encontrado, costo, título)."""
     if st.session_state["lista_gold_df"] is None:
         return False, 0.0, ""
 
     df = st.session_state["lista_gold_df"]
-    q = clave_busqueda.strip().lower()
+    q = str(clave_busqueda).strip().lower().replace(".0", "")
 
     for col in df.columns:
-        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo"]):
-            matches = df[df[col].astype(str).str.lower().str.strip() == q]
+        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo", "gtin"]):
+            # Normalizar la columna del dataframe a string sin .0
+            col_series = df[col].astype(str).str.lower().str.strip().str.replace(r'\.0$', '', regex=True)
+            matches = df[col_series == q]
             if not matches.empty:
-                # Extraer costo
                 cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "valor"])]
                 val_col = cost_cols[0] if cost_cols else df.columns[1]
                 
-                # Extraer título / descripción
                 title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto"])]
                 title_val = str(matches.iloc[0][title_cols[0]]) if title_cols else ""
 
@@ -111,20 +111,12 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
     return False, 0.0, ""
 
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
-    """
-    Búsqueda Cascada 4-Pasos:
-    Paso 1: /products/search?product_identifier=
-    Paso 2: /sites/MLA/search?catalog_product_id=
-    Paso 3: /sites/MLA/search?q={EAN}
-    Paso 4: /sites/MLA/search?q={Título_Lista_Gold}
-    """
-    clean_key = query_key.strip()
+    clean_key = str(query_key).strip().replace(".0", "")
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     results = []
     catalog_id = ""
     product_title = ""
 
-    # 1. Si es ID de Catálogo (MLA...)
     if clean_key.upper().startswith("MLA") and not clean_key.isdigit():
         catalog_id = clean_key
         url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
@@ -135,7 +127,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # 2. Si es EAN numérico -> Buscar por catálogo MeLi
     if clean_key.isdigit():
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_key}"
         try:
@@ -157,7 +148,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             except Exception:
                 pass
 
-    # 3. Fallback: Búsqueda Libre por el número EAN
     if not results:
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_key}"
         try:
@@ -167,7 +157,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # 4. Fallback Avanzado: Búsqueda por Nombre extraído de Lista Gold
     if not results:
         found_g, _, title_g = buscar_costo_y_titulo_en_lista_gold(clean_key)
         if found_g and title_g:
@@ -305,7 +294,7 @@ with st.sidebar:
 # 8. LAS 3 SOLAPAS REQUERIDAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v69.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v70.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -328,7 +317,7 @@ with tabs[0]:
         btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
 
     if btn_calc_costos or query_costos:
-        found_gold, costo_gold_val, _ = buscar_costo_y_titulo_en_lista_gold(query_costos)
+        found_gold, costo_gold_val, title_g_cost = buscar_costo_y_titulo_en_lista_gold(query_costos)
 
         st.markdown("---")
         if not found_gold:
@@ -337,7 +326,7 @@ with tabs[0]:
                 unsafe_allow_html=True
             )
         else:
-            st.success(f"✅ Costo encontrado en Lista Gold para `{query_costos.strip()}`: **${costo_gold_val:,.2f}**")
+            st.success(f"✅ Costo encontrado en Lista Gold para `{query_costos.strip()}`: **${costo_gold_val:,.2f}** ({title_g_cost})")
 
         c_p1, c_p2 = st.columns(2)
         with c_p1:
