@@ -299,7 +299,14 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
-    # Payload limpio y estricto sin campos inválidos rechazados por la API
+    # Atributo obligatorio FAMILY_NAME requerido por la API de MeLi para la categoría de muebles
+    attributes_payload = [
+        {"id": "FAMILY_NAME", "value_name": "Escritorios"},
+        {"id": "BRAND", "value_name": "Centro Estant"},
+        {"id": "MODEL", "value_name": "SC1260"},
+        {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
+    ]
+
     payload = {
         "title": titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant",
         "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
@@ -310,6 +317,7 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "listing_type_id": tipo_listado,
         "condition": "new",
         "site_id": "MLA",
+        "attributes": attributes_payload,
         "pictures": [
             {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
         ]
@@ -423,7 +431,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v86.0 — Panel Operativo Oficial MeLi (Payload Limpio)")
+st.caption("v87.0 — Panel Operativo Oficial MeLi (Atributo FAMILY_NAME Incluido)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -626,7 +634,7 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (PAYLOAD OPTIMIZADO)
+# SOLAPA 3: PUBLICADOR DIRECTO (FAMILY_NAME OBLIGATORIO)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
