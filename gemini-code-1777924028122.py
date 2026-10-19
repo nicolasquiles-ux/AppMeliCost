@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import requests
+import hashlib
+import base64
+import secrets
 
 # ==========================================
 # 1. CONFIGURACIÓN DE PÁGINA
@@ -40,16 +43,24 @@ if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
 if "matriz_productos_df" not in st.session_state:
     st.session_state["matriz_productos_df"] = None
+if "code_verifier" not in st.session_state:
+    st.session_state["code_verifier"] = ""
 
 # ==========================================
-# 4. FUNCIONES DE API Y OAUTH MERCADO LIBRE
+# 4. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
+def generar_pkce_pair():
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode('utf-8')).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode('utf-8').replace('=', '')
+    return verifier, challenge
+
 def obtener_url_login_meli():
-    """Genera la URL exacta para el flujo OAuth oficial de Mercado Libre."""
-    return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
+    verifier, challenge = generar_pkce_pair()
+    st.session_state["code_verifier"] = verifier
+    return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&code_challenge={challenge}&code_challenge_method=S256"
 
-def intercambiar_code_por_token(code: str):
-    """Intercambia el código temporal de MeLi por el Access Token definitivo."""
+def intercambiar_code_por_token(code: str, verifier: str = ""):
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "authorization_code",
@@ -58,6 +69,9 @@ def intercambiar_code_por_token(code: str):
         "code": code,
         "redirect_uri": REDIRECT_URI
     }
+    if verifier:
+        payload["code_verifier"] = verifier
+
     headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
     try:
         res = requests.post(url, data=payload, headers=headers, timeout=10)
@@ -65,7 +79,7 @@ def intercambiar_code_por_token(code: str):
             return True, res.json()
         else:
             err_data = res.json() if res.content else {}
-            return False, err_data.get("message", f"Error HTTP {res.status_code}")
+            return False, err_data.get("message", err_data.get("error_description", f"Error HTTP {res.status_code}"))
     except Exception as e:
         return False, str(e)
 
@@ -82,17 +96,33 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
-def consultar_catalogo_meli(catalog_id: str, access_token: str = None):
-    if not catalog_id or not catalog_id.strip():
-        return None
-    url = f"https://api.mercadolibre.com/products/{catalog_id.strip()}"
+def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
+    """Soporta tanto Catalog Product ID (MLA...) como EAN (código de barras numérico)."""
+    val = input_text.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    try:
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            return res.json()
-    except Exception:
-        pass
+    
+    # Si empieza con MLA es un Catalog ID directo
+    if val.upper().startswith("MLA"):
+        url = f"https://api.mercadolibre.com/products/{val}"
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                return res.json()
+        except Exception:
+            pass
+        return None
+    
+    # Si es numérico (EAN/GTIN) busca el producto de catálogo por EAN
+    if val.isdigit():
+        url = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+                if results:
+                    return results[0]
+        except Exception:
+            pass
     return None
 
 def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
@@ -110,6 +140,8 @@ def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
 
 def publicar_item_en_catalogo(
     catalog_product_id: str,
+    titulo_producto: str,
+    categoria_id: str,
     precio_venta: float,
     listing_type_id: str = "gold_pro",
     quantity: int = 1,
@@ -126,15 +158,18 @@ def publicar_item_en_catalogo(
         "Accept": "application/json"
     }
 
+    # Payload completo requerido por POST /items
     payload = {
-        "site_id": "MLA",
-        "catalog_product_id": catalog_product_id.strip(),
+        "title": titulo_producto[:60] if titulo_producto else "Producto de Catálogo",
+        "category_id": categoria_id if categoria_id else "MLA35254",
         "price": round(float(precio_venta), 2),
         "currency_id": "ARS",
         "available_quantity": int(quantity),
         "buying_mode": "buy_it_now",
         "listing_type_id": listing_type_id,
-        "condition": condition
+        "condition": condition,
+        "site_id": "MLA",
+        "catalog_product_id": catalog_product_id.strip()
     }
 
     try:
@@ -149,6 +184,9 @@ def publicar_item_en_catalogo(
         else:
             err_data = response.json() if response.content else {}
             err_msg = err_data.get("message", f"Error HTTP {response.status_code}")
+            if "cause" in err_data:
+                causes = [c.get("message", "") for c in err_data.get("cause", [])]
+                err_msg += " (" + ", ".join(causes) + ")"
             return False, f"❌ Error API MeLi: {err_msg}"
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
@@ -156,13 +194,13 @@ def publicar_item_en_catalogo(
 # ==========================================
 # 5. CAPTURA Y PROCESAMIENTO AUTOMÁTICO DE OAUTH
 # ==========================================
-# Obtener parámetros de URL de forma compatible
 query_params = st.query_params
 code_auth = query_params.get("code", None)
 
 if code_auth and not st.session_state["access_token"]:
     with st.spinner("Procesando autenticación con Mercado Libre..."):
-        exito, token_resp = intercambiar_code_por_token(code_auth)
+        verifier_saved = st.session_state.get("code_verifier", "")
+        exito, token_resp = intercambiar_code_por_token(code_auth, verifier=verifier_saved)
         if exito:
             st.session_state["access_token"] = token_resp.get("access_token", "")
             st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
@@ -214,7 +252,7 @@ with st.sidebar:
     st.subheader("🔗 Conexión a Mercado Libre")
     
     if st.session_state["access_token"]:
-        nickname_v = st.session_state["user_info"].get("nickname", "Conectado")
+        nickname_v = st.session_state["user_info"].get("nickname", "AURORAHOMEOK")
         st.success(f"🟢 Vendedor: **{nickname_v}**")
         if st.button("Desconectar MeLi"):
             st.session_state["access_token"] = ""
@@ -224,18 +262,6 @@ with st.sidebar:
         st.warning("⚠️ Sin conexión con Mercado Libre")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
-        
-        with st.expander("⚙️ Alternativa de emergencia"):
-            token_emergencia = st.text_input("Ingresar Token manual si falla OAuth", type="password")
-            if st.button("Vincular Token de Emergencia"):
-                u_perfil = obtener_perfil_meli(token_emergencia)
-                if u_perfil:
-                    st.session_state["access_token"] = token_emergencia.strip()
-                    st.session_state["user_info"] = u_perfil
-                    st.success("¡Vinculado con éxito!")
-                    st.rerun()
-                else:
-                    st.error("Token no válido.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -267,7 +293,7 @@ with st.sidebar:
 # 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v55.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v57.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -317,7 +343,7 @@ with tabs[1]:
             st.error(f"Error al consultar la publicación: {e}")
 
 # ------------------------------------------
-# TAB 3: COSTOS & LISTA GOLD (BLINDADA)
+# TAB 3: COSTOS & LISTA GOLD
 # ------------------------------------------
 with tabs[2]:
     st.header("📋 Matriz de Costos (Lista Gold)")
@@ -375,49 +401,50 @@ with tabs[5]:
 # ------------------------------------------
 with tabs[6]:
     st.header("📦 Analizador por Producto / Catálogo & Top de Vendedores")
-    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) para analizar la competencia, ver el Top de Vendedores y evaluar el costo de tu Lista Gold.")
+    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) o código EAN (ej. `7798009182461`) para analizar la competencia, el Buy Box y publicar.")
 
     col_a1, col_a2 = st.columns([2, 1])
     with col_a1:
-        cat_search_id = st.text_input("Catalog Product ID", value="MLA20491823")
+        search_input = st.text_input("Catalog Product ID o EAN", value="7798009182461")
     with col_a2:
         st.write("")
         analizar_btn = st.button("🔍 Analizar Competencia y Buy Box", type="primary", use_container_width=True)
 
-    if analizar_btn or cat_search_id:
-        with st.spinner("Consultando datos de catálogo y competidores en Mercado Libre..."):
-            cat_details = consultar_catalogo_meli(cat_search_id, st.session_state["access_token"])
-            vendedores_items = buscar_items_por_catalogo(cat_search_id, st.session_state["access_token"])
+    cat_details = None
+    real_catalog_id = ""
+
+    if analizar_btn or search_input:
+        with st.spinner("Consultando producto de catálogo en Mercado Libre..."):
+            cat_details = resolver_id_catalogo_o_ean(search_input, st.session_state["access_token"])
 
         if cat_details:
-            st.success(f"**Producto:** {cat_details.get('title', 'Sin Título')} | **Categoría:** {cat_details.get('category_id', 'N/A')}")
-        
-        if vendedores_items:
-            st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
+            real_catalog_id = cat_details.get("id", "")
+            title_p = cat_details.get("title", "Sin Título")
+            cat_id_p = cat_details.get("category_id", "")
+            st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID:** `{real_catalog_id}` | **Categoría:** `{cat_id_p}`")
             
-            data_competencia = []
-            for item in vendedores_items[:10]:
-                seller_id = item.get("seller", {}).get("id")
-                precio_item = item.get("price", 0)
-                permalink_item = item.get("permalink")
-                listing_t = item.get("listing_type_id")
-                
-                data_competencia.append({
-                    "Título Publicación": item.get("title"),
-                    "Precio ($ ARS)": precio_item,
-                    "Tipo Listado": listing_t,
-                    "Stock": item.get("available_quantity"),
-                    "Vendedor ID": seller_id,
-                    "Link": permalink_item
-                })
-            
-            df_comp = pd.DataFrame(data_competencia)
-            st.dataframe(df_comp, use_container_width=True)
-            
-            precio_minimo_mercado = df_comp["Precio ($ ARS)"].min() if not df_comp.empty else 0.0
-            st.info(f"💡 **Precio mínimo detectado en la competencia:** ${precio_minimo_mercado:,.2f}")
+            vendedores_items = buscar_items_por_catalogo(real_catalog_id, st.session_state["access_token"])
+
+            if vendedores_items:
+                st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
+                data_competencia = []
+                for item in vendedores_items[:10]:
+                    data_competencia.append({
+                        "Título Publicación": item.get("title"),
+                        "Precio ($ ARS)": item.get("price", 0),
+                        "Tipo Listado": item.get("listing_type_id"),
+                        "Stock": item.get("available_quantity"),
+                        "Vendedor ID": item.get("seller", {}).get("id"),
+                        "Link": item.get("permalink")
+                    })
+                df_comp = pd.DataFrame(data_competencia)
+                st.dataframe(df_comp, use_container_width=True)
+                precio_minimo = df_comp["Precio ($ ARS)"].min() if not df_comp.empty else 0.0
+                st.info(f"💡 **Precio mínimo en el mercado:** ${precio_minimo:,.2f}")
+            else:
+                st.warning("No se encontraron vendedores competidores activos en este ID de catálogo exacto.")
         else:
-            st.warning("No se encontraron publicaciones competidoras activas para este ID de catálogo exacto.")
+            st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido de Mercado Libre.")
 
         st.markdown("---")
         st.subheader("🚀 Simulador y Ejecutor de Publicación en Catálogo (`POST /items`)")
@@ -432,16 +459,21 @@ with tabs[6]:
             stock_pub = st.number_input("Stock Inicial", min_value=1, value=5)
 
         if st.button("🚀 PUBLICAR EN EL CATÁLOGO DE MERCADO LIBRE", type="primary", use_container_width=True):
-            with st.spinner("Enviando publicación..."):
-                exito, respuesta = publicar_item_en_catalogo(
-                    catalog_product_id=cat_search_id,
-                    precio_venta=precio_final_pub,
-                    listing_type_id=code_list_pub,
-                    quantity=int(stock_pub),
-                    access_token=st.session_state.get("access_token")
-                )
-                if exito:
-                    st.success(respuesta["message"])
-                    st.markdown(f"👉 [Abrir publicación creada en Mercado Libre]({respuesta['permalink']})")
-                else:
-                    st.error(respuesta)
+            if not cat_details or not real_catalog_id:
+                st.error("⚠️ Analizá y validá primero un producto de catálogo válido antes de publicar.")
+            else:
+                with st.spinner("Enviando publicación a Mercado Libre..."):
+                    exito, respuesta = publicar_item_en_catalogo(
+                        catalog_product_id=real_catalog_id,
+                        titulo_producto=cat_details.get("title", ""),
+                        categoria_id=cat_details.get("category_id", ""),
+                        precio_venta=precio_final_pub,
+                        listing_type_id=code_list_pub,
+                        quantity=int(stock_pub),
+                        access_token=st.session_state.get("access_token")
+                    )
+                    if exito:
+                        st.success(respuesta["message"])
+                        st.markdown(f"👉 [Abrir publicación creada en Mercado Libre]({respuesta['permalink']})")
+                    else:
+                        st.error(respuesta)
