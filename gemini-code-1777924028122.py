@@ -33,8 +33,8 @@ CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
 CATEGORIAS_MELI = {
-    "Bibliotecas, Estanterías y Repisas (MLA37209)": "MLA37209",
     "Aparadores, Vajilleros y Cómodas (MLA433221)": "MLA433221",
+    "Bibliotecas, Estanterías y Repisas (MLA37209)": "MLA37209",
     "Respaldos de Cama y Sommiers (MLA432095)": "MLA432095",
     "Escritorios (MLA35254)": "MLA35254",
     "Mesas de Noche / Auxiliares (MLA37207)": "MLA37207",
@@ -427,7 +427,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v93.0 — Panel Operativo Oficial MeLi (Publicador Asistido Professional)")
+st.caption("v94.0 — Panel Operativo Oficial MeLi (Limpiador de Payload Aceptado)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -645,19 +645,18 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (MAPEADOR EDITABLE)
+# SOLAPA 3: PUBLICADOR DIRECTO (ESTRUCTURA LIMPÍA)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo Asistido Mercado Libre (`POST /items`)")
-    st.write("Configuración campo por campo con **Mapeador de JSON Editable** igual que Unidrop / Ventiapp:")
+    st.write("Configuración campo por campo con **Limpiador de Payload y JSON Editable**:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
-    # Campos Generales
     c_f1, c_f2 = st.columns(2)
     with c_f1:
         titulo_input = st.text_input("Título de la Publicación (Máx 60 car.)", value=pub_data_state.get("title", "Alacena 120cm 3 Puertas Centro Estant blanco"))
-        nombre_cat_sel = st.selectbox("Categoría MeLi", list(CATEGORIAS_MELI.keys()), index=1)
+        nombre_cat_sel = st.selectbox("Categoría MeLi", list(CATEGORIAS_MELI.keys()), index=0)
         categoria_id_val = CATEGORIAS_MELI[nombre_cat_sel]
         
     with c_f2:
@@ -666,23 +665,16 @@ with tabs[2]:
         tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
     st.markdown("---")
-    st.subheader("🛠️ Mapeador de Atributos y Modos de Publicación")
+    st.subheader("🛠️ Mapeador de Atributos Limpios")
     
-    col_t1, col_t2, col_t3 = st.columns(3)
+    col_t1, col_t2 = st.columns(2)
     with col_t1:
-        incluir_catalog = st.checkbox("Incluir `catalog_product_id`", value=False, help="Activar solo si tu cuenta está enrolada directamente a catálogo sin User Product.")
-        catalog_id_val = st.text_input("Catalog Product ID", value=pub_data_state.get("catalog_id", "MLA27874272"), disabled=not incluir_catalog)
-
-    with col_t2:
-        incluir_family = st.checkbox("Incluir `family_name` en Raíz", value=False, help="Activar si la categoría o cuenta exige User Product (UP).")
-        family_name_val = st.text_input("Nombre de Familia", value=titulo_input[:30], disabled=not incluir_family)
-
-    with col_t3:
         marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
+    with col_t2:
         modelo_val = st.text_input("Modelo (MODEL)", value="Estar")
 
-    # Construcción Dinámica del JSON en tiempo real
-    payload_dinamico = {
+    # Payload Limpio Aceptado por Mercado Libre API
+    payload_limpio = {
         "title": titulo_input[:60],
         "category_id": categoria_id_val,
         "price": round(float(precio_val), 2),
@@ -694,26 +686,15 @@ with tabs[2]:
         "site_id": "MLA",
         "attributes": [
             {"id": "BRAND", "value_name": marca_val},
-            {"id": "MODEL", "value_name": modelo_val},
-            {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
-        ],
-        "sale_terms": [
-            {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
-            {"id": "WARRANTY_TIME", "value_name": "6 meses"}
+            {"id": "MODEL", "value_name": modelo_val}
         ],
         "pictures": [
             {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
         ]
     }
 
-    if incluir_catalog and catalog_id_val.strip():
-        payload_dinamico["catalog_product_id"] = catalog_id_val.strip().upper()
-
-    if incluir_family and family_name_val.strip():
-        payload_dinamico["family_name"] = family_name_val.strip()
-
     st.markdown("#### 📝 Vista Previa del JSON que se enviará a `POST /items`:")
-    json_editado_raw = st.text_area("JSON editable en tiempo real:", value=json.dumps(payload_dinamico, indent=2, ensure_ascii=False), height=280)
+    json_editado_raw = st.text_area("JSON editable en tiempo real:", value=json.dumps(payload_limpio, indent=2, ensure_ascii=False), height=280)
 
     st.markdown("---")
     if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
