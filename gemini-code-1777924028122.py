@@ -95,6 +95,24 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
+def obtener_atributos_obligatorios_categoria(category_id: str):
+    url = f"https://api.mercadolibre.com/categories/{category_id}/attributes"
+    try:
+        res = requests.get(url, timeout=6)
+        if res.status_code == 200:
+            attrs = res.json()
+            required_attrs = []
+            for a in attrs:
+                tags = a.get("tags", {})
+                if isinstance(tags, dict) and tags.get("required"):
+                    required_attrs.append(a)
+                elif isinstance(tags, list) and "required" in tags:
+                    required_attrs.append(a)
+            return required_attrs
+    except Exception:
+        pass
+    return []
+
 def procesar_archivo_lista_gold(file):
     try:
         if file.name.endswith('.csv'):
@@ -427,7 +445,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v95.0 — Panel Operativo Oficial MeLi (Con family_name Requerido)")
+st.caption("v96.0 — Panel Operativo Oficial MeLi (Atributos Dinámicos por Categoría)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -645,11 +663,11 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (FAMILY_NAME OBLIGATORIO)
+# SOLAPA 3: PUBLICADOR DIRECTO (ATRIBUTOS OBLIGATORIOS API)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo Mercado Libre (`POST /items`)")
-    st.write("Configuración del esquema User Products con **family_name obligatorio en raíz**:")
+    st.write("Generador con **atributos requeridos predictivos por categoría**:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
@@ -664,21 +682,30 @@ with tabs[2]:
         stock_val = st.number_input("Stock Inicial", min_value=1, value=5)
         tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
-    st.markdown("---")
-    st.subheader("🛠️ Atributos Requeridos y Nombre de Familia (UP)")
-    
-    col_t1, col_t2, col_t3 = st.columns(3)
-    with col_t1:
-        family_name_input = st.text_input("Nombre de Familia (family_name)", value="Alacena 120cm 3 Puertas")
-    with col_t2:
-        marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
-    with col_t3:
-        modelo_val = st.text_input("Modelo (MODEL)", value="al120bl")
+    # Consulta de atributos obligatorios requeridos por la API
+    req_attrs_category = obtener_atributos_obligatorios_categoria(categoria_id_val)
 
-    # Payload Oficial que cumple la regla obligatoria de User Products exigida por MeLi
-    payload_oficial = {
+    st.markdown("---")
+    st.subheader("🛠️ Mapeo de Atributos Requeridos por MeLi")
+    
+    list_attributes_payload = [
+        {"id": "BRAND", "value_name": "Centro Estant"},
+        {"id": "MODEL", "value_name": "al120bl"}
+    ]
+
+    if req_attrs_category:
+        st.info(f"ℹ️ La categoría **{categoria_id_val}** exige los siguientes atributos obligatorios:")
+        cols_attr = st.columns(min(len(req_attrs_category), 3))
+        for idx, attr_req in enumerate(req_attrs_category):
+            a_id = attr_req.get("id")
+            a_name = attr_req.get("name")
+            if a_id not in ["BRAND", "MODEL"]:
+                val_attr = cols_attr[idx % 3].text_input(f"{a_name} ({a_id})", value="Estándar")
+                list_attributes_payload.append({"id": a_id, "value_name": val_attr})
+
+    # Payload raíz estándar estricto
+    payload_estandar = {
         "title": titulo_input[:60],
-        "family_name": family_name_input.strip(),
         "category_id": categoria_id_val,
         "price": round(float(precio_val), 2),
         "currency_id": "ARS",
@@ -687,17 +714,14 @@ with tabs[2]:
         "listing_type_id": tipo_listado_val,
         "condition": "new",
         "site_id": "MLA",
-        "attributes": [
-            {"id": "BRAND", "value_name": marca_val},
-            {"id": "MODEL", "value_name": modelo_val}
-        ],
+        "attributes": list_attributes_payload,
         "pictures": [
             {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
         ]
     }
 
-    st.markdown("#### 📝 Vista Previa del JSON con `family_name` en Raíz:")
-    json_editado_raw = st.text_area("JSON enviado a `POST /items`:", value=json.dumps(payload_oficial, indent=2, ensure_ascii=False), height=280)
+    st.markdown("#### 📝 Vista Previa del JSON Estándar Aceptado:")
+    json_editado_raw = st.text_area("JSON enviado a `POST /items`:", value=json.dumps(payload_estandar, indent=2, ensure_ascii=False), height=280)
 
     st.markdown("---")
     if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
