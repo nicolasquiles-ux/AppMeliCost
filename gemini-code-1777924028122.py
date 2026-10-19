@@ -299,30 +299,9 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
-    # Asignación estricta de la clave 'family_name' para cumplir con User Products (UP)
-    titulo_limpio = titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant"
-    nombre_familia = "Escritorio SC1260 Centro Estant"
-
-    attributes_payload = [
-        {"id": "BRAND", "value_name": "Centro Estant"},
-        {"id": "MODEL", "value_name": "SC1260"},
-        {"id": "ITEM_CONDITION", "value_name": "Nuevo"},
-        {"id": "COLOR", "value_name": "Negro y Paraiso"}
-    ]
-
-    pictures_payload = [
-        {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
-    ]
-
-    sale_terms_payload = [
-        {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
-        {"id": "WARRANTY_TIME", "value_name": "6 meses"}
-    ]
-
-    # Payload Oficial con 'family_name' en la raíz requerida por la API
+    # Payload limpio y estricto sin campos inválidos rechazados por la API
     payload = {
-        "title": titulo_limpio,
-        "family_name": nombre_familia,
+        "title": titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant",
         "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
         "price": round(float(precio), 2),
         "currency_id": "ARS",
@@ -331,9 +310,9 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "listing_type_id": tipo_listado,
         "condition": "new",
         "site_id": "MLA",
-        "attributes": attributes_payload,
-        "pictures": pictures_payload,
-        "sale_terms": sale_terms_payload
+        "pictures": [
+            {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
+        ]
     }
 
     if catalog_id and catalog_id.upper().startswith("MLA"):
@@ -344,20 +323,20 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         if res.status_code in [200, 201]:
             data = res.json()
             url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada exitosamente en Mercado Libre! ID: **{data.get('id')}** — [Abrir Publicación]({url_created})"
+            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir Publicación]({url_created})"
         else:
             err_json = res.json() if res.content else {}
             err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
             
-            # Reintento enviando family_name idéntico al título
-            if "family_name" in err_msg or res.status_code == 400:
-                payload_alt = payload.copy()
-                payload_alt["family_name"] = titulo_limpio
-                res_alt = requests.post(url, json=payload_alt, headers=headers, timeout=10)
-                if res_alt.status_code in [200, 201]:
-                    data_alt = res_alt.json()
-                    url_created_alt = construir_url_canonica_meli(data_alt.get("id"), data_alt.get("permalink", ""))
-                    return True, f"✅ ¡Publicación creada con éxito! ID: **{data_alt.get('id')}** — [Abrir Publicación]({url_created_alt})"
+            # Reintento eliminando catalog_product_id si la cuenta requiere ítem directo
+            if "catalog" in err_msg.lower() or res.status_code == 400:
+                payload_free = payload.copy()
+                payload_free.pop("catalog_product_id", None)
+                res_f = requests.post(url, json=payload_free, headers=headers, timeout=10)
+                if res_f.status_code in [200, 201]:
+                    data_f = res_f.json()
+                    url_created_f = construir_url_canonica_meli(data_f.get("id"), data_f.get("permalink", ""))
+                    return True, f"✅ ¡Publicación directa creada con éxito! ID: **{data_f.get('id')}** — [Abrir Publicación]({url_created_f})"
 
             if "cause" in err_json:
                 causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
@@ -444,7 +423,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v85.0 — Panel Operativo Oficial MeLi con User Products UP")
+st.caption("v86.0 — Panel Operativo Oficial MeLi (Payload Limpio)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -545,7 +524,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (CON CÁLCULO PRECISO Y DESGLOSE BUY BOX)
+# SOLAPA 2: COMPETENCIA (CON DESGLOSE DE COSTOS DEL LÍDER)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -647,7 +626,7 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (CON FAMILY_NAME EN LA RAÍZ)
+# SOLAPA 3: PUBLICADOR DIRECTO (PAYLOAD OPTIMIZADO)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
