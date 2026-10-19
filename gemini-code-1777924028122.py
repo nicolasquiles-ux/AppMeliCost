@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import re
 
 # ==========================================
 # 1. CONFIGURACIÓN DE PÁGINA
@@ -19,7 +20,7 @@ st.markdown("""
     .stButton>button { border-radius: 8px; font-weight: 600; }
     .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
     .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
-    .badge-missing { background-color: #ff4d4d; color: white; padding: 8px 12px; border-radius: 6px; font-weight: bold; display: inline-block; }
+    .badge-missing { background-color: #ff4d4d; color: white; padding: 10px; border-radius: 6px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -45,7 +46,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API Y BÚSQUEDA ROBUSTA
+# 4. FUNCIONES DE LECTURA ROBUSTA DE EXCEL / API
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -83,51 +84,68 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
+def procesar_archivo_lista_gold(file):
+    """Procesa el Excel/CSV detectando la cabecera real automáticamente."""
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+
+        # Detectar si la primera fila no es la cabecera real
+        if not any('ean' in str(c).lower() for c in df.columns):
+            for i in range(min(5, len(df))):
+                row_vals = [str(x).lower() for x in df.iloc[i].values]
+                if any('ean' in v for v in row_vals):
+                    if file.name.endswith('.csv'):
+                        df = pd.read_csv(file, header=i+1)
+                    else:
+                        df = pd.read_excel(file, header=i+1)
+                    break
+        return df
+    except Exception as e:
+        st.error(f"Error al procesar archivo: {e}")
+        return None
+
 def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
-    """Busca limpiando decimales de Excel (ej: 7798... .0) y retorna (encontrado, costo, título)."""
+    """Busca limpiando formatos numéricos de EAN (ej: 7798274755841.0 -> 7798274755841)."""
     if st.session_state["lista_gold_df"] is None:
         return False, 0.0, ""
 
     df = st.session_state["lista_gold_df"]
-    q = str(clave_busqueda).strip().lower().replace(".0", "")
+    q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
 
     for col in df.columns:
         if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo", "gtin"]):
-            # Normalizar la columna del dataframe a string sin .0
-            col_series = df[col].astype(str).str.lower().str.strip().str.replace(r'\.0$', '', regex=True)
-            matches = df[col_series == q]
+            # Normalizar columna quitando todo carácter no numérico
+            col_series = df[col].astype(str).apply(lambda x: re.sub(r'\D', '', x.split('.')[0] if '.' in x else x))
+            matches = df[col_series == q_clean]
+            
             if not matches.empty:
-                cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "valor"])]
-                val_col = cost_cols[0] if cost_cols else df.columns[1]
+                cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "lista", "valor"])]
+                val_col = cost_cols[0] if cost_cols else df.columns[-1]
                 
-                title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto"])]
+                title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto", "articul"])]
                 title_val = str(matches.iloc[0][title_cols[0]]) if title_cols else ""
 
                 try:
-                    clean_cost = float(str(matches.iloc[0][val_col]).replace("$", "").replace(".", "").replace(",", ".").strip())
+                    raw_cost = str(matches.iloc[0][val_col])
+                    clean_cost = float(re.sub(r'[^\d.]', '', raw_cost.replace("$", "").replace(".", "").replace(",", ".").strip()))
                     return True, clean_cost, title_val
                 except Exception:
                     return True, 0.0, title_val
+
     return False, 0.0, ""
 
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
-    clean_key = str(query_key).strip().replace(".0", "")
+    clean_key = re.sub(r'\D', '', str(query_key).strip())
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     results = []
     catalog_id = ""
     product_title = ""
 
-    if clean_key.upper().startswith("MLA") and not clean_key.isdigit():
-        catalog_id = clean_key
-        url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
-        try:
-            res = requests.get(url_cat, headers=headers, timeout=8)
-            if res.status_code == 200:
-                results = res.json().get("results", [])
-        except Exception:
-            pass
-
-    if clean_key.isdigit():
+    # Paso 1: Intentar por EAN numérico en catálogo
+    if clean_key:
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_key}"
         try:
             res_p = requests.get(url_ean, headers=headers, timeout=8)
@@ -148,7 +166,8 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             except Exception:
                 pass
 
-    if not results:
+    # Paso 2: Fallback Búsqueda Libre por el código EAN
+    if not results and clean_key:
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_key}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -157,8 +176,9 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
+    # Paso 3: Fallback Búsqueda por Nombre extraído de Lista Gold
     if not results:
-        found_g, _, title_g = buscar_costo_y_titulo_en_lista_gold(clean_key)
+        found_g, _, title_g = buscar_costo_y_titulo_en_lista_gold(query_key)
         if found_g and title_g:
             query_clean = requests.utils.quote(title_g[:35])
             url_g_search = f"https://api.mercadolibre.com/sites/MLA/search?q={query_clean}"
@@ -281,20 +301,15 @@ with st.sidebar:
     st.subheader("📄 Carga de Lista Gold")
     uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"])
     if uploaded_gold is not None:
-        try:
-            if uploaded_gold.name.endswith('.csv'):
-                st.session_state["lista_gold_df"] = pd.read_csv(uploaded_gold)
-            else:
-                st.session_state["lista_gold_df"] = pd.read_excel(uploaded_gold)
-            st.success("✅ Lista Gold vinculada.")
-        except Exception as e:
-            st.error(f"Error al leer archivo: {e}")
+        st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
+        if st.session_state["lista_gold_df"] is not None:
+            st.success("✅ Lista Gold vinculada correctamente.")
 
 # ==========================================
-# 8. LAS 3 SOLAPAS REQUERIDAS
+# 8. LAS 3 SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v70.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v71.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -311,7 +326,7 @@ with tabs[0]:
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
-        query_costos = st.text_input("Código SKU / EAN / MLA", value="7798274750754")
+        query_costos = st.text_input("Código SKU / EAN / MLA", value="7798274755841")
     with c_s2:
         st.write("")
         btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
@@ -330,16 +345,16 @@ with tabs[0]:
 
         c_p1, c_p2 = st.columns(2)
         with c_p1:
-            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=38000.0, step=500.0)
+            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=115000.0, step=500.0)
             tipo_pub_sim = st.selectbox("Modalidad de Publicación", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
             pct_com_sim = 28.0 if "gold_pro" in tipo_pub_sim else 14.0
             st.info(f"Comisión seleccionada: **{pct_com_sim}%**")
-            costo_envio_sim = st.number_input("Costo Envío / Logística ($ ARS)", min_value=0.0, value=3500.0, step=100.0)
+            costo_envio_sim = st.number_input("Costo Envío / Logística ($ ARS)", min_value=0.0, value=4500.0, step=100.0)
 
         with c_p2:
             pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
             pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
-            costo_prod_input = st.number_input("Costo del Producto ($ ARS)", min_value=0.0, value=costo_gold_val if found_gold else 15000.0, step=500.0)
+            costo_prod_input = st.number_input("Costo del Producto ($ ARS)", min_value=0.0, value=costo_gold_val if found_gold else 70500.0, step=500.0)
 
         m_com = pvp_sim * (pct_com_sim / 100.0)
         m_iibb = pvp_sim * (pct_iibb_sim / 100.0)
@@ -380,7 +395,7 @@ with tabs[1]:
 
     col_e1, col_e2 = st.columns([3, 1])
     with col_e1:
-        query_ean_comp = st.text_input("Buscador EAN / Catálogo", value="7798274750754")
+        query_ean_comp = st.text_input("Buscador EAN / Catálogo", value="7798274755841")
     with col_e2:
         st.write("")
         btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
@@ -428,7 +443,7 @@ with tabs[1]:
                 "price": pvp_ganador_bb
             }
 
-            deducciones_estimadas = (pvp_ganador_bb * 0.28) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 3500.0
+            deducciones_estimadas = (pvp_ganador_bb * 0.28) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 4500.0
             costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
             
             pct_desc_requerido = 0.0
@@ -456,12 +471,12 @@ with tabs[2]:
 
     col_pub1, col_pub2 = st.columns(2)
     with col_pub1:
-        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Biblioteca 5 Estantes Centro Estant"))
+        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Biblioteca 6001 Negro Centro Estant"))
         p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", ""))
         p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
 
     with col_pub2:
-        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 38000.0)), step=500.0)
+        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 115000.0)), step=500.0)
         p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
         p_tipo = st.selectbox("Modalidad de Listado", ["gold_pro", "gold_special"], format_func=lambda x: "Premium / Cuotas (gold_pro)" if x=="gold_pro" else "Clásica (gold_special)")
 
