@@ -427,7 +427,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v94.0 — Panel Operativo Oficial MeLi (Limpiador de Payload Aceptado)")
+st.caption("v95.0 — Panel Operativo Oficial MeLi (Con family_name Requerido)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -645,11 +645,11 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (ESTRUCTURA LIMPÍA)
+# SOLAPA 3: PUBLICADOR DIRECTO (FAMILY_NAME OBLIGATORIO)
 # ------------------------------------------
 with tabs[2]:
-    st.header("🚀 Publicador Directo Asistido Mercado Libre (`POST /items`)")
-    st.write("Configuración campo por campo con **Limpiador de Payload y JSON Editable**:")
+    st.header("🚀 Publicador Directo Mercado Libre (`POST /items`)")
+    st.write("Configuración del esquema User Products con **family_name obligatorio en raíz**:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
@@ -665,17 +665,20 @@ with tabs[2]:
         tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
     st.markdown("---")
-    st.subheader("🛠️ Mapeador de Atributos Limpios")
+    st.subheader("🛠️ Atributos Requeridos y Nombre de Familia (UP)")
     
-    col_t1, col_t2 = st.columns(2)
+    col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1:
-        marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
+        family_name_input = st.text_input("Nombre de Familia (family_name)", value="Alacena 120cm 3 Puertas")
     with col_t2:
-        modelo_val = st.text_input("Modelo (MODEL)", value="Estar")
+        marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
+    with col_t3:
+        modelo_val = st.text_input("Modelo (MODEL)", value="al120bl")
 
-    # Payload Limpio Aceptado por Mercado Libre API
-    payload_limpio = {
+    # Payload Oficial que cumple la regla obligatoria de User Products exigida por MeLi
+    payload_oficial = {
         "title": titulo_input[:60],
+        "family_name": family_name_input.strip(),
         "category_id": categoria_id_val,
         "price": round(float(precio_val), 2),
         "currency_id": "ARS",
@@ -693,8 +696,8 @@ with tabs[2]:
         ]
     }
 
-    st.markdown("#### 📝 Vista Previa del JSON que se enviará a `POST /items`:")
-    json_editado_raw = st.text_area("JSON editable en tiempo real:", value=json.dumps(payload_limpio, indent=2, ensure_ascii=False), height=280)
+    st.markdown("#### 📝 Vista Previa del JSON con `family_name` en Raíz:")
+    json_editado_raw = st.text_area("JSON enviado a `POST /items`:", value=json.dumps(payload_oficial, indent=2, ensure_ascii=False), height=280)
 
     st.markdown("---")
     if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
