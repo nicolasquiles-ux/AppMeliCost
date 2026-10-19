@@ -46,7 +46,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE LECTURA ROBUSTA DE EXCEL / API
+# 4. FUNCIONES DE LECTURA DE EXCEL Y BÚSQUEDA ROBUSTA (FIXED)
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -108,29 +108,45 @@ def procesar_archivo_lista_gold(file):
         return None
 
 def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
-    """Busca limpiando formatos numéricos de EAN (ej: 7798274755841.0 -> 7798274755841)."""
+    """Lógica vectorializada ultra segura sin re.sub en lambda para evitar fallos en Pandas."""
     if st.session_state["lista_gold_df"] is None:
         return False, 0.0, ""
 
     df = st.session_state["lista_gold_df"]
+    
+    # Extraer solo dígitos de la clave buscada
     q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
+    if not q_clean:
+        return False, 0.0, ""
 
     for col in df.columns:
-        if any(term in str(col).lower() for term in ["ean", "sku", "codigo", "código", "articulo", "artículo", "gtin"]):
-            # Normalizar columna quitando todo carácter no numérico
-            col_series = df[col].astype(str).apply(lambda x: re.sub(r'\D', '', x.split('.')[0] if '.' in x else x))
-            matches = df[col_series == q_clean]
+        col_str = str(col).lower()
+        if any(term in col_str for term in ["ean", "sku", "codigo", "código", "articulo", "artículo", "gtin"]):
+            # Limpieza vectorial pura en Pandas (Segura contra NaNs)
+            series_clean = (
+                df[col]
+                .fillna('')
+                .astype(str)
+                .str.split('.')
+                .str[0]
+                .str.replace(r'\D', '', regex=True)
+            )
             
+            matches = df[series_clean == q_clean]
             if not matches.empty:
+                # Obtener columna de costos
                 cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "lista", "valor"])]
                 val_col = cost_cols[0] if cost_cols else df.columns[-1]
                 
+                # Obtener columna de descripción/título
                 title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto", "articul"])]
                 title_val = str(matches.iloc[0][title_cols[0]]) if title_cols else ""
 
                 try:
                     raw_cost = str(matches.iloc[0][val_col])
-                    clean_cost = float(re.sub(r'[^\d.]', '', raw_cost.replace("$", "").replace(".", "").replace(",", ".").strip()))
+                    # Limpiar caracteres como $, comas y puntos
+                    clean_str = re.sub(r'[^\d.]', '', raw_cost.replace("$", "").replace(".", "").replace(",", ".").strip())
+                    clean_cost = float(clean_str) if clean_str else 0.0
                     return True, clean_cost, title_val
                 except Exception:
                     return True, 0.0, title_val
@@ -309,7 +325,7 @@ with st.sidebar:
 # 8. LAS 3 SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v71.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v72.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
