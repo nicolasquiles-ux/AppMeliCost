@@ -348,4 +348,114 @@ with tabs[2]:
             except Exception:
                 st.warning(f"Costo registrado para **{sel_sku}**: **{raw_val}**")
     else:
-        st.warning("Subí tu archivo de Lista Gold en la
+        st.warning("Subí tu archivo de Lista Gold en la barra lateral.")
+
+# ------------------------------------------
+# TAB 4: FINANCIACIÓN
+# ------------------------------------------
+with tabs[3]:
+    st.header("💳 Financiación & Cuotas")
+    plan = st.selectbox("Plan", ["Clásica", "3 Cuotas", "6 Cuotas Premium", "12 Cuotas"])
+    monto = st.number_input("Monto Ref ($)", value=25000.0)
+    pct = 0.15 if "6 Cuotas" in plan else (0.28 if "12 Cuotas" in plan else 0.0)
+    st.metric("Costo Financiero", f"${monto * pct:,.2f}")
+
+# ------------------------------------------
+# TAB 5: ENVÍOS
+# ------------------------------------------
+with tabs[4]:
+    st.header("🚚 Envíos & Logística")
+    peso = st.number_input("Peso (kg)", value=1.0)
+    st.metric("Costo Envío", f"${2800.0 if peso <= 2 else 5200.0:,.2f}")
+
+# ------------------------------------------
+# TAB 6: MATRIZ DE MARGEN
+# ------------------------------------------
+with tabs[5]:
+    st.header("📈 Simulación de Margen")
+    pvp = st.number_input("PVP ($)", value=35000.0)
+    costo = st.number_input("Costo ($)", value=12000.0)
+    com = st.slider("Comisión (%)", 10.0, 35.0, 28.0)
+    st.metric("Margen Neto", f"${pvp - costo - (pvp * com / 100):,.2f}")
+
+# ------------------------------------------
+# TAB 7: ANALIZADOR DE CATÁLOGO & TOP DE VENDEDORES
+# ------------------------------------------
+with tabs[6]:
+    st.header("📦 Analizador por Producto / Catálogo & Top de Vendedores")
+    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) o código EAN (ej. `7798009182461`) para analizar la competencia, el Buy Box y publicar.")
+
+    col_a1, col_a2 = st.columns([2, 1])
+    with col_a1:
+        search_input = st.text_input("Catalog Product ID o EAN", value="7798009182461")
+    with col_a2:
+        st.write("")
+        analizar_btn = st.button("🔍 Analizar Competencia y Buy Box", type="primary", use_container_width=True)
+
+    cat_details = None
+    real_catalog_id = ""
+
+    if analizar_btn or search_input:
+        with st.spinner("Consultando producto de catálogo en Mercado Libre..."):
+            cat_details = resolver_id_catalogo_o_ean(search_input, st.session_state["access_token"])
+
+        if cat_details:
+            real_catalog_id = cat_details.get("id", "")
+            title_p = cat_details.get("title", "Sin Título")
+            cat_id_p = cat_details.get("category_id", "")
+            st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID:** `{real_catalog_id}` | **Categoría:** `{cat_id_p}`")
+            
+            vendedores_items = buscar_items_por_catalogo(real_catalog_id, st.session_state["access_token"])
+
+            if vendedores_items:
+                st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
+                data_competencia = []
+                for item in vendedores_items[:10]:
+                    data_competencia.append({
+                        "Título Publicación": item.get("title"),
+                        "Precio ($ ARS)": item.get("price", 0),
+                        "Tipo Listado": item.get("listing_type_id"),
+                        "Stock": item.get("available_quantity"),
+                        "Vendedor ID": item.get("seller", {}).get("id"),
+                        "Link": item.get("permalink")
+                    })
+                df_comp = pd.DataFrame(data_competencia)
+                st.dataframe(df_comp, use_container_width=True)
+                precio_minimo = df_comp["Precio ($ ARS)"].min() if not df_comp.empty else 0.0
+                st.info(f"💡 **Precio mínimo en el mercado:** ${precio_minimo:,.2f}")
+            else:
+                st.warning("No se encontraron vendedores competidores activos en este ID de catálogo exacto.")
+        else:
+            st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido de Mercado Libre.")
+
+        st.markdown("---")
+        st.subheader("🚀 Simulador y Ejecutor de Publicación en Catálogo (`POST /items`)")
+
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1:
+            precio_final_pub = st.number_input("Precio de Venta Objetivo ($)", min_value=0.0, value=38000.0, step=500.0)
+        with col_p2:
+            tipo_list_pub = st.selectbox("Modalidad de Listado", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
+            code_list_pub = "gold_pro" if "gold_pro" in tipo_list_pub else "gold_special"
+        with col_p3:
+            stock_pub = st.number_input("Stock Inicial", min_value=1, value=5)
+
+        if st.button("🚀 PUBLICAR EN EL CATÁLOGO DE MERCADO LIBRE", type="primary", use_container_width=True):
+            if not cat_details or not real_catalog_id:
+                st.error("⚠️ Analizá y validá primero un producto de catálogo válido antes de publicar.")
+            else:
+                with st.spinner("Enviando publicación a Mercado Libre..."):
+                    exito, respuesta = publicar_item_en_catalogo(
+                        catalog_product_id=real_catalog_id,
+                        titulo_producto=cat_details.get("title", ""),
+                        categoria_id=cat_details.get("category_id", ""),
+                        precio_venta=precio_final_pub,
+                        listing_type_id=code_list_pub,
+                        quantity=int(stock_pub),
+                        access_token=st.session_state.get("access_token")
+                    )
+                    if exito:
+                        st.success(respuesta["message"])
+                        st.markdown(f"👉 [Abrir publicación creada en Mercado Libre]({respuesta['permalink']})")
+                    else:
+                        st.error(respuesta)
