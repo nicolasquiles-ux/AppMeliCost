@@ -249,7 +249,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             pass
 
     if not raw_items:
-        term_search = clean_val if clean_val else "Escritorio SC1260 Centro Estant"
+        term_search = clean_val if clean_val else "Centro Estant"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -279,7 +279,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Escritorio Milan SC1260"),
+            "title": r.get("title", product_title if product_title else "Producto Centro Estant"),
             "price": float(r.get("price", 0.0)),
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
@@ -299,16 +299,16 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
-    # Atributo obligatorio FAMILY_NAME requerido por la API de MeLi para la categoría de muebles
+    # Atributos básicos limpios
     attributes_payload = [
-        {"id": "FAMILY_NAME", "value_name": "Escritorios"},
         {"id": "BRAND", "value_name": "Centro Estant"},
-        {"id": "MODEL", "value_name": "SC1260"},
+        {"id": "MODEL", "value_name": "Estándar"},
         {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
     ]
 
-    payload = {
-        "title": titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant",
+    # Payload sin catalog_product_id para evitar bloqueos de family_name / user_product
+    payload_direct = {
+        "title": titulo[:60] if titulo else "Producto Centro Estant Oficial",
         "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
         "price": round(float(precio), 2),
         "currency_id": "ARS",
@@ -323,29 +323,16 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         ]
     }
 
-    if catalog_id and catalog_id.upper().startswith("MLA"):
-        payload["catalog_product_id"] = catalog_id.strip()
-
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = requests.post(url, json=payload_direct, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
             data = res.json()
             url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir Publicación]({url_created})"
+            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
         else:
             err_json = res.json() if res.content else {}
             err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
             
-            # Reintento eliminando catalog_product_id si la cuenta requiere ítem directo
-            if "catalog" in err_msg.lower() or res.status_code == 400:
-                payload_free = payload.copy()
-                payload_free.pop("catalog_product_id", None)
-                res_f = requests.post(url, json=payload_free, headers=headers, timeout=10)
-                if res_f.status_code in [200, 201]:
-                    data_f = res_f.json()
-                    url_created_f = construir_url_canonica_meli(data_f.get("id"), data_f.get("permalink", ""))
-                    return True, f"✅ ¡Publicación directa creada con éxito! ID: **{data_f.get('id')}** — [Abrir Publicación]({url_created_f})"
-
             if "cause" in err_json:
                 causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
                 if causes:
@@ -431,7 +418,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v87.0 — Panel Operativo Oficial MeLi (Atributo FAMILY_NAME Incluido)")
+st.caption("v88.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -532,7 +519,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (CON DESGLOSE DE COSTOS DEL LÍDER)
+# SOLAPA 2: COMPETENCIA (DESGLOSE COMPLETO)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -634,7 +621,7 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (FAMILY_NAME OBLIGATORIO)
+# SOLAPA 3: PUBLICADOR DIRECTO (VERSIÓN LIMPIA)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
@@ -644,14 +631,14 @@ with tabs[2]:
 
     col_pub1, col_pub2 = st.columns(2)
     with col_pub1:
-        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Escritorio con modulo giratorio Milan SC1260 Centro Estant"))
-        p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", "MLA27235683"))
+        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Respaldo de cama regulable 140-160 RC6 Centro Estant"))
+        p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", "MLA26601704"))
         p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
 
     with col_pub2:
-        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 173436.0)), step=500.0)
+        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 158391.0)), step=500.0)
         p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
-        p_tipo = st.selectbox("Modalidad de Listado", ["gold_pro", "gold_special"], format_func=lambda x: "Premium / Cuotas (gold_pro)" if x=="gold_pro" else "Clásica (gold_special)")
+        p_tipo = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
     st.markdown("---")
     if st.button("🚀 CREAR PUBLICACIÓN OFICIAL EN MERCADO LIBRE", type="primary", use_container_width=True):
