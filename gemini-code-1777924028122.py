@@ -56,6 +56,8 @@ if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
 if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
+if "matriz_custom_df" not in st.session_state:
+    st.session_state["matriz_custom_df"] = None
 
 # ==========================================
 # 4. FUNCIONES DE API Y CÁLCULOS
@@ -117,14 +119,8 @@ def procesar_archivo_lista_gold(file):
         st.error(f"Error al procesar archivo: {e}")
         return None
 
-@st.cache_data
-def cargar_matriz_articulos_oficial():
-    file_path = "Matriz Articulos Gemini.xlsx"
-    if not os.path.exists(file_path):
-        return None
+def procesar_matriz_articulos_df(df):
     try:
-        df = pd.read_excel(file_path)
-        # Cálculo de Peso Volumétrico: (Ancho cm x Alto cm x Prof cm) / 4000
         df['Ancho_cm'] = df['Ancho caja (mm)'] / 10
         df['Alto_cm'] = df['Alto caja (mm)'] / 10
         df['Prof_cm'] = df['Prof caja (mm)'] / 10
@@ -132,8 +128,25 @@ def cargar_matriz_articulos_oficial():
         df['Peso_Volumetrico_Kg'] = (df['Volumen_cm3'] / 4000).round(2)
         df['Peso_Facturable_Kg'] = df[['Peso embalado (Kg)', 'Peso_Volumetrico_Kg']].max(axis=1)
         return df
-    except Exception:
-        return None
+    except Exception as e:
+        st.error(f"Error procesando columnas de la matriz: {e}")
+        return df
+
+def cargar_matriz_articulos_oficial():
+    # 1. Si el usuario subió una matriz manualmente en la sesión
+    if st.session_state["matriz_custom_df"] is not None:
+        return st.session_state["matriz_custom_df"]
+    
+    # 2. Si existe el archivo físico localmente
+    file_path = "Matriz Articulos Gemini.xlsx"
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_excel(file_path)
+            return procesar_matriz_articulos_df(df)
+        except Exception:
+            pass
+            
+    return None
 
 def extraer_opciones_ean_lista_gold():
     if st.session_state["lista_gold_df"] is None:
@@ -450,17 +463,17 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
-    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"])
+    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"], key="uploader_gold")
     if uploaded_gold is not None:
         st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
         if st.session_state["lista_gold_df"] is not None:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 # ==========================================
-# 8. SOLAPAS OPERATIVAS (INCLUYENDO MATRIZ ANEXADA)
+# 8. SOLAPAS OPERATIVAS (INCLUYENDO MATRIZ ANEXADA Y UPLOADER)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v97.1 — Panel Operativo Oficial MeLi con Matriz de Costos Logísticos Anexada")
+st.caption("v97.2 — Panel Operativo Oficial MeLi con Carga Dinámica de Matriz")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -679,7 +692,7 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (MOTOR CASCADA DE INTEGRACIÓN)
+# SOLAPA 3: PUBLICADOR DIRECTO
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo Mercado Libre (`POST /items`)")
@@ -727,7 +740,7 @@ with tabs[2]:
     }
 
     st.markdown("#### 📝 JSON a Enviar:")
-    json_editado_raw = st.text_area("JSON enviado à `POST /items`:", value=json.dumps(payload_base, indent=2, ensure_ascii=False), height=260)
+    json_editado_raw = st.text_area("JSON enviado a `POST /items`:", value=json.dumps(payload_base, indent=2, ensure_ascii=False), height=260)
 
     st.markdown("---")
     if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
@@ -743,11 +756,22 @@ with tabs[2]:
                 st.error(f"❌ JSON inválido: Formato con errores de sintaxis ({str(json_err)})")
 
 # ------------------------------------------
-# SOLAPA 4: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS (ANEXADA)
+# SOLAPA 4: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
 # ------------------------------------------
 with tabs[3]:
-    st.header("📦 Matriz de Artículos & Costos Logísticos (266 SKUs)")
-    st.caption("Base oficial integrada de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable para Mercado Envíos / Flex / Full.")
+    st.header("📦 Matriz de Artículos & Costos Logísticos")
+    st.caption("Carga y visualización de la base oficial de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable para Mercado Envíos / Flex / Full.")
+
+    # Widget de carga dinámica para resolver si no está en el servidor local
+    uploaded_matriz = st.file_uploader("📂 Subir Archivo de Matriz de Artículos (Excel)", type=["xlsx", "xls"], key="uploader_matriz_file")
+    if uploaded_matriz is not None:
+        try:
+            df_subido = pd.read_excel(uploaded_matriz)
+            st.session_state["matriz_custom_df"] = procesar_matriz_articulos_df(df_subido)
+            st.success("✅ Matriz de Artículos cargada y procesada con éxito en la sesión.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo subido: {e}")
 
     matriz_df_oficial = cargar_matriz_articulos_oficial()
 
@@ -780,4 +804,4 @@ with tabs[3]:
             hide_index=True
         )
     else:
-        st.warning("⚠️ No se encontró el archivo `Matriz Articulos Gemini.xlsx` en el directorio de la aplicación. Asegúrate de que esté cargado en el entorno.")
+        st.warning("⚠️ Todavía no hay una matriz cargada. Por favor, sube tu archivo `Matriz Articulos Gemini.xlsx` usando el botón de arriba para habilitar la visualización y los cálculos.")
