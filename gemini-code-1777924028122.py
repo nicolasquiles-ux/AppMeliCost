@@ -81,15 +81,12 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def buscar_vendedores_por_clave(clave_ingresada: str, access_token: str = None):
-    """Obtiene publicaciones activas buscando por Catalog ID, EAN o Título."""
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     val = clave_ingresada.strip()
     
     catalog_id = ""
-    # 1. Si es ID de catálogo
     if val.upper().startswith("MLA"):
         catalog_id = val
-    # 2. Si es EAN numérico
     elif val.isdigit():
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
         try:
@@ -102,7 +99,6 @@ def buscar_vendedores_por_clave(clave_ingresada: str, access_token: str = None):
             pass
 
     items = []
-    # Búsqueda por ID de Catálogo
     if catalog_id:
         url_cat = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
         try:
@@ -112,7 +108,6 @@ def buscar_vendedores_por_clave(clave_ingresada: str, access_token: str = None):
         except Exception:
             pass
 
-    # Búsqueda libre por Query (Fallback)
     if not items:
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(val[:40])}"
         try:
@@ -212,7 +207,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🔗 Conexión a Mercado Libre")
     
-    # 1. Opción de Token Manual (Sin redirigir pestaña)
     manual_token = st.text_input("Access Token Directo (Opcional)", value=st.session_state["access_token"], type="password")
     if manual_token != st.session_state["access_token"]:
         st.session_state["access_token"] = manual_token.strip()
@@ -229,7 +223,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ Sin conexión activa")
         url_auth = obtener_url_login_meli()
-        st.markdown(f'<a href="{url_auth}" target="_self" style="text-decoration:none;"><button style="width:100%;background-color:#FF0000;color:white;padding:10px;border-radius:8px;border:none;font-weight:bold;cursor:pointer;">🔗 CONECTAR EN ESTA PESTAÑA</button></a>', unsafe_allow_html=True)
+        st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -248,7 +242,7 @@ with st.sidebar:
 # 8. ESTRUCTURA REORGANIZADA DE PESTAÑAS (3 SOLAPAS)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v64.0 — Panel Simplificado de Inteligencia de Mercado y Publicación")
+st.caption("v65.0 — Panel Simplificado de Inteligencia de Mercado y Publicación")
 
 tabs = st.tabs([
     "1. 📊 Resumen & Lista Gold",
