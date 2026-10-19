@@ -105,6 +105,31 @@ def procesar_archivo_lista_gold(file):
         st.error(f"Error al procesar archivo: {e}")
         return None
 
+def extraer_opciones_ean_lista_gold():
+    if st.session_state["lista_gold_df"] is None:
+        return []
+    
+    df = st.session_state["lista_gold_df"]
+    opciones = []
+    
+    # Identificar columnas
+    ean_col = next((c for c in df.columns if any(k in str(c).lower() for k in ["ean", "gtin", "codigo", "código"])), None)
+    desc_col = next((c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto"])), None)
+    art_col = next((c for c in df.columns if any(k in str(c).lower() for k in ["articul", "modelo"])), None)
+
+    if not ean_col:
+        return []
+
+    for _, row in df.iterrows():
+        val_ean = re.sub(r'\D', '', str(row[ean_col]).split('.')[0])
+        if len(val_ean) >= 8:
+            desc = str(row[desc_col]) if desc_col and pd.notna(row[desc_col]) else ""
+            art = str(row[art_col]) if art_col and pd.notna(row[art_col]) else ""
+            label = f"{val_ean} — {art} {desc}".strip()
+            opciones.append((label, val_ean))
+
+    return opciones
+
 def limpiar_precio_moneda(valor_raw):
     if pd.isna(valor_raw):
         return 0.0
@@ -229,7 +254,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    target_catalog_id = catalog_id if catalog_id else "MLA27235683"
+    target_catalog_id = catalog_id if catalog_id else "MLA15577861"
     
     url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
     try:
@@ -249,7 +274,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             pass
 
     if not raw_items:
-        term_search = clean_val if clean_val else "Centro Estant"
+        term_search = clean_val if clean_val else "Centro Estant Respaldo"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -299,50 +324,41 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
-    # Asignar un título por defecto si el usuario dejó el campo vacío
-    titulo_final = titulo.strip() if titulo.strip() else "Respaldo de cama regulable 140-160 RC6 Centro Estant"
-    if len(titulo_final) > 60:
-        titulo_final = titulo_final[:60]
+    # Asignar un título limpio válido
+    titulo_limpio = titulo.strip() if titulo and titulo.strip() else "Respaldo de cama regulable 140-160 RC6 Centro Estant"
+    if len(titulo_limpio) > 60:
+        titulo_limpio = titulo_limpio[:60]
 
-    # Nombre corto de la familia requerida por la API para la categoría MLA35254
-    nombre_familia = titulo_final[:30]
+    # Asegurar Categoría Valida (MLA35254 es la predeterminada de muebles)
+    cat_final = categoria.strip() if (categoria and categoria.strip().startswith("MLA")) else "MLA35254"
 
-    # Atributos estructurados requeridos por la API de Mercado Libre
-    attributes_payload = [
-        {"id": "FAMILY_NAME", "value_name": nombre_familia},
-        {"id": "BRAND", "value_name": "Centro Estant"},
-        {"id": "MODEL", "value_name": "RC6"},
-        {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
-    ]
-
-    # Términos de venta requeridos (Garantía)
-    sale_terms_payload = [
-        {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
-        {"id": "WARRANTY_TIME", "value_name": "6 meses"}
-    ]
-
-    cat_id_final = categoria.strip() if (categoria and categoria.strip().startswith("MLA")) else "MLA35254"
-
-    # Payload completo que incluye family_name tanto en raíz como en attributes
+    # Payload Oficial MeLi Estrictamente Válido
     payload = {
-        "title": titulo_final,
-        "family_name": nombre_familia,
-        "category_id": cat_id_final,
+        "title": titulo_limpio,
+        "category_id": cat_final,
         "price": round(float(precio), 2),
         "currency_id": "ARS",
         "available_quantity": int(stock),
         "buying_mode": "buy_it_now",
-        "listing_type_id": tipo_listado,
+        "listing_type_id": tipo_listado if tipo_listado in ["gold_special", "gold_pro"] else "gold_special",
         "condition": "new",
         "site_id": "MLA",
-        "attributes": attributes_payload,
-        "sale_terms": sale_terms_payload,
+        "attributes": [
+            {"id": "BRAND", "value_name": "Centro Estant"},
+            {"id": "MODEL", "value_name": "RC6"},
+            {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
+        ],
+        "sale_terms": [
+            {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
+            {"id": "WARRANTY_TIME", "value_name": "6 meses"}
+        ],
         "pictures": [
             {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
         ]
     }
 
-    if catalog_id and catalog_id.strip().upper().startswith("MLA"):
+    # Adjuntar catalog_product_id solo si es un id de catálogo válido
+    if catalog_id and catalog_id.strip().upper().startswith("MLA") and len(catalog_id.strip()) > 5:
         payload["catalog_product_id"] = catalog_id.strip().upper()
 
     try:
@@ -355,15 +371,15 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
             err_json = res.json() if res.content else {}
             err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
             
-            # Reintento sin catalog_product_id por si la cuenta exige publicación libre
-            if "catalog" in err_msg.lower() or "family_name" in err_msg.lower() or res.status_code == 400:
-                payload_free = payload.copy()
-                payload_free.pop("catalog_product_id", None)
-                res_f = requests.post(url, json=payload_free, headers=headers, timeout=10)
-                if res_f.status_code in [200, 201]:
-                    data_f = res_f.json()
-                    url_created_f = construir_url_canonica_meli(data_f.get("id"), data_f.get("permalink", ""))
-                    return True, f"✅ ¡Publicación directa creada con éxito! ID: **{data_f.get('id')}** — [Abrir en Mercado Libre]({url_created_f})"
+            # Reintento de publicación directa sin catalog_product_id si el catálogo fue el causante
+            if "catalog" in err_msg.lower() or "family_name" in err_msg.lower() or res.status_code in [400, 422]:
+                payload_clean = payload.copy()
+                payload_clean.pop("catalog_product_id", None)
+                res_retry = requests.post(url, json=payload_clean, headers=headers, timeout=10)
+                if res_retry.status_code in [200, 201]:
+                    data_r = res_retry.json()
+                    url_created_r = construir_url_canonica_meli(data_r.get("id"), data_r.get("permalink", ""))
+                    return True, f"✅ ¡Publicación directa creada con éxito! ID: **{data_r.get('id')}** — [Abrir en Mercado Libre]({url_created_r})"
 
             if "cause" in err_json:
                 causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
@@ -450,7 +466,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v89.0 — Panel Operativo Oficial MeLi")
+st.caption("v90.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -509,182 +525,4 @@ with tabs[0]:
                 pct_com_sim = 46.79
 
         with c_p2:
-            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos Volumétrico)", min_value=0.0, value=28500.0, step=500.0)
-            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
-
-        with c_p3:
-            pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
-            pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
-
-        costo_base_calc = costo_gold_val if found_gold else 104000.0
-        costo_con_descuento = costo_base_calc * (1.0 - (pct_descuento_proveedor / 100.0))
-        costo_prod_input = st.number_input("Costo Efectivo del Producto (con desc.)", min_value=0.0, value=costo_con_descuento, step=500.0)
-
-        m_com = pvp_sim * (pct_com_sim / 100.0)
-        m_iibb = pvp_sim * (pct_iibb_sim / 100.0)
-        m_iva = pvp_sim * (pct_iva_sim / 100.0)
-        total_deducciones = m_com + m_iibb + m_iva + costo_envio_sim
-        ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
-        margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
-
-        st.markdown("### 📊 Resultado Financiero Neto Real")
-        res1, res2, res3 = st.columns(3)
-        res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
-        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
-        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
-
-        if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> aplicando un descuento de proveedor del <b>{pct_descuento_proveedor}%</b>.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. Requiere mayor descuento de fábrica.</div>', unsafe_allow_html=True)
-
-        st.markdown("#### 🧾 Desglose Detallado de Deducciones Oficiales")
-        df_desglose = pd.DataFrame([
-            {"Concepto": "PVP Venta Objetivo", "Monto ($)": pvp_sim, "Porcentaje": "100.0%"},
-            {"Concepto": f"Comisión y Financiación MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
-            {"Concepto": "Costo Logística Volumétrico MeLi (Bulto Pesado)", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
-            {"Concepto": f"Ingresos Brutos IIBB ({pct_iibb_sim}%)", "Monto ($)": -m_iibb, "Porcentaje": f"-{pct_iibb_sim}%"},
-            {"Concepto": f"IVA / Retenciones ({pct_iva_sim}%)", "Monto ($)": -m_iva, "Porcentaje": f"-{pct_iva_sim}%"},
-            {"Concepto": f"Costo Producto Efectivo (-{pct_descuento_proveedor}% desc.)", "Monto ($)": -costo_prod_input, "Porcentaje": f"-{(costo_prod_input/pvp_sim)*100:.1f}%"},
-            {"Concepto": "RESULTADO NETO FINAL", "Monto ($)": ganancia_neta, "Porcentaje": f"{margen_pct:.1f}%"}
-        ])
-        st.table(df_desglose)
-
-# ------------------------------------------
-# SOLAPA 2: COMPETENCIA (DESGLOSE COMPLETO)
-# ------------------------------------------
-with tabs[1]:
-    st.header("🏆 Analizador de Competencia por Catálogo MeLi")
-    st.write("Ingrese un código **EAN, ID de Catálogo (ej: MLA27235683) o URL completa**:")
-
-    col_e1, col_e2 = st.columns([3, 1])
-    with col_e1:
-        query_ean_comp = st.text_input("Buscador EAN / Catálogo / URL", value="7798274755803")
-    with col_e2:
-        st.write("")
-        btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
-
-    if btn_buscar_ean or query_ean_comp:
-        found_gold_comp, costo_gold_comp, desc_gold_comp, art_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
-
-        with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
-            cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
-
-        if not found_gold_comp:
-            st.markdown(f'<div class="badge-missing">❌ El código "{query_ean_comp.strip()}" NO está registrado en la Lista Gold cargada.</div><br>', unsafe_allow_html=True)
-        else:
-            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({desc_gold_comp} - {art_gold_comp})")
-
-        if items_comp:
-            st.subheader(f"📊 Vendedores Competidores Detectados ({len(items_comp)} publicaciones)")
-            
-            data_t = []
-            for item in items_comp:
-                q_c = item.get("installments_qty", 1)
-                raw_tipo = str(item.get("listing_type_id", "gold_pro"))
-                tipo_formateado = "Premium (Cuotas)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
-
-                data_t.append({
-                    "Nombre Vendedor": item.get("vendedor_name"),
-                    "Publicación ID": item.get("id"),
-                    "Título Publicación": item.get("title"),
-                    "Precio ($ ARS)": item.get("price", 0.0),
-                    "Financiación": f"{q_c}x sin interés" if q_c > 1 else "1 pago / Contado",
-                    "Tipo Listado": tipo_formateado,
-                    "Stock": item.get("stock", 0),
-                    "Link a MeLi": item.get("permalink")
-                })
-
-            df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
-            
-            st.dataframe(
-                df_comp,
-                column_config={
-                    "Link a MeLi": st.column_config.LinkColumn("Enlace Verificado", display_text="Abrir Publicación 🔗")
-                },
-                use_container_width=True
-            )
-
-            ganador_bb = df_comp.iloc[0]
-            pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
-            link_ganador_bb = ganador_bb["Link a MeLi"]
-            pub_id_win = ganador_bb["Publicación ID"]
-            tipo_win = ganador_bb["Tipo Listado"]
-
-            st.session_state["selected_pub_data"] = {
-                "catalog_id": cat_id_comp,
-                "title": ganador_bb["Título Publicación"],
-                "price": pvp_ganador_bb
-            }
-
-            pct_com_win = 33.59 if "Premium" in tipo_win else 14.5
-            costo_envio_win = 28500.0 if pvp_ganador_bb >= 30000.0 else 0.0
-            
-            deducc_com_win = pvp_ganador_bb * (pct_com_win / 100.0)
-            deducc_iibb_win = pvp_ganador_bb * 0.035
-            deducc_iva_win = pvp_ganador_bb * 0.21
-            
-            costo_max_necesario_win = pvp_ganador_bb - deducc_com_win - deducc_iibb_win - deducc_iva_win - costo_envio_win
-            
-            pct_desc_requerido = 0.0
-            if found_gold_comp and costo_gold_comp > 0:
-                if costo_gold_comp > costo_max_necesario_win:
-                    pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
-
-            st.markdown("### 🎯 Estrategia e Igualación de Costos para Ganar el Buy Box")
-            mb1, mb2, mb3 = st.columns(3)
-            mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
-            mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
-            mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
-
-            st.markdown("#### 🧾 Desglose de Deducciones del Líder del Buy Box")
-            df_desglose_bb = pd.DataFrame([
-                {"Concepto": "PVP Ganador Objetivo", "Monto ($)": pvp_ganador_bb, "Porcentaje": "100.0%"},
-                {"Concepto": f"Comisión / Financiación MeLi ({pct_com_win}%)", "Monto ($)": -deducc_com_win, "Porcentaje": f"-{pct_com_win}%"},
-                {"Concepto": "Envío Logística Bulto Pesado", "Monto ($)": -costo_envio_win, "Porcentaje": f"-{(costo_envio_win/pvp_ganador_bb)*100:.1f}%"},
-                {"Concepto": "Ingresos Brutos IIBB (3.5%)", "Monto ($)": -deducc_iibb_win, "Porcentaje": "-3.5%"},
-                {"Concepto": "IVA / Retenciones (21.0%)", "Monto ($)": -deducc_iva_win, "Porcentaje": "-21.0%"},
-                {"Concepto": "COSTO MÁXIMO SOPORTADO EN LISTA GOLD", "Monto ($)": costo_max_necesario_win, "Porcentaje": f"{(costo_max_necesario_win/pvp_ganador_bb)*100:.1f}%"}
-            ])
-            st.table(df_desglose_bb)
-
-            st.markdown(f"👉 **Enlace directo a la publicación líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
-        else:
-            st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
-
-# ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (ESTRUCTURA CORREGIDA)
-# ------------------------------------------
-with tabs[2]:
-    st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
-    st.write("Creación y alta de publicaciones oficiales en tu cuenta vinculada:")
-
-    pub_data_state = st.session_state.get("selected_pub_data", {})
-
-    col_pub1, col_pub2 = st.columns(2)
-    with col_pub1:
-        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Respaldo de cama regulable 140-160 RC6 Centro Estant"))
-        p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", "MLA26601704"))
-        p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
-
-    with col_pub2:
-        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 158391.0)), step=500.0)
-        p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
-        p_tipo = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
-
-    st.markdown("---")
-    if st.button("🚀 CREAR PUBLICACIÓN OFICIAL EN MERCADO LIBRE", type="primary", use_container_width=True):
-        with st.spinner("Enviando publicación a Mercado Libre..."):
-            exito_pub, msg_pub = publicar_en_mercado_libre(
-                catalog_id=p_cat_id,
-                titulo=p_titulo,
-                categoria=p_categoria,
-                precio=p_precio,
-                stock=p_stock,
-                tipo_listado=p_tipo,
-                access_token=st.session_state.get("access_token")
-            )
-            if exito_pub:
-                st.success(msg_pub)
-            else:
-                st.error(msg_pub)
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos Volumétrico)", min_value=
