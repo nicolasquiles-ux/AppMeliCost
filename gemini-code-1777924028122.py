@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import re
+import json
 
 # ==========================================
 # 1. CONFIGURACIÓN DE PÁGINA
@@ -31,7 +32,6 @@ CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
-# Categorías MeLi Muebles Frecuentes Oficiales
 CATEGORIAS_MELI = {
     "Bibliotecas, Estanterías y Repisas (MLA37209)": "MLA37209",
     "Aparadores, Vajilleros y Cómodas (MLA433221)": "MLA433221",
@@ -264,7 +264,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    target_catalog_id = catalog_id if catalog_id else "MLA22934958"
+    target_catalog_id = catalog_id if catalog_id else "MLA27874272"
     
     url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
     try:
@@ -284,7 +284,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             pass
 
     if not raw_items:
-        term_search = clean_val if clean_val else "Centro Estant Biblioteca 6001"
+        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -324,7 +324,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
-def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, precio: float, stock: int, tipo_listado: str, access_token: str):
+def enviar_payload_personalizado_meli(payload_dict: dict, access_token: str):
     if not access_token:
         return False, "⚠️ Debés conectar Mercado Libre o ingresar un Access Token directo."
 
@@ -334,75 +334,19 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
-    titulo_limpio = titulo.strip() if (titulo and titulo.strip()) else "Biblioteca 5 Estantes 6001 Centro Estant"
-    if len(titulo_limpio) > 60:
-        titulo_limpio = titulo_limpio[:60]
-
-    cat_final = categoria.strip() if (categoria and categoria.strip().startswith("MLA")) else "MLA37209"
-
-    # Base limpia y estandarizada para POST /items
-    base_payload = {
-        "title": titulo_limpio,
-        "category_id": cat_final,
-        "price": round(float(precio), 2),
-        "currency_id": "ARS",
-        "available_quantity": int(stock),
-        "buying_mode": "buy_it_now",
-        "listing_type_id": tipo_listado if tipo_listado in ["gold_special", "gold_pro"] else "gold_special",
-        "condition": "new",
-        "site_id": "MLA",
-        "attributes": [
-            {"id": "BRAND", "value_name": "Centro Estant"},
-            {"id": "MODEL", "value_name": "6001"},
-            {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
-        ],
-        "sale_terms": [
-            {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
-            {"id": "WARRANTY_TIME", "value_name": "6 meses"}
-        ],
-        "pictures": [
-            {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
-        ]
-    }
-
-    # PASO 1: Intento Directo Limpio (Creación Estándar Sin Campos Conflictivos)
     try:
-        res1 = requests.post(url, json=base_payload, headers=headers, timeout=10)
-        if res1.status_code in [200, 201]:
-            data1 = res1.json()
-            url_created1 = construir_url_canonica_meli(data1.get("id"), data1.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data1.get('id')}** — [Abrir en Mercado Libre]({url_created1})"
-        
-        # Si falló, analizamos la causa
-        err_data1 = res1.json() if res1.content else {}
-        err_msg1 = str(err_data1.get("message", f"HTTP {res1.status_code}"))
-
-        # PASO 2: Intento con Catalog Product ID si viene especificado
-        if catalog_id and catalog_id.strip().upper().startswith("MLA") and len(catalog_id.strip()) > 5:
-            payload_cat = base_payload.copy()
-            payload_cat["catalog_product_id"] = catalog_id.strip().upper()
-            res2 = requests.post(url, json=payload_cat, headers=headers, timeout=10)
-            if res2.status_code in [200, 201]:
-                data2 = res2.json()
-                url_created2 = construir_url_canonica_meli(data2.get("id"), data2.get("permalink", ""))
-                return True, f"✅ ¡Publicación de Catálogo creada con éxito! ID: **{data2.get('id')}** — [Abrir en Mercado Libre]({url_created2})"
-
-        # PASO 3: Intento con Family Name en Raíz y Atributo si exige User Product
-        payload_up = base_payload.copy()
-        payload_up["family_name"] = titulo_limpio[:30]
-        payload_up["attributes"].append({"id": "FAMILY_NAME", "value_name": titulo_limpio[:30]})
-        res3 = requests.post(url, json=payload_up, headers=headers, timeout=10)
-        if res3.status_code in [200, 201]:
-            data3 = res3.json()
-            url_created3 = construir_url_canonica_meli(data3.get("id"), data3.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data3.get('id')}** — [Abrir en Mercado Libre]({url_created3})"
-
-        # Si los 3 pasos fallaron, mostrar detalles exactos de la causa devuelta por MeLi
-        causes = [c.get("message", "") for c in err_data1.get("cause", []) if c.get("message")]
-        if causes:
-            err_msg1 += " (" + ", ".join(causes) + ")"
-        return False, f"❌ Error API MeLi: {err_msg1}"
-
+        res = requests.post(url, json=payload_dict, headers=headers, timeout=12)
+        if res.status_code in [200, 201]:
+            data = res.json()
+            url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
+            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
+        else:
+            err_json = res.json() if res.content else {}
+            err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
+            causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
+            if causes:
+                err_msg += " (" + ", ".join(causes) + ")"
+            return False, f"❌ Error API MeLi ({res.status_code}): {err_msg}"
     except Exception as e:
         return False, f"❌ Error de conexión: {str(e)}"
 
@@ -483,7 +427,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v92.0 — Panel Operativo Oficial MeLi (Cascada de Publicación)")
+st.caption("v93.0 — Panel Operativo Oficial MeLi (Publicador Asistido Professional)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -701,41 +645,85 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (ESTRATEGIA CASCADA)
+# SOLAPA 3: PUBLICADOR DIRECTO (MAPEADOR EDITABLE)
 # ------------------------------------------
 with tabs[2]:
-    st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
-    st.write("Creación y alta de publicaciones oficiales en tu cuenta vinculada:")
+    st.header("🚀 Publicador Directo Asistido Mercado Libre (`POST /items`)")
+    st.write("Configuración campo por campo con **Mapeador de JSON Editable** igual que Unidrop / Ventiapp:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
-    col_pub1, col_pub2 = st.columns(2)
-    with col_pub1:
-        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Biblioteca 5 Estantes 6001 Centro Estant"))
+    # Campos Generales
+    c_f1, c_f2 = st.columns(2)
+    with c_f1:
+        titulo_input = st.text_input("Título de la Publicación (Máx 60 car.)", value=pub_data_state.get("title", "Alacena 120cm 3 Puertas Centro Estant blanco"))
+        nombre_cat_sel = st.selectbox("Categoría MeLi", list(CATEGORIAS_MELI.keys()), index=1)
+        categoria_id_val = CATEGORIAS_MELI[nombre_cat_sel]
         
-        nombre_cat_sel = st.selectbox("Categoría MeLi", list(CATEGORIAS_MELI.keys()), index=0)
-        p_categoria = CATEGORIAS_MELI[nombre_cat_sel]
-        
-        p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", "MLA22934958"))
-
-    with col_pub2:
-        p_precio = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 63000.0)), step=500.0)
-        p_stock = st.number_input("Stock Inicial", min_value=1, value=5)
-        p_tipo = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
+    with c_f2:
+        precio_val = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 129998.0)), step=500.0)
+        stock_val = st.number_input("Stock Inicial", min_value=1, value=5)
+        tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
 
     st.markdown("---")
-    if st.button("🚀 CREAR PUBLICACIÓN OFICIAL EN MERCADO LIBRE", type="primary", use_container_width=True):
-        with st.spinner("Enviando publicación a Mercado Libre..."):
-            exito_pub, msg_pub = publicar_en_mercado_libre(
-                catalog_id=p_cat_id,
-                titulo=p_titulo,
-                categoria=p_categoria,
-                precio=p_precio,
-                stock=p_stock,
-                tipo_listado=p_tipo,
-                access_token=st.session_state.get("access_token")
-            )
-            if exito_pub:
-                st.success(msg_pub)
-            else:
-                st.error(msg_pub)
+    st.subheader("🛠️ Mapeador de Atributos y Modos de Publicación")
+    
+    col_t1, col_t2, col_t3 = st.columns(3)
+    with col_t1:
+        incluir_catalog = st.checkbox("Incluir `catalog_product_id`", value=False, help="Activar solo si tu cuenta está enrolada directamente a catálogo sin User Product.")
+        catalog_id_val = st.text_input("Catalog Product ID", value=pub_data_state.get("catalog_id", "MLA27874272"), disabled=not incluir_catalog)
+
+    with col_t2:
+        incluir_family = st.checkbox("Incluir `family_name` en Raíz", value=False, help="Activar si la categoría o cuenta exige User Product (UP).")
+        family_name_val = st.text_input("Nombre de Familia", value=titulo_input[:30], disabled=not incluir_family)
+
+    with col_t3:
+        marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
+        modelo_val = st.text_input("Modelo (MODEL)", value="Estar")
+
+    # Construcción Dinámica del JSON en tiempo real
+    payload_dinamico = {
+        "title": titulo_input[:60],
+        "category_id": categoria_id_val,
+        "price": round(float(precio_val), 2),
+        "currency_id": "ARS",
+        "available_quantity": int(stock_val),
+        "buying_mode": "buy_it_now",
+        "listing_type_id": tipo_listado_val,
+        "condition": "new",
+        "site_id": "MLA",
+        "attributes": [
+            {"id": "BRAND", "value_name": marca_val},
+            {"id": "MODEL", "value_name": modelo_val},
+            {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
+        ],
+        "sale_terms": [
+            {"id": "WARRANTY_TYPE", "value_name": "Garantía del vendedor"},
+            {"id": "WARRANTY_TIME", "value_name": "6 meses"}
+        ],
+        "pictures": [
+            {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
+        ]
+    }
+
+    if incluir_catalog and catalog_id_val.strip():
+        payload_dinamico["catalog_product_id"] = catalog_id_val.strip().upper()
+
+    if incluir_family and family_name_val.strip():
+        payload_dinamico["family_name"] = family_name_val.strip()
+
+    st.markdown("#### 📝 Vista Previa del JSON que se enviará a `POST /items`:")
+    json_editado_raw = st.text_area("JSON editable en tiempo real:", value=json.dumps(payload_dinamico, indent=2, ensure_ascii=False), height=280)
+
+    st.markdown("---")
+    if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
+        with st.spinner("Procesando petición en Mercado Libre..."):
+            try:
+                payload_final = json.loads(json_editado_raw)
+                exito_pub, msg_pub = enviar_payload_personalizado_meli(payload_final, st.session_state.get("access_token"))
+                if exito_pub:
+                    st.success(msg_pub)
+                else:
+                    st.error(msg_pub)
+            except Exception as json_err:
+                st.error(f"❌ JSON inválido: Formato con errores de sintaxis ({str(json_err)})")
