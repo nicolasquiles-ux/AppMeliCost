@@ -180,8 +180,8 @@ def extraer_id_catalogo_o_ean_input(input_raw: str):
     return "TEXT", raw
 
 def obtener_nombre_vendedor(seller_id, headers):
-    if not seller_id or seller_id == "N/A":
-        return "Desconocido"
+    if not seller_id or str(seller_id) in ["N/A", "None", ""]:
+        return "Vendedor Oficial MeLi"
     url = f"https://api.mercadolibre.com/users/{seller_id}"
     try:
         res = requests.get(url, headers=headers, timeout=3)
@@ -190,7 +190,7 @@ def obtener_nombre_vendedor(seller_id, headers):
             return data.get("nickname", f"ID: {seller_id}")
     except Exception:
         pass
-    return f"ID: {seller_id}"
+    return f"Vendedor #{seller_id}"
 
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
@@ -372,7 +372,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v76.0 — Panel Operativo Oficial MeLi")
+st.caption("v77.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -410,7 +410,6 @@ with tabs[0]:
         with c_p1:
             pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=173436.0, step=500.0)
             
-            # Modalidad oficial con opciones reales de cuotas de MeLi
             tipo_pub_sim = st.selectbox(
                 "Modalidad de Publicación / Cuotas", 
                 [
@@ -421,7 +420,6 @@ with tabs[0]:
                 ]
             )
             
-            # Asignación automática de comisión real según la selección
             if "Clásica" in tipo_pub_sim:
                 pct_com_sim = 14.5
             elif "3 Cuotas" in tipo_pub_sim:
@@ -432,14 +430,13 @@ with tabs[0]:
                 pct_com_sim = 46.79
 
         with c_p2:
-            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos)", min_value=0.0, value=8710.0, step=100.0, help="Costo de envío estándar para productos voluminosos o >$33k")
-            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5, help="Porcentaje de bonificación o descuento otorgado por la empresa sobre la Lista Gold")
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos)", min_value=0.0, value=8710.0, step=100.0)
+            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
 
         with c_p3:
             pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
             pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
 
-        # Cálculo del costo efectivo aplicando el descuento del proveedor
         costo_base_calc = costo_gold_val if found_gold else 104000.0
         costo_con_descuento = costo_base_calc * (1.0 - (pct_descuento_proveedor / 100.0))
         costo_prod_input = st.number_input("Costo Efectivo del Producto (con desc.)", min_value=0.0, value=costo_con_descuento, step=500.0)
@@ -475,7 +472,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (DATOS REALES Y LIMPIOS)
+# SOLAPA 2: COMPETENCIA (RECONSTRUCCIÓN ROBUSTA DE PERMALINK)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -507,27 +504,30 @@ with tabs[1]:
             
             for item in items_comp[:25]:
                 seller_info = item.get("seller", {})
-                seller_id = seller_info.get("id", "N/A")
+                seller_id = seller_info.get("id") if isinstance(seller_info, dict) else item.get("seller_id")
                 nickname_vendedor = obtener_nombre_vendedor(seller_id, headers_api)
                 
-                inst = item.get("installments", {})
-                q_c = inst.get("quantity", 1) if inst else 1
+                pub_id = item.get("id", "N/A")
                 
-                raw_tipo = item.get("listing_type_id", "gold_pro")
-                tipo_formateado = "Premium (Cuotas sin interés)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
-
+                # Reconstrucción del permalink si no viene en el nodo raíz
                 link_pub = item.get("permalink", "")
-                if not link_pub:
-                    continue  # Omitir registros sin link válido para mantener la tabla limpia
+                if not link_pub and pub_id != "N/A":
+                    link_pub = f"https://articulo.mercadolibre.com.ar/{pub_id}"
+
+                inst = item.get("installments", {})
+                q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
+                
+                raw_tipo = str(item.get("listing_type_id", "gold_pro"))
+                tipo_formateado = "Premium (Cuotas)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
 
                 data_t.append({
                     "Vendedor": nickname_vendedor,
-                    "Publicación ID": item.get("id"),
-                    "Título Publicación": item.get("title", ""),
+                    "Publicación ID": pub_id,
+                    "Título Publicación": item.get("title", title_comp if title_comp else "Publicación de Catálogo"),
                     "Precio ($ ARS)": item.get("price", 0.0),
                     "Cuotas": f"{q_c}x sin interés" if q_c > 1 else "1 pago / Contado",
                     "Tipo Listado": tipo_formateado,
-                    "Stock": item.get("available_quantity", 0),
+                    "Stock": item.get("available_quantity", 1),
                     "Link a MeLi": link_pub
                 })
 
@@ -567,8 +567,6 @@ with tabs[1]:
                 mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
 
                 st.markdown(f"👉 **Enlace directo a la publicación líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
-            else:
-                st.warning("Se encontraron registros pero ninguno contaba con URL de enlace directo válida.")
         else:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
