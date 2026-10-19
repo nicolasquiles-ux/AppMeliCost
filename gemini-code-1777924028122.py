@@ -45,11 +45,9 @@ if "matriz_productos_df" not in st.session_state:
 # 4. FUNCIONES DE API MERCADO LIBRE
 # ==========================================
 def obtener_url_login_meli():
-    """URL limpia OAuth 2.0 estándar (sin PKCE)."""
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
 def intercambiar_code_por_token(code: str):
-    """Intercambio estándar de código por access token."""
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "authorization_code",
@@ -65,7 +63,7 @@ def intercambiar_code_por_token(code: str):
             return True, res.json()
         else:
             err_data = res.json() if res.content else {}
-            return False, err_data.get("message", err_data.get("error_description", f"Error HTTP {res.status_code}"))
+            return False, err_data.get("message", f"Error HTTP {res.status_code}")
     except Exception as e:
         return False, str(e)
 
@@ -83,31 +81,57 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
-    """Soporta tanto Catalog Product ID (MLA...) como EAN (código de barras numérico)."""
+    """Resuelve robustamente el ID de catálogo, título y categoría desde EAN o Catalog ID."""
     val = input_text.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     
-    if val.upper().startswith("MLA"):
-        url = f"https://api.mercadolibre.com/products/{val}"
-        try:
-            res = requests.get(url, headers=headers, timeout=8)
-            if res.status_code == 200:
-                return res.json()
-        except Exception:
-            pass
-        return None
+    catalog_id = ""
     
-    if val.isdigit():
-        url = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
+    # Si ingresó un ID de catálogo directo (ej. MLA22607870)
+    if val.upper().startswith("MLA"):
+        catalog_id = val
+    elif val.isdigit():
+        # Buscar por EAN/GTIN
+        url_search = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={val}"
         try:
-            res = requests.get(url, headers=headers, timeout=8)
+            res = requests.get(url_search, headers=headers, timeout=8)
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 if results:
-                    return results[0]
+                    catalog_id = results[0].get("id", "")
         except Exception:
             pass
-    return None
+
+    if not catalog_id:
+        return None
+
+    # Obtener detalles del producto de catálogo
+    url_prod = f"https://api.mercadolibre.com/products/{catalog_id}"
+    prod_data = {}
+    try:
+        res = requests.get(url_prod, headers=headers, timeout=8)
+        if res.status_code == 200:
+            prod_data = res.json()
+    except Exception:
+        pass
+
+    title = prod_data.get("name", prod_data.get("title", ""))
+    category_id = prod_data.get("domain_id", prod_data.get("category_id", ""))
+
+    # Si el título o categoría vienen vacíos, los obtenemos consultando las publicaciones activas de este catálogo
+    items_search = buscar_items_por_catalogo(catalog_id, access_token)
+    if items_search:
+        primer_item = items_search[0]
+        if not title:
+            title = primer_item.get("title", "Producto de Catálogo MeLi")
+        if not category_id:
+            category_id = primer_item.get("category_id", "MLA35254")
+
+    return {
+        "id": catalog_id,
+        "title": title if title else f"Catálogo {catalog_id}",
+        "category_id": category_id if category_id else "MLA35254"
+    }
 
 def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
     if not catalog_id or not catalog_id.strip():
@@ -275,7 +299,7 @@ with st.sidebar:
 # 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v58.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v59.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -387,7 +411,7 @@ with tabs[6]:
 
     col_a1, col_a2 = st.columns([2, 1])
     with col_a1:
-        search_input = st.text_input("Catalog Product ID o EAN", value="7798009182461")
+        search_input = st.text_input("Catalog Product ID o EAN", value="7798009184670")
     with col_a2:
         st.write("")
         analizar_btn = st.button("🔍 Analizar Competencia y Buy Box", type="primary", use_container_width=True)
@@ -426,7 +450,7 @@ with tabs[6]:
             else:
                 st.warning("No se encontraron vendedores competidores activos en este ID de catálogo exacto.")
         else:
-            st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido de Mercado Libre.")
+            st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido.")
 
         st.markdown("---")
         st.subheader("🚀 Simulador y Ejecutor de Publicación en Catálogo (`POST /items`)")
