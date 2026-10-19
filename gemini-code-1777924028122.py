@@ -81,12 +81,10 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
-    """Resuelve el ID de catálogo, título, categoría y familia desde EAN o Catalog ID."""
     val = input_text.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     
     catalog_id = ""
-    
     if val.upper().startswith("MLA"):
         catalog_id = val
     elif val.isdigit():
@@ -113,39 +111,25 @@ def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
         pass
 
     title = prod_data.get("name", prod_data.get("title", ""))
-    category_id = prod_data.get("domain_id", prod_data.get("category_id", ""))
+    category_id = prod_data.get("domain_id", prod_data.get("category_id", "MLA35254"))
     
-    attributes = prod_data.get("attributes", [])
-    family_name = ""
-    for attr in attributes:
-        if attr.get("id") == "FAMILY_NAME" or attr.get("name") == "Familia de producto":
-            family_name = attr.get("value_name", "")
-
-    # Fallback de título y categoría consultando publicaciones
-    items_search = buscar_items_por_catalogo(catalog_id, title, access_token)
-    if items_search:
-        primer_item = items_search[0]
-        if not title:
-            title = primer_item.get("title", "Producto de Catálogo MeLi")
-        if not category_id:
-            category_id = primer_item.get("category_id", "MLA35254")
+    # Extraer family_name si existe en atributos o usar un genérico seguro
+    family_name = "Biblioteca"
+    for attr in prod_data.get("attributes", []):
+        if attr.get("id") in ["FAMILY_NAME", "LINE", "MODEL"]:
+            family_name = attr.get("value_name", family_name)
 
     return {
         "id": catalog_id,
-        "title": title if title else f"Catálogo {catalog_id}",
-        "category_id": category_id if category_id else "MLA35254",
-        "family_name": family_name if family_name else "Mobiliario"
+        "title": title if title else f"Producto {catalog_id}",
+        "category_id": category_id,
+        "family_name": family_name
     }
 
 def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: str = None):
-    """Búsqueda doble: por ID de catálogo directo y por título si no arroja competidores."""
-    if not catalog_id and not titulo:
-        return []
-    
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     results = []
 
-    # 1. Búsqueda por catalog_product_id
     if catalog_id:
         url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
         try:
@@ -155,11 +139,10 @@ def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: s
         except Exception:
             pass
 
-    # 2. Búsqueda secundaria por título si la búsqueda por catálogo directo retornó vacía
     if not results and titulo:
-        url_query = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(titulo[:40])}"
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(titulo[:30])}"
         try:
-            res = requests.get(url_query, headers=headers, timeout=8)
+            res = requests.get(url_q, headers=headers, timeout=8)
             if res.status_code == 200:
                 results = res.json().get("results", [])
         except Exception:
@@ -190,7 +173,7 @@ def publicar_item_en_catalogo(
 
     payload = {
         "title": titulo_producto[:60] if titulo_producto else "Producto de Catálogo",
-        "category_id": categoria_id if categoria_id else "MLA35254",
+        "category_id": categoria_id if (categoria_id and not categoria_id.startswith("MLA-")) else "MLA35254",
         "price": round(float(precio_venta), 2),
         "currency_id": "ARS",
         "available_quantity": int(quantity),
@@ -202,7 +185,7 @@ def publicar_item_en_catalogo(
         "attributes": [
             {
                 "id": "FAMILY_NAME",
-                "value_name": family_name if family_name else "General"
+                "value_name": family_name if family_name else "Muebles"
             }
         ]
     }
@@ -327,7 +310,7 @@ with st.sidebar:
 # 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v61.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
+st.caption("v62.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
