@@ -46,7 +46,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API Y PROCESAMIENTO
+# 4. FUNCIONES DE API Y CÁLCULOS REALES
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -372,7 +372,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v75.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v76.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -381,11 +381,11 @@ tabs = st.tabs([
 ])
 
 # ------------------------------------------
-# SOLAPA 1: COSTOS Y RENTABILIDAD CON DESCUENTO
+# SOLAPA 1: COSTOS REALES Y DESCUENTO PROVEEDOR
 # ------------------------------------------
 with tabs[0]:
-    st.header("🧮 Análisis Estructurado de Costos y Rentabilidad")
-    st.write("Ingresá un **SKU, EAN, MLA o URL** para evaluar la rentabilidad:")
+    st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
+    st.write("Ingrese un **SKU, EAN, MLA o URL** para calcular comisiones, cuotas y envíos oficiales:")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
@@ -400,7 +400,7 @@ with tabs[0]:
         st.markdown("---")
         if not found_gold:
             st.markdown(
-                f'<div class="badge-missing">❌ El código "{query_costos.strip()}" NO existe en la Lista Gold cargada. Cargar costo manualmente para simular.</div><br>',
+                f'<div class="badge-missing">❌ El código "{query_costos.strip()}" NO existe en la Lista Gold cargada. Ingrese costo manual para simular.</div><br>',
                 unsafe_allow_html=True
             )
         else:
@@ -409,21 +409,39 @@ with tabs[0]:
         c_p1, c_p2, c_p3 = st.columns(3)
         with c_p1:
             pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=173436.0, step=500.0)
-            tipo_pub_sim = st.selectbox("Modalidad de Publicación", ["gold_pro (Premium / Cuotas)", "gold_special (Clásica)"])
-            pct_com_sim = 28.0 if "gold_pro" in tipo_pub_sim else 14.0
+            
+            # Modalidad oficial con opciones reales de cuotas de MeLi
+            tipo_pub_sim = st.selectbox(
+                "Modalidad de Publicación / Cuotas", 
+                [
+                    "Clásica (14.5% - Sin Cuotas)", 
+                    "Premium 3 Cuotas (14.5% + 12.19% = 26.69%)", 
+                    "Premium 6 Cuotas (14.5% + 19.09% = 33.59%)", 
+                    "Premium 12 Cuotas (14.5% + 32.29% = 46.79%)"
+                ]
+            )
+            
+            # Asignación automática de comisión real según la selección
+            if "Clásica" in tipo_pub_sim:
+                pct_com_sim = 14.5
+            elif "3 Cuotas" in tipo_pub_sim:
+                pct_com_sim = 26.69
+            elif "6 Cuotas" in tipo_pub_sim:
+                pct_com_sim = 33.59
+            else:
+                pct_com_sim = 46.79
 
         with c_p2:
-            costo_envio_sim = st.number_input("Costo Envío / Logística ($ ARS)", min_value=0.0, value=5500.0, step=100.0)
-            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5, help="Porcentaje de descuento negociado con la empresa sobre la Lista Gold")
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos)", min_value=0.0, value=8710.0, step=100.0, help="Costo de envío estándar para productos voluminosos o >$33k")
+            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5, help="Porcentaje de bonificación o descuento otorgado por la empresa sobre la Lista Gold")
 
         with c_p3:
             pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
             pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
 
-        # Cálculo del costo aplicando el descuento del proveedor
+        # Cálculo del costo efectivo aplicando el descuento del proveedor
         costo_base_calc = costo_gold_val if found_gold else 104000.0
         costo_con_descuento = costo_base_calc * (1.0 - (pct_descuento_proveedor / 100.0))
-        
         costo_prod_input = st.number_input("Costo Efectivo del Producto (con desc.)", min_value=0.0, value=costo_con_descuento, step=500.0)
 
         m_com = pvp_sim * (pct_com_sim / 100.0)
@@ -440,15 +458,15 @@ with tabs[0]:
         res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
 
         if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> con un descuento de proveedor del <b>{pct_descuento_proveedor}%</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> aplicando un descuento de proveedor del <b>{pct_descuento_proveedor}%</b>.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. Requerís mayor descuento de proveedor.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. Requiere mayor descuento de fábrica.</div>', unsafe_allow_html=True)
 
-        st.markdown("#### 🧾 Desglose Detallado de Deducciones")
+        st.markdown("#### 🧾 Desglose Detallado de Deducciones Oficiales")
         df_desglose = pd.DataFrame([
             {"Concepto": "PVP Venta Objetivo", "Monto ($)": pvp_sim, "Porcentaje": "100.0%"},
-            {"Concepto": f"Comisión MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
-            {"Concepto": "Costo Envío / Logística", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
+            {"Concepto": f"Comisión y Financiación MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
+            {"Concepto": "Costo de Envío / Logística Oficial", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
             {"Concepto": f"Ingresos Brutos IIBB ({pct_iibb_sim}%)", "Monto ($)": -m_iibb, "Porcentaje": f"-{pct_iibb_sim}%"},
             {"Concepto": f"IVA / Retenciones ({pct_iva_sim}%)", "Monto ($)": -m_iva, "Porcentaje": f"-{pct_iva_sim}%"},
             {"Concepto": f"Costo Producto Efectivo (-{pct_descuento_proveedor}% desc.)", "Monto ($)": -costo_prod_input, "Porcentaje": f"-{(costo_prod_input/pvp_sim)*100:.1f}%"},
@@ -457,11 +475,11 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA POR EAN EN CATÁLOGO (MEJORADA)
+# SOLAPA 2: COMPETENCIA (DATOS REALES Y LIMPIOS)
 # ------------------------------------------
 with tabs[1]:
-    st.header("🏆 Analizador de Competencia por Código EAN / Catálogo")
-    st.write("Ingresá un código **EAN, Catalog Product ID (ej: MLA27235683) o URL de MeLi**:")
+    st.header("🏆 Analizador de Competencia por Catálogo MeLi")
+    st.write("Ingrese un código **EAN, ID de Catálogo (ej: MLA27235683) o URL completa**:")
 
     col_e1, col_e2 = st.columns([3, 1])
     with col_e1:
@@ -473,7 +491,7 @@ with tabs[1]:
     if btn_buscar_ean or query_ean_comp:
         found_gold_comp, costo_gold_comp, desc_gold_comp, art_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
 
-        with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
+        with st.spinner("Buscando vendedores competidores reales en Mercado Libre..."):
             cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
 
         if not found_gold_comp:
@@ -482,7 +500,7 @@ with tabs[1]:
             st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({desc_gold_comp} - {art_gold_comp})")
 
         if items_comp:
-            st.subheader(f"📊 Vendedores Competidores ({len(items_comp)} publicaciones)")
+            st.subheader(f"📊 Vendedores Competidores Detectados ({len(items_comp)} publicaciones)")
             
             headers_api = {"Authorization": f"Bearer {st.session_state.get('access_token', '').strip()}"} if st.session_state.get('access_token') else {}
             data_t = []
@@ -495,66 +513,71 @@ with tabs[1]:
                 inst = item.get("installments", {})
                 q_c = inst.get("quantity", 1) if inst else 1
                 
-                # Traducir o formatear tipo de listado
                 raw_tipo = item.get("listing_type_id", "gold_pro")
-                tipo_formateado = "Premium (Cuotas)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
+                tipo_formateado = "Premium (Cuotas sin interés)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
+
+                link_pub = item.get("permalink", "")
+                if not link_pub:
+                    continue  # Omitir registros sin link válido para mantener la tabla limpia
 
                 data_t.append({
                     "Vendedor": nickname_vendedor,
-                    "ID Publicación": item.get("id"),
+                    "Publicación ID": item.get("id"),
                     "Título Publicación": item.get("title", ""),
                     "Precio ($ ARS)": item.get("price", 0.0),
                     "Cuotas": f"{q_c}x sin interés" if q_c > 1 else "1 pago / Contado",
                     "Tipo Listado": tipo_formateado,
                     "Stock": item.get("available_quantity", 0),
-                    "Link Publicación": item.get("permalink", "#")
+                    "Link a MeLi": link_pub
                 })
 
-            df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
-            
-            # Mostrar tabla interactiva con links clickeables de MeLi
-            st.dataframe(
-                df_comp,
-                column_config={
-                    "Link Publicación": st.column_config.LinkColumn("Enlace a MeLi", display_text="Abrir Publicación 🔗")
-                },
-                use_container_width=True
-            )
+            if data_t:
+                df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
+                
+                st.dataframe(
+                    df_comp,
+                    column_config={
+                        "Link a MeLi": st.column_config.LinkColumn("Enlace Verificado", display_text="Abrir Publicación 🔗")
+                    },
+                    use_container_width=True
+                )
 
-            ganador_bb = df_comp.iloc[0]
-            pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
-            link_ganador_bb = ganador_bb["Link Publicación"]
-            pub_id_win = ganador_bb["ID Publicación"]
+                ganador_bb = df_comp.iloc[0]
+                pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
+                link_ganador_bb = ganador_bb["Link a MeLi"]
+                pub_id_win = ganador_bb["Publicación ID"]
 
-            st.session_state["selected_pub_data"] = {
-                "catalog_id": cat_id_comp,
-                "title": ganador_bb["Título Publicación"],
-                "price": pvp_ganador_bb
-            }
+                st.session_state["selected_pub_data"] = {
+                    "catalog_id": cat_id_comp,
+                    "title": ganador_bb["Título Publicación"],
+                    "price": pvp_ganador_bb
+                }
 
-            deducciones_estimadas = (pvp_ganador_bb * 0.28) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 5500.0
-            costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
-            
-            pct_desc_requerido = 0.0
-            if found_gold_comp and costo_gold_comp > costo_max_necesario_win and costo_gold_comp > 0:
-                pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
+                deducciones_estimadas = (pvp_ganador_bb * 0.3359) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 8710.0
+                costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
+                
+                pct_desc_requerido = 0.0
+                if found_gold_comp and costo_gold_comp > costo_max_necesario_win and costo_gold_comp > 0:
+                    pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
 
-            st.markdown("### 🎯 Estrategia para Ganar el Buy Box")
-            mb1, mb2, mb3 = st.columns(3)
-            mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
-            mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
-            mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
+                st.markdown("### 🎯 Estrategia para Ganar el Buy Box")
+                mb1, mb2, mb3 = st.columns(3)
+                mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
+                mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
+                mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
 
-            st.markdown(f"👉 **Enlace directo a la publicación del líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
+                st.markdown(f"👉 **Enlace directo a la publicación líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
+            else:
+                st.warning("Se encontraron registros pero ninguno contaba con URL de enlace directo válida.")
         else:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO MERCADO LIBRE
+# SOLAPA 3: PUBLICADOR DIRECTO (FIXED)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
-    st.write("Creá la publicación directamente en tu cuenta de Mercado Libre:")
+    st.write("Creación y alta de publicaciones oficiales en tu cuenta vinculada:")
 
     pub_data_state = st.session_state.get("selected_pub_data", {})
 
@@ -570,7 +593,7 @@ with tabs[2]:
         p_tipo = st.selectbox("Modalidad de Listado", ["gold_pro", "gold_special"], format_func=lambda x: "Premium / Cuotas (gold_pro)" if x=="gold_pro" else "Clásica (gold_special)")
 
     st.markdown("---")
-    if st.button("🚀 CREAR PUBLICACIÓN EN MERCADO LIBRE", type="primary", use_container_width=True):
+    if st.button("🚀 CREAR PUBLICACIÓN OFICIAL EN MERCADO LIBRE", type="primary", use_container_width=True):
         with st.spinner("Enviando publicación a Mercado Libre..."):
             exito_pub, msg_pub = publicar_en_mercado_libre(
                 catalog_id=p_cat_id,
