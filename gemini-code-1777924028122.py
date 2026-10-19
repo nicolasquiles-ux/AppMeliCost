@@ -81,7 +81,7 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
-    """Resuelve robustamente el ID de catálogo, título, categoría y familia desde EAN o Catalog ID."""
+    """Resuelve el ID de catálogo, título, categoría y familia desde EAN o Catalog ID."""
     val = input_text.strip()
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     
@@ -115,14 +115,14 @@ def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
     title = prod_data.get("name", prod_data.get("title", ""))
     category_id = prod_data.get("domain_id", prod_data.get("category_id", ""))
     
-    # Extraer attributes o family_name si el producto de catálogo lo posee
     attributes = prod_data.get("attributes", [])
     family_name = ""
     for attr in attributes:
         if attr.get("id") == "FAMILY_NAME" or attr.get("name") == "Familia de producto":
             family_name = attr.get("value_name", "")
 
-    items_search = buscar_items_por_catalogo(catalog_id, access_token)
+    # Fallback de título y categoría consultando publicaciones
+    items_search = buscar_items_por_catalogo(catalog_id, title, access_token)
     if items_search:
         primer_item = items_search[0]
         if not title:
@@ -137,18 +137,35 @@ def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
         "family_name": family_name if family_name else "Mobiliario"
     }
 
-def buscar_items_por_catalogo(catalog_id: str, access_token: str = None):
-    if not catalog_id or not catalog_id.strip():
+def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: str = None):
+    """Búsqueda doble: por ID de catálogo directo y por título si no arroja competidores."""
+    if not catalog_id and not titulo:
         return []
-    url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
+    
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    try:
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            return res.json().get("results", [])
-    except Exception:
-        pass
-    return []
+    results = []
+
+    # 1. Búsqueda por catalog_product_id
+    if catalog_id:
+        url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+        except Exception:
+            pass
+
+    # 2. Búsqueda secundaria por título si la búsqueda por catálogo directo retornó vacía
+    if not results and titulo:
+        url_query = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(titulo[:40])}"
+        try:
+            res = requests.get(url_query, headers=headers, timeout=8)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+        except Exception:
+            pass
+
+    return results
 
 def publicar_item_en_catalogo(
     catalog_product_id: str,
@@ -171,7 +188,6 @@ def publicar_item_en_catalogo(
         "Accept": "application/json"
     }
 
-    # Payload robusto con family_name y atributos obligatorios de catálogo
     payload = {
         "title": titulo_producto[:60] if titulo_producto else "Producto de Catálogo",
         "category_id": categoria_id if categoria_id else "MLA35254",
@@ -311,7 +327,7 @@ with st.sidebar:
 # 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v60.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
+st.caption("v61.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -419,11 +435,11 @@ with tabs[5]:
 # ------------------------------------------
 with tabs[6]:
     st.header("📦 Analizador por Producto / Catálogo & Top de Vendedores")
-    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) o código EAN (ej. `7798009184397`) para analizar la competencia, el Buy Box, cuotas y costo necesario para ganar.")
+    st.write("Ingresá un ID de Catálogo (ej. `MLA20491823`) o código EAN (ej. `7798009182461`) para analizar la competencia, el Buy Box, cuotas y costo necesario para ganar.")
 
     col_a1, col_a2 = st.columns([2, 1])
     with col_a1:
-        search_input = st.text_input("Catalog Product ID o EAN", value="7798009184397")
+        search_input = st.text_input("Catalog Product ID o EAN", value="7798009182461")
     with col_a2:
         st.write("")
         analizar_btn = st.button("🔍 Analizar Competencia y Buy Box", type="primary", use_container_width=True)
@@ -443,12 +459,12 @@ with tabs[6]:
             
             st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID:** `{real_catalog_id}` | **Familia:** `{fam_name}`")
             
-            vendedores_items = buscar_items_por_catalogo(real_catalog_id, st.session_state["access_token"])
+            vendedores_items = buscar_items_por_catalogo(real_catalog_id, title_p, st.session_state["access_token"])
 
             if vendedores_items:
                 st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
                 data_competencia = []
-                for item in vendedores_items:
+                for item in vendedores_items[:15]:
                     installments_info = item.get("installments", {})
                     cuotas_qty = installments_info.get("quantity", 1) if installments_info else 1
                     
@@ -463,7 +479,6 @@ with tabs[6]:
                     })
                 
                 df_comp = pd.DataFrame(data_competencia)
-                # Ordenar por precio ascendente para destacar al ganador del Buy Box
                 df_comp = df_comp.sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
                 
                 st.dataframe(df_comp, use_container_width=True)
@@ -472,7 +487,6 @@ with tabs[6]:
                 cuotas_ganador = df_comp.iloc[0]["Cuotas"]
                 link_ganador = df_comp.iloc[0]["Link"]
                 
-                # Métricas de inteligencia comercial
                 col_m1, col_m2, col_m3 = st.columns(3)
                 col_m1.metric("🥇 PVP Ganador (Buy Box)", f"${precio_ganador:,.2f}")
                 col_m2.metric("💳 Cuotas Ganadoras", cuotas_ganador)
@@ -480,7 +494,7 @@ with tabs[6]:
                 
                 st.markdown(f"👉 **Enlace directo a la publicación ganadora en Mercado Libre:** [Ver Competidor]({link_ganador})")
             else:
-                st.warning("No se encontraron vendedores competidores activos en este ID de catálogo exacto.")
+                st.warning("No se encontraron vendedores competidores activos para esta publicación o término exacto.")
         else:
             st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido.")
 
