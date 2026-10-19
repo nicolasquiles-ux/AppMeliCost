@@ -46,7 +46,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE API Y CÁLCULOS REALES
+# 4. FUNCIONES DE API Y CÁLCULOS
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -180,36 +180,28 @@ def extraer_id_catalogo_o_ean_input(input_raw: str):
     return "TEXT", raw
 
 def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
-    """Garantiza la URL canónica con guion (MLA-123456) para evitar el error 404."""
     if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
         return permalink_api
-    
     clean_id = str(raw_id).strip().upper()
     if clean_id.startswith("MLA"):
         num_part = re.sub(r'\D', '', clean_id)
         if num_part:
             return f"https://articulo.mercadolibre.com.ar/MLA-{num_part}"
-    
     return f"https://articulo.mercadolibre.com.ar/{clean_id}"
 
 @st.cache_data(ttl=3600)
 def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     if not seller_id or str(seller_id) in ["N/A", "None", "", "0"]:
         return "Vendedor Mercado Libre"
-    
     url = f"https://api.mercadolibre.com/users/{seller_id}"
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
-            
-            # Prioridad 1: Nombre de la tienda oficial / E-shop
             eshop = data.get("eshop", {})
             if isinstance(eshop, dict) and eshop.get("eshop_name"):
                 return eshop.get("eshop_name").strip()
-                
-            # Prioridad 2: Nickname directo del vendedor (ej: DIAZ_HOME, KROMOS1)
             nick = data.get("nickname")
             if nick:
                 return nick.strip().replace("_", " ").title()
@@ -225,7 +217,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     product_title = ""
     raw_items = []
 
-    # 1. Búsqueda por EAN para obtener catalog_product_id
     if type_input == "EAN":
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
         try:
@@ -240,7 +231,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     target_catalog_id = catalog_id if catalog_id else "MLA27235683"
     
-    # Intento A: Endpoint directo de catálogo
     url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
     try:
         res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
@@ -249,7 +239,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     except Exception:
         pass
 
-    # Intento B: Search API por catalog_product_id
     if not raw_items:
         url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={target_catalog_id}"
         try:
@@ -259,7 +248,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # Intento C: Búsqueda libre por código o modelo SC1260
     if not raw_items:
         term_search = clean_val if clean_val else "Escritorio SC1260 Centro Estant"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
@@ -276,7 +264,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         if not item_id:
             continue
 
-        # Extracción segura de ID de vendedor
         seller_id = None
         if isinstance(r.get("seller"), dict):
             seller_id = r.get("seller", {}).get("id")
@@ -312,6 +299,7 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
+    # Atributos obligatorios para cumplir con la validación de catálogo y evitar el error family_name
     attributes_payload = [
         {"id": "BRAND", "value_name": "Centro Estant"},
         {"id": "MODEL", "value_name": "SC1260"},
@@ -320,7 +308,7 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
     ]
 
     payload = {
-        "title": titulo[:60] if titulo else "Escritorio Centro Estant SC1260",
+        "title": titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant",
         "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
         "price": round(float(precio), 2),
         "currency_id": "ARS",
@@ -429,7 +417,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v81.0 — Panel Operativo Oficial MeLi con URLs Canónicas Verificadas")
+st.caption("v82.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -442,7 +430,7 @@ tabs = st.tabs([
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Ingrese un **SKU, EAN, MLA o URL** para calcular comisiones, cuotas y envíos por peso/volumen:")
+    st.write("Ingrese un **SKU, EAN, MLA ou URL** para calcular comisiones, cuotas y envíos por peso/volumen:")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
@@ -488,7 +476,7 @@ with tabs[0]:
                 pct_com_sim = 46.79
 
         with c_p2:
-            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos Volumétrico)", min_value=0.0, value=28500.0, step=500.0, help="Tarifa de Mercado Envíos para bultos pesados de 30-50kg")
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Mercado Envíos Volumétrico)", min_value=0.0, value=28500.0, step=500.0)
             pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
 
         with c_p3:
@@ -530,7 +518,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (CON URLS CANÓNICAS Y NICKNAMES)
+# SOLAPA 2: COMPETENCIA (ESTABLE)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -613,7 +601,7 @@ with tabs[1]:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (PAYLOAD CATALOG FIX)
+# SOLAPA 3: PUBLICADOR DIRECTO (ATRIBUTOS OBLIGATORIOS CORREGIDOS)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
@@ -623,7 +611,7 @@ with tabs[2]:
 
     col_pub1, col_pub2 = st.columns(2)
     with col_pub1:
-        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Escritorio Milan SC1260 Negro Paraiso Centro Estant"))
+        p_titulo = st.text_input("Título de la Publicación", value=pub_data_state.get("title", "Escritorio con modulo giratorio Milan SC1260 Centro Estant"))
         p_cat_id = st.text_input("Catalog Product ID (MLA...)", value=pub_data_state.get("catalog_id", "MLA27235683"))
         p_categoria = st.text_input("Categoría MeLi", value="MLA35254")
 
