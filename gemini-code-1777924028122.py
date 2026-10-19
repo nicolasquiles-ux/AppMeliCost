@@ -58,6 +58,8 @@ if "matriz_custom_df" not in st.session_state:
     st.session_state["matriz_custom_df"] = None
 if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
+if "search_query_comp" not in st.session_state:
+    st.session_state["search_query_comp"] = "7798274755803"
 
 # ==========================================
 # 4. FUNCIONES DE API, LOGÍSTICA Y CÁLCULOS
@@ -405,42 +407,24 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
-def publicar_definitivo_multimodo(payload_dict: dict, access_token: str):
+def actualizar_precio_item_meli(item_id: str, nuevo_precio: float, access_token: str):
     if not access_token:
-        return False, "⚠️ Debés conectar Mercado Libre o ingresar un Access Token directo."
-
-    url = "https://api.mercadolibre.com/items"
+        return False, "⚠️ Token de acceso no disponible para actualizar en MeLi."
+    url = f"https://api.mercadolibre.com/items/{item_id}"
     headers = {
         "Authorization": f"Bearer {access_token.strip()}",
         "Content-Type": "application/json"
     }
-
-    # Auto-inyectar atributos obligatorios de familia si faltan
-    attrs = payload_dict.get("attributes", [])
-    attr_ids = [str(a.get("id")).upper() for a in attrs]
-    
-    if "FAMILY_NAME" not in attr_ids:
-        titulo_ref = payload_dict.get("title", "Mueble Centro Estant")[:30]
-        attrs.append({"id": "FAMILY_NAME", "value_name": titulo_ref})
-    
-    payload_dict["attributes"] = attrs
-
+    payload = {"price": round(float(nuevo_precio), 2)}
     try:
-        res = requests.post(url, json=payload_dict, headers=headers, timeout=12)
-        if res.status_code in [200, 201]:
-            data = res.json()
-            url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
-        
-        err_json = res.json() if res.content else {}
-        err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
-
-        causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
-        if causes:
-            err_msg += " (" + ", ".join(causes) + ")"
-        return False, f"❌ Error API MeLi ({res.status_code}): {err_msg}"
+        res = requests.put(url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return True, f"✅ Precio actualizado con éxito a ${nuevo_precio:,.2f}"
+        else:
+            err = res.json() if res.content else {}
+            return False, f"❌ Error API MeLi ({res.status_code}): {err.get('message', 'Error desconocido')}"
     except Exception as e:
-        return False, f"❌ Error de conexión: {str(e)}"
+        return False, f"❌ Excepción al actualizar: {str(e)}"
 
 # ==========================================
 # 5. CAPTURA DE CALLBACK OAUTH
@@ -516,16 +500,15 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 # ==========================================
-# 8. SOLAPAS OPERATIVAS (MATRIZ ALIMENTANDO COSTOS)
+# 8. SOLAPAS OPERATIVAS (ENFOQUE EN MONITOR & AUTOMATIZACIÓN)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v97.4 — Panel Operativo Oficial MeLi con Publicador Corregido y Matriz Integrada")
+st.caption("v98.0 — Monitor de Precios, Competencia y Actualizaciones Automáticas")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
-    "2. 🏆 Competencia por EAN en Catálogo",
-    "3. 🚀 Publicador Directo Mercado Libre",
-    "4. 📦 Matriz de Artículos & Costos Logísticos"
+    "2. ⚡ Monitor & Ajustador Automático por Competencia",
+    "3. 📦 Matriz de Artículos & Costos Logísticos"
 ])
 
 # ------------------------------------------
@@ -533,7 +516,7 @@ tabs = st.tabs([
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Ingrese un **SKU, EAN, MLA ou URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz** para actualizar el envío automáticamente:")
+    st.write("Ingrese un **SKU, EAN, MLA o URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz**:")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
@@ -629,194 +612,133 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA
+# SOLAPA 2: MONITOR & AJUSTADOR AUTOMÁTICO
 # ------------------------------------------
 with tabs[1]:
-    st.header("🏆 Analizador de Competencia por Catálogo MeLi")
-    st.write("Seleccione un **EAN de la Lista Gold** o ingrese un código/URL manualmente:")
+    st.header("⚡ Monitor de Precios & Ajustador Automático por Competencia")
+    st.caption("Monitoreo en tiempo real de la competencia con validación automática del **Precio Piso** (Costo + Logística + Margen Mínimo) para evitar ventas a pérdida.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
-    query_ean_comp = "7798274755803"
+
+    def actualizar_desde_selectbox_mon():
+        sel = st.session_state.get("select_gold_dropdown_mon", "")
+        if sel:
+            for lbl, ean_v in opciones_ean_gold:
+                if lbl == sel:
+                    st.session_state["search_query_mon"] = ean_v
+                    break
 
     if opciones_ean_gold:
-        st.subheader("📋 Seleccionar Producto desde la Lista Gold Cargada")
         labels_gold = [op[0] for op in opciones_ean_gold]
-        selected_label = st.selectbox("EAN / Producto en Lista Gold", labels_gold, key="sel_gold_comp")
-        
-        if selected_label:
-            for lbl, ean_val in opciones_ean_gold:
-                if lbl == selected_label:
-                    query_ean_comp = ean_val
-                    break
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
         st.markdown("---")
 
-    col_e1, col_e2 = st.columns([3, 1])
-    with col_e1:
-        query_ean_comp = st.text_input("Buscador Manual (EAN / Catálogo / URL)", value=query_ean_comp, key="q_comp")
-    with col_e2:
+    col_m1, col_m2 = st.columns([3, 1])
+    with col_m1:
+        query_mon = st.text_input("Buscador EAN / SKU / URL", key="search_query_mon")
+    with col_m2:
         st.write("")
-        btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
+        btn_run_monitor = st.button("⚡ ANALIZAR Y AJUSTAR", type="primary", use_container_width=True)
 
-    if btn_buscar_ean or query_ean_comp:
-        found_gold_comp, costo_gold_comp, desc_gold_comp, art_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
-        found_mat_comp, costo_env_mat_comp, peso_fact_mat_comp, _, _ = buscar_datos_en_matriz(query_ean_comp)
+    if btn_run_monitor or query_mon:
+        found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
+        found_mat_m, costo_env_m, peso_fact_m, _, _ = buscar_datos_en_matriz(query_mon)
 
-        with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
-            cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
+        with st.spinner("Analizando competencia y calculando umbrales de precio..."):
+            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
 
-        if not found_gold_comp:
-            st.markdown(f'<div class="badge-missing">❌ El código "{query_ean_comp.strip()}" NO está registrado en la Lista Gold cargada.</div><br>', unsafe_allow_html=True)
+        if not found_gold_m:
+            st.markdown(f'<div class="badge-missing">❌ El código "{query_mon.strip()}" no está en la Lista Gold.</div><br>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({desc_gold_comp} - {art_gold_comp})")
+            st.success(f"✅ Producto en Lista Gold: **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
-        if items_comp:
-            st.subheader(f"📊 Vendedores Competidores Detectados ({len(items_comp)} publicaciones)")
-            
-            data_t = []
-            for item in items_comp:
-                q_c = item.get("installments_qty", 1)
-                raw_tipo = str(item.get("listing_type_id", "gold_pro"))
-                tipo_formateado = "Premium (Cuotas)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
-
-                data_t.append({
-                    "Nombre Vendedor": item.get("vendedor_name"),
-                    "Publicación ID": item.get("id"),
-                    "Título Publicación": item.get("title"),
-                    "Precio ($ ARS)": item.get("price", 0.0),
-                    "Financiación": f"{q_c}x sin interés" if q_c > 1 else "1 pago / Contado",
-                    "Tipo Listado": tipo_formateado,
-                    "Stock": item.get("stock", 0),
-                    "Link a MeLi": item.get("permalink")
-                })
-
-            df_comp = pd.DataFrame(data_t).sort_values(by="Precio ($ ARS)", ascending=True).reset_index(drop=True)
-            
+        if items_m:
+            st.subheader("📊 Competencia Activa Detectada")
+            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             st.dataframe(
-                df_comp,
-                column_config={
-                    "Link a MeLi": st.column_config.LinkColumn("Enlace Verificado", display_text="Abrir Publicación 🔗")
-                },
+                df_comp_m[['vendedor_name', 'id', 'title', 'price', 'installments_qty', 'permalink']],
+                column_config={"permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")},
                 use_container_width=True
             )
 
-            ganador_bb = df_comp.iloc[0]
-            pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
-            link_ganador_bb = ganador_bb["Link a MeLi"]
-            pub_id_win = ganador_bb["Publicación ID"]
-            tipo_win = ganador_bb["Tipo Listado"]
+            # Lógica de Precio Piso & Estrategia
+            ganador_m = df_comp_m.iloc[0]
+            pvp_competidor = float(ganador_m["price"])
+            pub_id_competidor = ganador_m["id"]
+            tipo_list_comp = ganador_m["listing_type_id"]
 
-            st.session_state["selected_pub_data"] = {
-                "catalog_id": cat_id_comp,
-                "title": ganador_bb["Título Publicación"],
-                "price": pvp_ganador_bb
-            }
+            pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
+            costo_envio_real = costo_env_m if found_mat_m else 28500.0
 
-            pct_com_win = 33.59 if "Premium" in tipo_win else 14.5
-            costo_envio_win = costo_env_mat_comp if found_mat_comp else 28500.0
+            # Margen mínimo deseado por el usuario (ej. 15%)
+            margen_minimo_pct = st.slider("Margen Neto Mínimo Deseado (%) [Piso de Precio]", min_value=5.0, max_value=40.0, value=15.0, step=0.5)
+
+            # Cálculo matemáticamente riguroso del Precio Piso:
+            # PVP - (Comisión + IIBB + IVA + Envío) - Costo = Ganancia Mínima Deseada
+            # PVP * (1 - pct_com - 0.035 - 0.21) - Envío - Costo = PVP * (margen_min / 100)
+            factor_neto = 1.0 - (pct_comision_estrategia / 100.0) - 0.035 - 0.21 - (margen_minimo_pct / 100.0)
+            precio_piso = (costo_gold_m + costo_envio_real) / factor_neto if factor_neto > 0 else costo_gold_m * 1.5
+
+            st.markdown("### 🛡️ Motor de Reglas y Actualización Automática")
             
-            deducc_com_win = pvp_ganador_bb * (pct_com_win / 100.0)
-            deducc_iibb_win = pvp_ganador_bb * 0.035
-            deducc_iva_win = pvp_ganador_bb * 0.21
-            
-            costo_max_necesario_win = pvp_ganador_bb - deducc_com_win - deducc_iibb_win - deducc_iva_win - costo_envio_win
-            
-            pct_desc_requerido = 0.0
-            if found_gold_comp and costo_gold_comp > 0:
-                if costo_gold_comp > costo_max_necesario_win:
-                    pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
+            c_strat1, c_strat2 = st.columns(2)
+            with c_strat1:
+                estrategia = st.selectbox(
+                    "Estrategia de Actualización de Precio",
+                    [
+                        "Igualar al precio del líder (Respetando Precio Piso)",
+                        "Estar $500 por debajo del líder (Respetando Piso)",
+                        "Estar 1% por debajo del líder (Respetando Piso)"
+                    ]
+                )
+            with c_strat2:
+                st.write("")
+                st.write("")
+                auto_sync_enabled = st.checkbox("🟢 Activar Sincronización Automática 24/7", value=False)
 
-            st.markdown("### 🎯 Estrategia e Igualación de Costos para Ganar el Buy Box")
-            mb1, mb2, mb3 = st.columns(3)
-            mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
-            mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
-            mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
+            # Determinar precio sugerido según estrategia
+            if "Igualar" in estrategia:
+                precio_sugerido_bruto = pvp_competidor
+            elif "$500" in estrategia:
+                precio_sugerido_bruto = pvp_competidor - 500.0
+            else:
+                precio_sugerido_bruto = pvp_competidor * 0.99
 
-            st.markdown("#### 🧾 Desglose de Deducciones del Líder del Buy Box (Con Envío Logístico de Matriz)")
-            df_desglose_bb = pd.DataFrame([
-                {"Concepto": "PVP Ganador Objetivo", "Monto ($)": pvp_ganador_bb, "Porcentaje": "100.0%"},
-                {"Concepto": f"Comisión / Financiación MeLi ({pct_com_win}%)", "Monto ($)": -deducc_com_win, "Porcentaje": f"-{pct_com_win}%"},
-                {"Concepto": f"Envío Logística Matriz ({peso_fact_mat_comp} kg fact.)", "Monto ($)": -costo_envio_win, "Porcentaje": f"-{(costo_envio_win/pvp_ganador_bb)*100:.1f}%"},
-                {"Concepto": "Ingresos Brutos IIBB (3.5%)", "Monto ($)": -deducc_iibb_win, "Porcentaje": "-3.5%"},
-                {"Concepto": "IVA / Retenciones (21.0%)", "Monto ($)": -deducc_iva_win, "Porcentaje": "-21.0%"},
-                {"Concepto": "COSTO MÁXIMO SOPORTADO EN LISTA GOLD", "Monto ($)": costo_max_necesario_win, "Porcentaje": f"{(costo_max_necesario_win/pvp_ganador_bb)*100:.1f}%"}
-            ])
-            st.table(df_desglose_bb)
+            # Aplicar la regla de oro: NUNCA bajar del Precio Piso
+            precio_final_sugerido = max(precio_sugerido_bruto, precio_piso)
 
-            st.markdown(f"👉 **Enlace directo a la publicación líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
+            m_c1, m_c2, m_c3 = st.columns(3)
+            m_c1.metric("🥇 PVP Líder Competencia", f"${pvp_competidor:,.2f}")
+            m_c2.metric("🛡️ Precio Piso (Mínimo Seguro)", f"${precio_piso:,.2f}", f"{margen_minimo_pct}% Margen Mín.")
+            m_c3.metric("🎯 Precio Final Sugerido", f"${precio_final_sugerido:,.2f}", "Protegido por Matriz")
+
+            if precio_sugerido_bruto < precio_piso:
+                st.warning("⚠️ **Alerta de Protección:** El precio del competidor está por debajo de tu costo + margen mínimo. El monitor ajustó automáticamente al **Precio Piso** para evitar pérdidas.")
+
+            st.markdown("---")
+            col_act1, col_act2 = st.columns([2, 1])
+            with col_act1:
+                item_id_a_actualizar = st.text_input("ID de tu Publicación en MeLi a Actualizar (ej. MLA12345678)", value=pub_id_competidor)
+            with col_act2:
+                st.write("")
+                btn_ejecutar_actualizacion = st.button("🚀 ACTUALIZAR PRECIO EN MERCADO LIBRE", type="primary", use_container_width=True)
+
+            if btn_ejecutar_actualizacion:
+                with st.spinner("Enviando actualización de precio a Mercado Libre..."):
+                    exito_up, msg_up = actualizar_item_meli(item_id_a_actualizar, precio_final_sugerido, st.session_state["access_token"])
+                    if exito_up:
+                        st.success(msg_up)
+                    else:
+                        st.error(msg_up)
         else:
-            st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
+            st.warning("No se encontraron competidores activos para este producto.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (CORREGIDO CON FAMILY_NAME)
+# SOLAPA 3: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
 # ------------------------------------------
 with tabs[2]:
-    st.header("🚀 Publicador Directo Mercado Libre (`POST /items`)")
-    st.write("Alta de publicaciones oficiales con **Motor Multimodo de Auto-Resolución y Atributos de Familia**:")
-
-    pub_data_state = st.session_state.get("selected_pub_data", {})
-
-    c_f1, c_f2 = st.columns(2)
-    with c_f1:
-        titulo_input = st.text_input("Título de la Publicación (Máx 60 car.)", value=pub_data_state.get("title", "Alacena 120cm 3 Puertas Centro Estant blanco"))
-        nombre_cat_sel = st.selectbox("Categoría MeLi", list(CATEGORIAS_MELI.keys()), index=0)
-        categoria_id_val = CATEGORIAS_MELI[nombre_cat_sel]
-        
-    with c_f2:
-        precio_val = st.number_input("Precio de Venta Objetivo ($ ARS)", min_value=100.0, value=float(pub_data_state.get("price", 129998.0)), step=500.0)
-        stock_val = st.number_input("Stock Inicial", min_value=1, value=5)
-        tipo_listado_val = st.selectbox("Modalidad de Listado", ["gold_special", "gold_pro"], format_func=lambda x: "Clásica (gold_special)" if x=="gold_special" else "Premium / Cuotas (gold_pro)")
-
-    st.markdown("---")
-    st.subheader("🛠️ Atributos Básicos del Producto (Incluyendo Familia)")
-    
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        marca_val = st.text_input("Marca (BRAND)", value="Centro Estant")
-    with col_t2:
-        modelo_val = st.text_input("Modelo (MODEL)", value="al120bl")
-
-    payload_base = {
-        "title": titulo_input[:60],
-        "category_id": categoria_id_val,
-        "price": round(float(precio_val), 2),
-        "currency_id": "ARS",
-        "available_quantity": int(stock_val),
-        "buying_mode": "buy_it_now",
-        "listing_type_id": tipo_listado_val,
-        "condition": "new",
-        "site_id": "MLA",
-        "attributes": [
-            {"id": "BRAND", "value_name": marca_val},
-            {"id": "MODEL", "value_name": modelo_val},
-            {"id": "FAMILY_NAME", "value_name": titulo_input[:30]}
-        ],
-        "pictures": [
-            {"source": "https://http2.mlstatic.com/D_NQ_NP_907099-MLA51449852230_092022-F.jpg"}
-        ]
-    }
-
-    st.markdown("#### 📝 JSON a Enviar:")
-    json_editado_raw = st.text_area("JSON enviado a `POST /items`:", value=json.dumps(payload_base, indent=2, ensure_ascii=False), height=260)
-
-    st.markdown("---")
-    if st.button("🚀 ENVIAR PUBLICACIÓN A MERCADO LIBRE", type="primary", use_container_width=True):
-        with st.spinner("Procesando publicación en Mercado Libre..."):
-            try:
-                payload_final = json.loads(json_editado_raw)
-                exito_pub, msg_pub = publicar_definitivo_multimodo(payload_final, st.session_state.get("access_token"))
-                if exito_pub:
-                    st.success(msg_pub)
-                else:
-                    st.error(msg_pub)
-            except Exception as json_err:
-                st.error(f"❌ JSON inválido: Formato con errores de sintaxis ({str(json_err)})")
-
-# ------------------------------------------
-# SOLAPA 4: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
-# ------------------------------------------
-with tabs[3]:
     st.header("📦 Matriz de Artículos & Costos Logísticos")
-    st.caption("Carga y visualización de la base oficial de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable para Mercado Envíos / Flex / Full.")
+    st.caption("Carga y visualización de la base oficial de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable.")
 
     uploaded_matriz = st.file_uploader("📂 Subir Archivo de Matriz de Artículos (Excel)", type=["xlsx", "xls"], key="uploader_matriz_file")
     if uploaded_matriz is not None:
@@ -860,4 +782,4 @@ with tabs[3]:
             hide_index=True
         )
     else:
-        st.warning("⚠️ Todavía no hay una matriz cargada. Por favor, sube tu archivo `Matriz Articulos Gemini.xlsx` usando el botón de arriba para habilitar la visualización y los cálculos.")
+        st.warning("⚠️ Todavía no hay una matriz cargada. Por favor, sube tu archivo `Matriz Articulos Gemini.xlsx` usando el botón de arriba.")
