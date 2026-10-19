@@ -21,14 +21,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CREDENCIALES Y OAUTH DE MERCADO LIBRE
+# 2. CREDENCIALES Y OAUTH DE MERCADO LIBRE (VERSIÓN 39)
 # ==========================================
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app")
-
-if REDIRECT_URI.endswith("/"):
-    REDIRECT_URI = REDIRECT_URI[:-1]
 
 # ==========================================
 # 3. ESTADO DE SESIÓN (SESSION STATE)
@@ -48,9 +45,11 @@ if "matriz_productos_df" not in st.session_state:
 # 4. FUNCIONES DE API Y OAUTH MERCADO LIBRE
 # ==========================================
 def obtener_url_login_meli():
+    """Genera la URL exacta para el flujo OAuth oficial de Mercado Libre."""
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
 def intercambiar_code_por_token(code: str):
+    """Intercambia el código temporal de MeLi por el Access Token definitivo."""
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "authorization_code",
@@ -217,7 +216,6 @@ with st.sidebar:
         st.warning("⚠️ Sin conexión con Mercado Libre")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
-        st.caption("ℹ️ Si MeLi muestra error de cuenta, asegurate que tu app esté en Producción o usá una cuenta de prueba autorizada.")
 
     st.markdown("---")
     st.subheader("📄 Carga de Lista Gold")
@@ -249,7 +247,7 @@ with st.sidebar:
 # 7. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v52.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
+st.caption("v53.0 — Dashboard Operativo, Analizador de Catálogo y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
