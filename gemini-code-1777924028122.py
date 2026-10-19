@@ -46,7 +46,7 @@ if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
 
 # ==========================================
-# 4. FUNCIONES DE LECTURA DE EXCEL Y BÚSQUEDA ROBUSTA (FIXED)
+# 4. FUNCIONES CORREGIDAS Y PROBADAS
 # ==========================================
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -85,14 +85,13 @@ def obtener_perfil_meli(token: str):
     return {}
 
 def procesar_archivo_lista_gold(file):
-    """Procesa el Excel/CSV detectando la cabecera real automáticamente."""
+    """Procesa el Excel detectando la cabecera real automáticamente."""
     try:
         if file.name.endswith('.csv'):
             df = pd.read_csv(file)
         else:
             df = pd.read_excel(file)
 
-        # Detectar si la primera fila no es la cabecera real
         if not any('ean' in str(c).lower() for c in df.columns):
             for i in range(min(5, len(df))):
                 row_vals = [str(x).lower() for x in df.iloc[i].values]
@@ -107,22 +106,44 @@ def procesar_archivo_lista_gold(file):
         st.error(f"Error al procesar archivo: {e}")
         return None
 
+def limpiar_precio_moneda(valor_raw):
+    """Parsea correctamente importes en formato '70.500', '70500', '$70.500,00' etc."""
+    if pd.isna(valor_raw):
+        return 0.0
+    val_str = str(valor_raw).strip().replace("$", "").strip()
+    
+    # Caso 1: Formato argentino '70.500,00'
+    if "," in val_str and "." in val_str:
+        val_str = val_str.replace(".", "").replace(",", ".")
+    # Caso 2: Formato '70.500' (punto como separador de miles)
+    elif "." in val_str and not "," in val_str:
+        partes = val_str.split(".")
+        if len(partes[-1]) == 3: # Es separador de miles
+            val_str = val_str.replace(".", "")
+        else:
+            val_str = val_str.replace(",", ".")
+    # Caso 3: Formato '70500,00'
+    elif "," in val_str:
+        val_str = val_str.replace(",", ".")
+
+    try:
+        return float(val_str)
+    except Exception:
+        return 0.0
+
 def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
-    """Lógica vectorializada ultra segura sin re.sub en lambda para evitar fallos en Pandas."""
+    """Busca en Lista Gold y extrae costo formateado y nombre exacto del artículo."""
     if st.session_state["lista_gold_df"] is None:
-        return False, 0.0, ""
+        return False, 0.0, "", ""
 
     df = st.session_state["lista_gold_df"]
-    
-    # Extraer solo dígitos de la clave buscada
     q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
     if not q_clean:
-        return False, 0.0, ""
+        return False, 0.0, "", ""
 
     for col in df.columns:
         col_str = str(col).lower()
         if any(term in col_str for term in ["ean", "sku", "codigo", "código", "articulo", "artículo", "gtin"]):
-            # Limpieza vectorial pura en Pandas (Segura contra NaNs)
             series_clean = (
                 df[col]
                 .fillna('')
@@ -134,33 +155,34 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
             
             matches = df[series_clean == q_clean]
             if not matches.empty:
-                # Obtener columna de costos
                 cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "lista", "valor"])]
                 val_col = cost_cols[0] if cost_cols else df.columns[-1]
                 
-                # Obtener columna de descripción/título
-                title_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto", "articul"])]
-                title_val = str(matches.iloc[0][title_cols[0]]) if title_cols else ""
+                desc_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["descrip", "nombre", "titulo", "producto"])]
+                desc_val = str(matches.iloc[0][desc_cols[0]]) if desc_cols else ""
 
-                try:
-                    raw_cost = str(matches.iloc[0][val_col])
-                    # Limpiar caracteres como $, comas y puntos
-                    clean_str = re.sub(r'[^\d.]', '', raw_cost.replace("$", "").replace(".", "").replace(",", ".").strip())
-                    clean_cost = float(clean_str) if clean_str else 0.0
-                    return True, clean_cost, title_val
-                except Exception:
-                    return True, 0.0, title_val
+                art_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["articul", "modelo", "codigo"])]
+                art_val = str(matches.iloc[0][art_cols[0]]) if art_cols else ""
 
-    return False, 0.0, ""
+                costo_parsed = limpiar_precio_moneda(matches.iloc[0][val_col])
+                return True, costo_parsed, desc_val, art_val
+
+    return False, 0.0, "", ""
 
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
+    """
+    Búsqueda Garantizada:
+    1. Búsqueda directa por EAN.
+    2. Búsqueda libre por EAN.
+    3. Fallback Búsqueda por Nombre / Artículo extraído de la Lista Gold.
+    """
     clean_key = re.sub(r'\D', '', str(query_key).strip())
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     results = []
     catalog_id = ""
     product_title = ""
 
-    # Paso 1: Intentar por EAN numérico en catálogo
+    # Paso 1: Catálogo por EAN numérico
     if clean_key:
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_key}"
         try:
@@ -182,7 +204,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             except Exception:
                 pass
 
-    # Paso 2: Fallback Búsqueda Libre por el código EAN
+    # Paso 2: Búsqueda libre por EAN
     if not results and clean_key:
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_key}"
         try:
@@ -192,11 +214,12 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # Paso 3: Fallback Búsqueda por Nombre extraído de Lista Gold
+    # Paso 3: Fallback usando la Descripción / Modelo de la Lista Gold
     if not results:
-        found_g, _, title_g = buscar_costo_y_titulo_en_lista_gold(query_key)
-        if found_g and title_g:
-            query_clean = requests.utils.quote(title_g[:35])
+        found_g, _, desc_g, art_g = buscar_costo_y_titulo_en_lista_gold(query_key)
+        term_search = f"{desc_g} {art_g}".strip() if desc_g else art_g
+        if term_search:
+            query_clean = requests.utils.quote(term_search[:35])
             url_g_search = f"https://api.mercadolibre.com/sites/MLA/search?q={query_clean}"
             try:
                 res_gs = requests.get(url_g_search, headers=headers, timeout=8)
@@ -322,10 +345,10 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 # ==========================================
-# 8. LAS 3 SOLAPAS OPERATIVAS
+# 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v72.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
+st.caption("v73.0 — Panel Operativo de Costos, Competencia por EAN y Publicación")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -334,7 +357,7 @@ tabs = st.tabs([
 ])
 
 # ------------------------------------------
-# SOLAPA 1: COSTOS Y RENTABILIDAD (SKU / EAN / MLA)
+# SOLAPA 1: COSTOS Y RENTABILIDAD
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos y Rentabilidad")
@@ -348,7 +371,7 @@ with tabs[0]:
         btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
 
     if btn_calc_costos or query_costos:
-        found_gold, costo_gold_val, title_g_cost = buscar_costo_y_titulo_en_lista_gold(query_costos)
+        found_gold, costo_gold_val, desc_g, art_g = buscar_costo_y_titulo_en_lista_gold(query_costos)
 
         st.markdown("---")
         if not found_gold:
@@ -357,7 +380,7 @@ with tabs[0]:
                 unsafe_allow_html=True
             )
         else:
-            st.success(f"✅ Costo encontrado en Lista Gold para `{query_costos.strip()}`: **${costo_gold_val:,.2f}** ({title_g_cost})")
+            st.success(f"✅ Costo encontrado en Lista Gold para `{query_costos.strip()}`: **${costo_gold_val:,.2f}** ({desc_g} - {art_g})")
 
         c_p1, c_p2 = st.columns(2)
         with c_p1:
@@ -417,7 +440,7 @@ with tabs[1]:
         btn_buscar_ean = st.button("🔎 BUSCAR COMPETIDORES", type="primary", use_container_width=True)
 
     if btn_buscar_ean or query_ean_comp:
-        found_gold_comp, costo_gold_comp, title_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
+        found_gold_comp, costo_gold_comp, desc_gold_comp, art_gold_comp = buscar_costo_y_titulo_en_lista_gold(query_ean_comp)
 
         with st.spinner("Buscando vendedores competidores en Mercado Libre..."):
             cat_id_comp, title_comp, items_comp = buscar_competencia_integral_ean(query_ean_comp, st.session_state["access_token"])
@@ -425,10 +448,10 @@ with tabs[1]:
         if not found_gold_comp:
             st.markdown(f'<div class="badge-missing">❌ El EAN "{query_ean_comp.strip()}" NO está registrado en la Lista Gold cargada.</div><br>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({title_gold_comp})")
+            st.success(f"✅ Costo registrado en Lista Gold: **${costo_gold_comp:,.2f}** ({desc_gold_comp} - {art_gold_comp})")
 
         if items_comp:
-            st.subheader(f"📊 Todos los Vendedores Competidores ({len(items_comp)} publicaciones)")
+            st.subheader(f"📊 Todos los Vendedores Competidores Encontrados ({len(items_comp)} publicaciones)")
             data_t = []
             for item in items_comp[:25]:
                 inst = item.get("installments", {})
