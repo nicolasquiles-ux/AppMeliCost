@@ -179,10 +179,23 @@ def extraer_id_catalogo_o_ean_input(input_raw: str):
 
     return "TEXT", raw
 
+def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
+    """Garantiza la URL canónica con guion (MLA-123456) para evitar el error 404."""
+    if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
+        return permalink_api
+    
+    clean_id = str(raw_id).strip().upper()
+    if clean_id.startswith("MLA"):
+        num_part = re.sub(r'\D', '', clean_id)
+        if num_part:
+            return f"https://articulo.mercadolibre.com.ar/MLA-{num_part}"
+    
+    return f"https://articulo.mercadolibre.com.ar/{clean_id}"
+
 @st.cache_data(ttl=3600)
-def obtener_nickname_vendedor_real(seller_id, access_token=""):
+def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     if not seller_id or str(seller_id) in ["N/A", "None", "", "0"]:
-        return "Vendedor Oficial"
+        return "Vendedor Mercado Libre"
     
     url = f"https://api.mercadolibre.com/users/{seller_id}"
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
@@ -190,12 +203,16 @@ def obtener_nickname_vendedor_real(seller_id, access_token=""):
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
-            nickname = data.get("nickname")
-            if nickname:
-                return nickname
+            
+            # Prioridad 1: Nombre de la tienda oficial / E-shop
             eshop = data.get("eshop", {})
-            if eshop and eshop.get("eshop_name"):
-                return eshop.get("eshop_name")
+            if isinstance(eshop, dict) and eshop.get("eshop_name"):
+                return eshop.get("eshop_name").strip()
+                
+            # Prioridad 2: Nickname directo del vendedor (ej: DIAZ_HOME, KROMOS1)
+            nick = data.get("nickname")
+            if nick:
+                return nick.strip().replace("_", " ").title()
     except Exception:
         pass
     return f"Vendedor #{seller_id}"
@@ -221,10 +238,9 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # 2. Consultar publicaciones activas en Mercado Libre por catalog_product_id
     target_catalog_id = catalog_id if catalog_id else "MLA27235683"
     
-    # Intento A: Endpoint de items por catálogo
+    # Intento A: Endpoint directo de catálogo
     url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
     try:
         res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
@@ -243,7 +259,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # Intento C: Búsqueda abierta por EAN o por Modelo SC1260
+    # Intento C: Búsqueda libre por código o modelo SC1260
     if not raw_items:
         term_search = clean_val if clean_val else "Escritorio SC1260 Centro Estant"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
@@ -254,21 +270,24 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # Procesar items y extraer nickname sin bloquear la respuesta
     items_procesados = []
     for r in raw_items[:25]:
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
 
-        seller_data = r.get("seller", {})
-        seller_id = seller_data.get("id") if isinstance(seller_data, dict) else r.get("seller_id")
-        nickname = obtener_nickname_vendedor_real(seller_id, access_token)
+        # Extracción segura de ID de vendedor
+        seller_id = None
+        if isinstance(r.get("seller"), dict):
+            seller_id = r.get("seller", {}).get("id")
+        if not seller_id:
+            seller_id = r.get("seller_id")
+
+        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
+        url_oficial = construir_url_canonica_meli(item_id, r.get("permalink", ""))
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
-
-        permalink = r.get("permalink", f"https://articulo.mercadolibre.com.ar/{item_id}")
 
         items_procesados.append({
             "vendedor_name": nickname,
@@ -278,7 +297,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
             "stock": r.get("available_quantity", 1),
-            "permalink": permalink
+            "permalink": url_oficial
         })
 
     return target_catalog_id, product_title, items_procesados
@@ -320,7 +339,8 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         res = requests.post(url, json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
             data = res.json()
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({data.get('permalink')})"
+            url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
+            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
         else:
             err = res.json() if res.content else {}
             msg = err.get("message", f"Error HTTP {res.status_code}")
@@ -409,7 +429,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v80.0 — Panel Operativo Oficial MeLi")
+st.caption("v81.0 — Panel Operativo Oficial MeLi con URLs Canónicas Verificadas")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -510,7 +530,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (INFALIBLE)
+# SOLAPA 2: COMPETENCIA (CON URLS CANÓNICAS Y NICKNAMES)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -544,7 +564,7 @@ with tabs[1]:
                 tipo_formateado = "Premium (Cuotas)" if "pro" in raw_tipo else ("Clásica" if "special" in raw_tipo else raw_tipo)
 
                 data_t.append({
-                    "Nombre Vendedor": item.get("vendedor_name", "Vendedor Oficial"),
+                    "Nombre Vendedor": item.get("vendedor_name"),
                     "Publicación ID": item.get("id"),
                     "Título Publicación": item.get("title"),
                     "Precio ($ ARS)": item.get("price", 0.0),
