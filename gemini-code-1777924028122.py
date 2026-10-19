@@ -299,11 +299,13 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "Content-Type": "application/json"
     }
 
+    # Atributos completos estructurados para la categoría Escritorios (MLA35254)
     attributes_payload = [
         {"id": "BRAND", "value_name": "Centro Estant"},
         {"id": "MODEL", "value_name": "SC1260"},
         {"id": "FAMILY_NAME", "value_name": "Escritorios"},
-        {"id": "ITEM_CONDITION", "value_name": "Nuevo"}
+        {"id": "ITEM_CONDITION", "value_name": "Nuevo"},
+        {"id": "COLOR", "value_name": "Negro y Paraiso"}
     ]
 
     pictures_payload = [
@@ -315,8 +317,8 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         {"id": "WARRANTY_TIME", "value_name": "6 meses"}
     ]
 
-    # Payload 1: Intento directo con Catalog Product ID
-    payload = {
+    # Payload 1: Publicación Estándar sin restringir catalog_product_id para evitar el rechazo family_name
+    payload_direct = {
         "title": titulo[:60] if titulo else "Escritorio con modulo giratorio Milan SC1260 Centro Estant",
         "category_id": categoria if (categoria and not categoria.startswith("MLA-")) else "MLA35254",
         "price": round(float(precio), 2),
@@ -331,39 +333,32 @@ def publicar_en_mercado_libre(catalog_id: str, titulo: str, categoria: str, prec
         "sale_terms": sale_terms_payload
     }
 
-    if catalog_id and catalog_id.upper().startswith("MLA"):
-        payload["catalog_product_id"] = catalog_id.strip()
-
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        # Petición principal de publicación
+        res = requests.post(url, json=payload_direct, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
             data = res.json()
             url_created = construir_url_canonica_meli(data.get("id"), data.get("permalink", ""))
-            return True, f"✅ ¡Publicación creada con éxito! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
-
-        # Fallback si Mercado Libre exige la publicación directa sin catalog_product_id por incompatibilidad de User Product
-        err_json = res.json() if res.content else {}
-        err_msg = str(err_json.get("message", ""))
-        
-        if "family_name" in err_msg or "required_fields" in err_msg or res.status_code == 400:
-            payload_fallback = payload.copy()
-            payload_fallback.pop("catalog_product_id", None)
+            return True, f"✅ ¡Publicación creada exitosamente! ID: **{data.get('id')}** — [Abrir en Mercado Libre]({url_created})"
+        else:
+            err_json = res.json() if res.content else {}
+            err_msg = str(err_json.get("message", f"Error HTTP {res.status_code}"))
             
-            res_fb = requests.post(url, json=payload_fallback, headers=headers, timeout=10)
-            if res_fb.status_code in [200, 201]:
-                data_fb = res_fb.json()
-                url_created_fb = construir_url_canonica_meli(data_fb.get("id"), data_fb.get("permalink", ""))
-                return True, f"✅ ¡Publicación creada exitosamente como ítem directo! ID: **{data_fb.get('id')}** — [Abrir en Mercado Libre]({url_created_fb})"
-            else:
-                err_fb = res_fb.json() if res_fb.content else {}
-                msg_fb = err_fb.get("message", f"Error HTTP {res_fb.status_code}")
-                if "cause" in err_fb:
-                    causes = [c.get("message", "") for c in err_fb.get("cause", []) if c.get("message")]
-                    if causes:
-                        msg_fb += " (" + ", ".join(causes) + ")"
-                return False, f"❌ Error API MeLi: {msg_fb}"
+            # Intento secundario agregando catalog_product_id explícito
+            if catalog_id and catalog_id.upper().startswith("MLA"):
+                payload_cat = payload_direct.copy()
+                payload_cat["catalog_product_id"] = catalog_id.strip()
+                res_c = requests.post(url, json=payload_cat, headers=headers, timeout=10)
+                if res_c.status_code in [200, 201]:
+                    data_c = res_c.json()
+                    url_created_c = construir_url_canonica_meli(data_c.get("id"), data_c.get("permalink", ""))
+                    return True, f"✅ ¡Publicación de Catálogo creada con éxito! ID: **{data_c.get('id')}** — [Abrir en Mercado Libre]({url_created_c})"
 
-        return False, f"❌ Error API MeLi: {err_msg}"
+            if "cause" in err_json:
+                causes = [c.get("message", "") for c in err_json.get("cause", []) if c.get("message")]
+                if causes:
+                    err_msg += " (" + ", ".join(causes) + ")"
+            return False, f"❌ Error API MeLi: {err_msg}"
     except Exception as e:
         return False, f"❌ Error de conexión: {str(e)}"
 
@@ -444,7 +439,7 @@ with st.sidebar:
 # 8. TRES SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v83.0 — Panel Operativo Oficial MeLi")
+st.caption("v84.0 — Panel Operativo Oficial MeLi")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -545,7 +540,7 @@ with tabs[0]:
         st.table(df_desglose)
 
 # ------------------------------------------
-# SOLAPA 2: COMPETENCIA (ESTABLE)
+# SOLAPA 2: COMPETENCIA (CON CÁLCULO PRECISO Y DESGLOSE BUY BOX)
 # ------------------------------------------
 with tabs[1]:
     st.header("🏆 Analizador de Competencia por Catálogo MeLi")
@@ -603,6 +598,7 @@ with tabs[1]:
             pvp_ganador_bb = float(ganador_bb["Precio ($ ARS)"])
             link_ganador_bb = ganador_bb["Link a MeLi"]
             pub_id_win = ganador_bb["Publicación ID"]
+            tipo_win = ganador_bb["Tipo Listado"]
 
             st.session_state["selected_pub_data"] = {
                 "catalog_id": cat_id_comp,
@@ -610,25 +606,45 @@ with tabs[1]:
                 "price": pvp_ganador_bb
             }
 
-            deducciones_estimadas = (pvp_ganador_bb * 0.3359) + (pvp_ganador_bb * 0.035) + (pvp_ganador_bb * 0.21) + 28500.0
-            costo_max_necesario_win = pvp_ganador_bb - deducciones_estimadas - (pvp_ganador_bb * 0.15)
+            # Porcentajes exactos según el tipo de listado del líder
+            pct_com_win = 33.59 if "Premium" in tipo_win else 14.5
+            costo_envio_win = 28500.0 if pvp_ganador_bb >= 30000.0 else 0.0
+            
+            deducc_com_win = pvp_ganador_bb * (pct_com_win / 100.0)
+            deducc_iibb_win = pvp_ganador_bb * 0.035
+            deducc_iva_win = pvp_ganador_bb * 0.21
+            
+            # Costo Máximo en Gold para empatar el Buy Box
+            costo_max_necesario_win = pvp_ganador_bb - deducc_com_win - deducc_iibb_win - deducc_iva_win - costo_envio_win
             
             pct_desc_requerido = 0.0
-            if found_gold_comp and costo_gold_comp > costo_max_necesario_win and costo_gold_comp > 0:
-                pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
+            if found_gold_comp and costo_gold_comp > 0:
+                if costo_gold_comp > costo_max_necesario_win:
+                    pct_desc_requerido = ((costo_gold_comp - costo_max_necesario_win) / costo_gold_comp) * 100.0
 
-            st.markdown("### 🎯 Estrategia para Ganar el Buy Box")
+            st.markdown("### 🎯 Estrategia e Igualación de Costos para Ganar el Buy Box")
             mb1, mb2, mb3 = st.columns(3)
             mb1.metric("🥇 PVP Ganador Buy Box", f"${pvp_ganador_bb:,.2f}", f"ID: {pub_id_win}")
             mb2.metric("🎯 Costo Máximo Necesario en Gold", f"${costo_max_necesario_win:,.2f}")
             mb3.metric("📉 % Descuento Necesario en Lista Gold", f"{pct_desc_requerido:.1f}%" if pct_desc_requerido > 0 else "0.0% (Viable)")
+
+            st.markdown("#### 🧾 Desglose de Deducciones del Líder del Buy Box")
+            df_desglose_bb = pd.DataFrame([
+                {"Concepto": "PVP Ganador Objetivo", "Monto ($)": pvp_ganador_bb, "Porcentaje": "100.0%"},
+                {"Concepto": f"Comisión / Financiación MeLi ({pct_com_win}%)", "Monto ($)": -deducc_com_win, "Porcentaje": f"-{pct_com_win}%"},
+                {"Concepto": "Envío Logística Bulto Pesado", "Monto ($)": -costo_envio_win, "Porcentaje": f"-{(costo_envio_win/pvp_ganador_bb)*100:.1f}%"},
+                {"Concepto": "Ingresos Brutos IIBB (3.5%)", "Monto ($)": -deducc_iibb_win, "Porcentaje": "-3.5%"},
+                {"Concepto": "IVA / Retenciones (21.0%)", "Monto ($)": -deducc_iva_win, "Porcentaje": "-21.0%"},
+                {"Concepto": "COSTO MÁXIMO SOPORTADO EN LISTA GOLD", "Monto ($)": costo_max_necesario_win, "Porcentaje": f"{(costo_max_necesario_win/pvp_ganador_bb)*100:.1f}%"}
+            ])
+            st.table(df_desglose_bb)
 
             st.markdown(f"👉 **Enlace directo a la publicación líder:** [{ganador_bb['Título Publicación']}]({link_ganador_bb})")
         else:
             st.warning("No se encontraron publicaciones competidoras activas para este código EAN o Catalog ID.")
 
 # ------------------------------------------
-# SOLAPA 3: PUBLICADOR DIRECTO (PAYLOAD CATALOG & FALLBACK FIX)
+# SOLAPA 3: PUBLICADOR DIRECTO (ESTRUCTURA FINAL COMPATIBLE)
 # ------------------------------------------
 with tabs[2]:
     st.header("🚀 Publicador Directo en Mercado Libre (`POST /items`)")
