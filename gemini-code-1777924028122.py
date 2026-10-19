@@ -101,6 +101,7 @@ def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
     if not catalog_id:
         return None
 
+    # Obtener info básica del catálogo
     url_prod = f"https://api.mercadolibre.com/products/{catalog_id}"
     prod_data = {}
     try:
@@ -111,25 +112,38 @@ def resolver_id_catalogo_o_ean(input_text: str, access_token: str = None):
         pass
 
     title = prod_data.get("name", prod_data.get("title", ""))
-    category_id = prod_data.get("domain_id", prod_data.get("category_id", "MLA35254"))
-    
-    # Extraer family_name si existe en atributos o usar un genérico seguro
-    family_name = "Biblioteca"
+    category_id = prod_data.get("category_id", "")
+    domain_id = prod_data.get("domain_id", "")
+
+    # Búsqueda de publicaciones asociadas para extraer metadatos
+    vendedores = buscar_items_por_catalogo(catalog_id, title, access_token)
+    if vendedores:
+        primer_item = vendedores[0]
+        if not title:
+            title = primer_item.get("title", f"Producto {catalog_id}")
+        if not category_id:
+            category_id = primer_item.get("category_id", "MLA35254")
+
+    # Extraer family_name o usar el título base como familia de producto
+    family_name = title if title else "Mobiliario"
     for attr in prod_data.get("attributes", []):
-        if attr.get("id") in ["FAMILY_NAME", "LINE", "MODEL"]:
+        if attr.get("id") == "FAMILY_NAME":
             family_name = attr.get("value_name", family_name)
 
     return {
         "id": catalog_id,
         "title": title if title else f"Producto {catalog_id}",
-        "category_id": category_id,
-        "family_name": family_name
+        "category_id": category_id if category_id else "MLA35254",
+        "domain_id": domain_id if domain_id else "MLA-BIBLIOTHEQUES",
+        "family_name": family_name,
+        "vendedores": vendedores
     }
 
 def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     results = []
 
+    # 1. Búsqueda directa por catalog_product_id
     if catalog_id:
         url = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id.strip()}"
         try:
@@ -139,8 +153,10 @@ def buscar_items_por_catalogo(catalog_id: str, titulo: str = "", access_token: s
         except Exception:
             pass
 
+    # 2. Fallback de búsqueda libre por Query si la búsqueda de catálogo no retornó ítems
     if not results and titulo:
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(titulo[:30])}"
+        query_str = requests.utils.quote(titulo[:35])
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={query_str}"
         try:
             res = requests.get(url_q, headers=headers, timeout=8)
             if res.status_code == 200:
@@ -171,9 +187,13 @@ def publicar_item_en_catalogo(
         "Accept": "application/json"
     }
 
+    # Asignar un family_name seguro basado en el título si viene vacío
+    clean_family = family_name if (family_name and family_name != "Mobiliario") else titulo_producto[:30]
+
+    # Payload estandarizado de POST /items para Catálogo en MeLi
     payload = {
         "title": titulo_producto[:60] if titulo_producto else "Producto de Catálogo",
-        "category_id": categoria_id if (categoria_id and not categoria_id.startswith("MLA-")) else "MLA35254",
+        "category_id": categoria_id if categoria_id else "MLA35254",
         "price": round(float(precio_venta), 2),
         "currency_id": "ARS",
         "available_quantity": int(quantity),
@@ -182,10 +202,19 @@ def publicar_item_en_catalogo(
         "condition": condition,
         "site_id": "MLA",
         "catalog_product_id": catalog_product_id.strip(),
+        "family_name": clean_family,
         "attributes": [
             {
                 "id": "FAMILY_NAME",
-                "value_name": family_name if family_name else "Muebles"
+                "value_name": clean_family
+            },
+            {
+                "id": "BRAND",
+                "value_name": "Genérica"
+            },
+            {
+                "id": "MODEL",
+                "value_name": catalog_product_id.strip()
             }
         ]
     }
@@ -203,8 +232,9 @@ def publicar_item_en_catalogo(
             err_data = response.json() if response.content else {}
             err_msg = err_data.get("message", f"Error HTTP {response.status_code}")
             if "cause" in err_data:
-                causes = [c.get("message", "") for c in err_data.get("cause", [])]
-                err_msg += " (" + ", ".join(causes) + ")"
+                causes = [c.get("message", "") for c in err_data.get("cause", []) if c.get("message")]
+                if causes:
+                    err_msg += " (" + ", ".join(causes) + ")"
             return False, f"❌ Error API MeLi: {err_msg}"
     except Exception as e:
         return False, f"❌ Excepción durante la conexión: {str(e)}"
@@ -310,7 +340,7 @@ with st.sidebar:
 # 8. PESTAÑAS PRINCIPALES (1 A 7)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v62.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
+st.caption("v63.0 — Dashboard Operativo, Analizador de Catálogo, Top de Vendedores y Publicador Directo")
 
 tabs = st.tabs([
     "1. Resumen",
@@ -438,11 +468,11 @@ with tabs[6]:
             real_catalog_id = cat_details.get("id", "")
             title_p = cat_details.get("title", "Sin Título")
             cat_id_p = cat_details.get("category_id", "")
-            fam_name = cat_details.get("family_name", "Mobiliario")
+            fam_name = cat_details.get("family_name", title_p[:30])
             
-            st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID:** `{real_catalog_id}` | **Familia:** `{fam_name}`")
+            st.success(f"✅ **Producto Identificado:** {title_p} | **Catalog ID:** `{real_catalog_id}` | **Categoría:** `{cat_id_p}`")
             
-            vendedores_items = buscar_items_por_catalogo(real_catalog_id, title_p, st.session_state["access_token"])
+            vendedores_items = cat_details.get("vendedores", [])
 
             if vendedores_items:
                 st.subheader("🏆 Top de Vendedores Activos en este Catálogo (Buy Box)")
@@ -452,13 +482,13 @@ with tabs[6]:
                     cuotas_qty = installments_info.get("quantity", 1) if installments_info else 1
                     
                     data_competencia.append({
-                        "Vendedor ID": item.get("seller", {}).get("id"),
+                        "Vendedor ID": item.get("seller", {}).get("id", "N/A"),
                         "Precio ($ ARS)": item.get("price", 0),
                         "Cuotas": f"{cuotas_qty} cuotas",
-                        "Tipo Listado": item.get("listing_type_id"),
-                        "Stock": item.get("available_quantity"),
-                        "Título Publicación": item.get("title"),
-                        "Link": item.get("permalink")
+                        "Tipo Listado": item.get("listing_type_id", "gold_pro"),
+                        "Stock": item.get("available_quantity", 1),
+                        "Título Publicación": item.get("title", title_p),
+                        "Link": item.get("permalink", "#")
                     })
                 
                 df_comp = pd.DataFrame(data_competencia)
@@ -475,9 +505,10 @@ with tabs[6]:
                 col_m2.metric("💳 Cuotas Ganadoras", cuotas_ganador)
                 col_m3.metric("🎯 Costo Máximo Sugerido (Est. 30% Margen)", f"${precio_ganador * 0.70:,.2f}")
                 
-                st.markdown(f"👉 **Enlace directo a la publicación ganadora en Mercado Libre:** [Ver Competidor]({link_ganador})")
+                if link_ganador and link_ganador != "#":
+                    st.markdown(f"👉 **Enlace directo a la publicación ganadora en Mercado Libre:** [Ver Competidor]({link_ganador})")
             else:
-                st.warning("No se encontraron vendedores competidores activos para esta publicación o término exacto.")
+                st.warning("No se encontraron vendedores competidores activos para esta publicación.")
         else:
             st.error("No se encontró un producto de catálogo para la clave ingresada. Verificá que sea un Catalog ID (`MLA...`) o EAN válido.")
 
@@ -502,7 +533,7 @@ with tabs[6]:
                         catalog_product_id=real_catalog_id,
                         titulo_producto=cat_details.get("title", ""),
                         categoria_id=cat_details.get("category_id", ""),
-                        family_name=cat_details.get("family_name", "Mobiliario"),
+                        family_name=cat_details.get("family_name", ""),
                         precio_venta=precio_final_pub,
                         listing_type_id=code_list_pub,
                         quantity=int(stock_pub),
