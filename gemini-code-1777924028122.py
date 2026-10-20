@@ -59,6 +59,8 @@ if "matriz_custom_df" not in st.session_state:
     st.session_state["matriz_custom_df"] = None
 if "selected_pub_data" not in st.session_state:
     st.session_state["selected_pub_data"] = {}
+if "q_costos" not in st.session_state:
+    st.session_state["q_costos"] = "7798274755803"
 if "search_query_mon" not in st.session_state:
     st.session_state["search_query_mon"] = "7798274755803"
 
@@ -513,7 +515,7 @@ with st.sidebar:
 # 8. SOLAPAS OPERATIVAS (INCLUYENDO IA ATENCIÓN AL CLIENTE)
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.0 — Asistente IA de Atención al Cliente, Preguntas y Reclamos (Estilo GoBots)")
+st.caption("v99.1 — Simulador, Monitor, Matriz y Asistente IA")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -527,11 +529,26 @@ tabs = st.tabs([
 # ------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Ingrese un **SKU, EAN, MLA o URL**. El sistema buscará el costo en Lista Gold y el **peso facturable/volumétrico en la Matriz**:")
+    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código manualmente. El sistema buscará el costo y el **peso facturable/volumétrico en la Matriz**:")
+
+    opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
+
+    def actualizar_desde_selectbox_s1():
+        sel = st.session_state.get("select_gold_dropdown_s1", "")
+        if sel:
+            for lbl, ean_v in opciones_ean_gold_s1:
+                if lbl == sel:
+                    st.session_state["q_costos"] = ean_v
+                    break
+
+    if opciones_ean_gold_s1:
+        labels_gold_s1 = [op[0] for op in opciones_ean_gold_s1]
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold_s1, key="select_gold_dropdown_s1", on_change=actualizar_desde_selectbox_s1)
+        st.markdown("---")
 
     c_s1, c_s2 = st.columns([3, 1])
     with c_s1:
-        query_costos = st.text_input("Código SKU / EAN / MLA / URL", value="7798274755803", key="q_costos")
+        query_costos = st.text_input("Código SKU / EAN / MLA / URL", key="q_costos")
     with c_s2:
         st.write("")
         btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
@@ -801,7 +818,6 @@ with tabs[3]:
         st.subheader("Bandeja Inteligente de Preguntas (Pre-Venta)")
         st.info("💡 La IA analiza la pregunta del cliente y redacta una respuesta automática basada en el stock, dimensiones de la matriz y tiempos de entrega.")
 
-        # Simulador de preguntas en vivo para probar el motor IA
         pregunta_cliente_ejemplo = st.text_area(
             "Simular Pregunta de Cliente (o conectar API)", 
             value="¿Hola tienen stock en color blanco de la alacena de 120cm y cuánto demoran los envíos a Córdoba?"
@@ -809,7 +825,6 @@ with tabs[3]:
 
         if st.button("🤖 GENERAR RESPUESTA AUTOMÁTICA CON IA", type="primary"):
             with st.spinner("La IA analizando stock, matriz logística y políticas..."):
-                # Simulación de respuesta entrenada estilo GoBots
                 respuesta_ia = (
                     "¡Hola! Sí, contamos con stock disponible en color blanco para entrega inmediata. "
                     "El producto viaja embalado en caja reforzada (con un peso facturable optimizado según nuestra matriz logística) "
