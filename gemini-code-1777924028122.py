@@ -172,7 +172,6 @@ def calcular_costo_envio_por_peso_facturable(peso_facturable: float, es_lider: b
     else:
         base = 65000.0
         
-    # Aplicar descuento por reputación Mercado Líder (aprox 45% de bonificación en envíos)
     if es_lider:
         base = base * 0.55
         
@@ -525,7 +524,7 @@ with st.sidebar:
 # 8. SOLAPAS OPERATIVAS
 # ==========================================
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.2 — Simulador, Monitor, Matriz, Asistente IA y Descuentos por Reputación")
+st.caption("v99.3 — Monitor Flexibilizado: Ganar al 1º Puesto con Control Total")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -655,7 +654,7 @@ with tabs[0]:
 # ------------------------------------------
 with tabs[1]:
     st.header("⚡ Monitor de Precios & Ajustador Automático por Competencia")
-    st.caption("Monitoreo en tiempo real de la competencia con validación automática del **Precio Piso** (Costo + Logística con descuento de reputación + Margen Mínimo) para evitar ventas a pérdida.")
+    st.caption("Monitoreo en tiempo real de la competencia con opción de forzar precio para **ganar el 1º puesto previa aceptación del vendedor**.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -708,21 +707,21 @@ with tabs[1]:
             pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
             costo_envio_real = costo_env_m if found_mat_m else (15500.0 if es_mercado_lider else 28500.0)
 
-            margen_minimo_pct = st.slider("Margen Neto Mínimo Deseado (%) [Piso de Precio]", min_value=5.0, max_value=40.0, value=15.0, step=0.5)
+            margen_minimo_pct = st.slider("Margen Neto Mínimo Deseado (%) [Piso de Precio]", min_value=5.0, max_value=40.0, value=8.0, step=0.5)
 
             factor_neto = 1.0 - (pct_comision_estrategia / 100.0) - 0.035 - 0.21 - (margen_minimo_pct / 100.0)
             precio_piso = (costo_gold_m + costo_envio_real) / factor_neto if factor_neto > 0 else costo_gold_m * 1.5
 
-            st.markdown("### 🛡️ Motor de Reglas y Actualización Automática")
+            st.markdown("### 🛡️ Motor de Reglas & Estrategias de Competencia")
             
             c_strat1, c_strat2 = st.columns(2)
             with c_strat1:
                 estrategia = st.selectbox(
                     "Estrategia de Actualización de Precio",
                     [
-                        "Igualar al precio del líder (Respetando Precio Piso)",
-                        "Estar $500 por debajo del líder (Respetando Piso)",
-                        "Estar 1% por debajo del líder (Respetando Piso)"
+                        "Estar 1% por debajo del líder (Superar al 1º)",
+                        "Igualar exactamente al precio del líder",
+                        "Estar $500 por debajo del líder"
                     ]
                 )
             with c_strat2:
@@ -730,22 +729,54 @@ with tabs[1]:
                 st.write("")
                 auto_sync_enabled = st.checkbox("🟢 Activar Sincronización Automática 24/7", value=False)
 
-            if "Igualar" in estrategia:
-                precio_sugerido_bruto = pvp_competidor
-            elif "$500" in estrategia:
-                precio_sugerido_bruto = pvp_competidor - 500.0
-            else:
+            # Cálculo de precio según estrategia elegida
+            if "Estar 1%" in estrategia:
                 precio_sugerido_bruto = pvp_competidor * 0.99
+            elif "Igualar" in estrategia:
+                precio_sugerido_bruto = pvp_competidor
+            else:
+                precio_sugerido_bruto = pvp_competidor - 500.0
 
-            precio_final_sugerido = max(precio_sugerido_bruto, precio_piso)
+            # Validación de piso de precio
+            por_debajo_del_piso = precio_sugerido_bruto < precio_piso
 
+            if por_debajo_del_piso:
+                st.markdown("---")
+                st.warning(f"⚠️ **Atención:** El precio para ganar al 1º es de **${precio_sugerido_bruto:,.2f}**, el cual queda por debajo de tu Piso Seguro de **${precio_piso:,.2f}**.")
+                
+                # Checkbox de autorización directa
+                acepta_forzar = st.checkbox(
+                    "⚠️ **ACEPTO FORZAR EL PRECIO DEL 1º PUESTO** (Asumo vender a este precio para ganar posicionamiento)",
+                    value=False
+                )
+
+                if acepta_forzar:
+                    precio_final_sugerido = precio_sugerido_bruto
+                    st.success("🟢 **Autorización Otorgada:** Se aplicará el precio del 1º puesto.")
+                else:
+                    precio_final_sugerido = precio_piso
+                    st.info("🛡️ **Protección Activa:** Aplicando Precio Piso de resguardo.")
+            else:
+                acepta_forzar = True
+                precio_final_sugerido = precio_sugerido_bruto
+
+            # Muestreo de Métricas
             m_c1, m_c2, m_c3 = st.columns(3)
             m_c1.metric("🥇 PVP Líder Competencia", f"${pvp_competidor:,.2f}")
             m_c2.metric("🛡️ Precio Piso (Mínimo Seguro)", f"${precio_piso:,.2f}", f"{margen_minimo_pct}% Margen Mín.")
-            m_c3.metric("🎯 Precio Final Sugerido", f"${precio_final_sugerido:,.2f}", "Protegido por Matriz")
+            m_c3.metric("🎯 Precio Final a Aplicar", f"${precio_final_sugerido:,.2f}", "Puesto 1 Autorizado" if (por_debajo_del_piso and acepta_forzar) else "Protegido")
 
-            if precio_sugerido_bruto < precio_piso:
-                st.warning("⚠️ **Alerta de Protección:** El precio del competidor está por debajo de tu costo + margen mínimo. El monitor ajustó automáticamente al **Precio Piso** para evitar pérdidas.")
+            # Cálculo de Rentabilidad Real con el Precio Final Sugerido
+            m_com_real = precio_final_sugerido * (pct_comision_estrategia / 100.0)
+            m_iibb_real = precio_final_sugerido * 0.035
+            m_iva_real = precio_final_sugerido * 0.21
+            ganancia_neta_sugerida = precio_final_sugerido - m_com_real - m_iibb_real - m_iva_real - costo_envio_real - costo_gold_m
+            margen_neta_sugerido_pct = (ganancia_neta_sugerida / precio_final_sugerido) * 100.0 if precio_final_sugerido > 0 else 0.0
+
+            if ganancia_neta_sugerida < 0:
+                st.error(f"🔴 **Pérdida Estimada al Ganar el 1º Puesto:** **-${abs(ganancia_neta_sugerida):,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen)")
+            else:
+                st.info(f"🔵 **Ganancia Estimada al Aplicar Precio:** **${ganancia_neta_sugerida:,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen Real)")
 
             st.markdown("---")
             col_act1, col_act2 = st.columns([2, 1])
