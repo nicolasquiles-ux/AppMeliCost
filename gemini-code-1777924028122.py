@@ -488,18 +488,18 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.5 — Análisis Inverso de Descuento de Proveedor para Competir")
+st.caption("v99.6 — Validación Real (Costo Gold x 2 & Descuento Proveedor 15%-25%)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
-    "2. ⚡ Monitor & Ajustador Automático por Competencia",
+    "2. ⚡ Monitor & Análisis de Descuento Requerido",
     "3. 📦 Matriz de Artículos & Costos Logísticos",
     "4. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
 
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
-    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código manualmente. El sistema buscará el costo y el **peso facturable/volumétrico en la Matriz** aplicándole el descuento de envío según tu reputación:")
+    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código manualmente. El sistema buscará el costo y aplicará por defecto la regla comercial **Lista Gold x 2** con tu descuento de proveedor real (15% - 25%):")
 
     opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
 
@@ -544,9 +544,11 @@ with tabs[0]:
                 st.success(f"📦 Envío Automático por Matriz{badge_lider_txt}: **${costo_envio_matriz:,.2f}** (Peso fact.: {peso_fact_matriz} kg)")
                 costo_envio_default = costo_envio_matriz
 
+        pvp_default_sugerido = round(costo_gold_val * 2.0, 2) if found_gold else 200000.0
+
         c_p1, c_p2, c_p3 = st.columns(3)
         with c_p1:
-            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=173436.0, step=500.0)
+            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS) [Referencia Gold x 2]", min_value=100.0, value=pvp_default_sugerido, step=500.0)
             
             tipo_pub_sim = st.selectbox(
                 "Modalidad de Publicación / Cuotas", 
@@ -570,7 +572,7 @@ with tabs[0]:
 
         with c_p2:
             costo_envio_sim = st.number_input("Costo Logística Oficial (Actualizado con Reputación)", min_value=0.0, value=costo_envio_default, step=500.0)
-            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
+            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%) [Fluctuación real 15%-25%]", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
 
         with c_p3:
             pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
@@ -589,14 +591,14 @@ with tabs[0]:
 
         st.markdown("### 📊 Resultado Financiero Neto Real")
         res1, res2, res3 = st.columns(3)
-        res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
+        res1.metric("PVP Simulado (Gold x 2)", f"${pvp_sim:,.2f}")
         res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
         res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
 
         if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> aplicando un descuento de proveedor del <b>{pct_descuento_proveedor}%</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> aplicando un descuento de proveedor del <b>{pct_descuento_proveedor}%</b> sobre la Lista Gold.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. Requiere mayor descuento de fábrica.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. El PVP de Lista Gold x 2 queda corto frente a las comisiones y costos de envío.</div>', unsafe_allow_html=True)
 
         st.markdown("#### 🧾 Desglose Detallado de Deducciones Oficiales")
         df_desglose = pd.DataFrame([
@@ -612,7 +614,7 @@ with tabs[0]:
 
 with tabs[1]:
     st.header("⚡ Monitor de Precios & Análisis de Descuento Requerido")
-    st.caption("Calcula automáticamente el costo Lista Gold, el precio del líder y el **descuento de proveedor necesario** para competir ganando tu margen objetivo.")
+    st.caption("Compara el precio del líder de la competencia frente a tu **Costo Gold** aplicando la fluctuación real de descuento del proveedor (15% a 25%).")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -646,7 +648,7 @@ with tabs[1]:
         if not found_gold_m:
             st.markdown(f'<div class="badge-missing">❌ El código "{query_mon.strip()}" no está en la Lista Gold.</div><br>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
+            st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m}) — *Referencia Gold x 2: **${costo_gold_m*2:,.2f}***")
 
         if items_m:
             st.subheader("📊 Competencia Activa Detectada")
@@ -670,11 +672,11 @@ with tabs[1]:
             pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
             costo_envio_real = costo_env_m if found_mat_m else (15500.0 if es_mercado_lider else 28500.0)
 
-            st.markdown("### 🎯 Análisis Inverso: Descuento de Proveedor Requerido para Ganar al 1º")
+            st.markdown("### 🎯 Análisis Inverso: Descuento de Proveedor Requerido (Fluctuación 15% - 25%)")
             
             c_arg1, c_arg2 = st.columns(2)
             with c_arg1:
-                margen_deseado_analisis = st.slider("Margen Neto Objetivo Buscado (%)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+                margen_deseado_analisis = st.slider("Margen Neto Objetivo Buscado (%)", min_value=0.0, max_value=30.0, value=8.0, step=0.5)
             with c_arg2:
                 estrategia_precio = st.selectbox(
                     "Precio Objetivo a Igualar / Vencer",
@@ -692,16 +694,13 @@ with tabs[1]:
             else:
                 precio_objetivo = pvp_competidor - 500.0
 
-            # Cálculo de deducciones totales a ese precio objetivo
             comision_monto = precio_objetivo * (pct_comision_estrategia / 100.0)
             iibb_monto = precio_objetivo * 0.035
             iva_monto = precio_objetivo * 0.21
             ganancia_objetiva_monto = precio_objetivo * (margen_deseado_analisis / 100.0)
 
-            # Costo de producto máximo soportado para cumplir con el margen y precio objetivo
             costo_producto_objetivo = precio_objetivo - comision_monto - iibb_monto - iva_monto - costo_envio_real - ganancia_objetiva_monto
 
-            # Descuento necesario sobre la lista gold
             if costo_gold_m > 0:
                 descuento_requerido_pct = ((costo_gold_m - costo_producto_objetivo) / costo_gold_m) * 100.0
             else:
@@ -714,12 +713,14 @@ with tabs[1]:
             if descuento_requerido_pct <= 0:
                 m_d3.metric("✨ Descuento de Proveedor Requerido", "0.0%", "Rentable sin descuento extra")
             else:
-                m_d3.metric("📉 Descuento Proveedor Requerido", f"{descuento_requerido_pct:.1f}%", f"Costo objetivo: ${costo_producto_objetivo:,.2f}")
+                m_d3.metric("📉 Descuento Proveedor Requerido", f"{descuento_requerido_pct:.1f}%", f"Rango habitual: 15% - 25%")
 
-            if descuento_requerido_pct > 0:
-                st.markdown(f'<div class="card-noviable">⚠️ <b>ANÁLISIS DE VIABILIDAD:</b> Para vender a <b>${precio_objetivo:,.2f}</b> y obtener un <b>{margen_deseado_analisis}%</b> de margen neto limpio (descontando comisiones, impuestos y envío de Mercado Líder), tu proveedor te debe otorgar un descuento del <b>{descuento_requerido_pct:.1f}%</b> sobre tu costo de Lista Gold actual (bajanado el costo unitario a <b>${costo_producto_objetivo:,.2f}</b>).</div>', unsafe_allow_html=True)
+            if 15.0 <= descuento_requerido_pct <= 25.0:
+                st.markdown(f'<div class="card-viable">🟢 <b>VIABLE DENTRO DE FLUCTUACIÓN:</b> Para vender a <b>${precio_objetivo:,.2f}</b> con un <b>{margen_deseado_analisis}%</b> de margen neto, necesitás un descuento del <b>{descuento_requerido_pct:.1f}%</b>, el cual se encuentra perfectamente dentro del rango habitual de fábrica (15% - 25%).</div>', unsafe_allow_html=True)
+            elif descuento_requerido_pct > 25.0:
+                st.markdown(f'<div class="card-noviable">🔴 <b>DEMASIADO AGRESIVO (FUERA DE RANGO):</b> El descuento requerido es del <b>{descuento_requerido_pct:.1f}%</b>, superando la fluctuación máxima del proveedor (25%). Vender a este precio destruye el margen o genera pérdida.</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="card-viable">🟢 <b>EXCELENTE RENTABILIDAD:</b> A este precio de venta ya superas el margen del <b>{margen_deseado_analisis}%</b> sin necesidad de negociar un descuento adicional.</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-viable">🟢 <b>EXCELENTE RENTABILIDAD:</b> A este precio superas el margen objetivo con un descuento menor al 15%.</div>', unsafe_allow_html=True)
 
             st.markdown("---")
             col_act1, col_act2 = st.columns([2, 1])
