@@ -28,16 +28,6 @@ CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
-CATEGORIAS_MELI = {
-    "Aparadores, Vajilleros y Cómodas (MLA433221)": "MLA433221",
-    "Bibliotecas, Estanterías y Repisas (MLA37209)": "MLA37209",
-    "Respaldos de Cama y Sommiers (MLA432095)": "MLA432095",
-    "Escritorios (MLA35254)": "MLA35254",
-    "Mesas de Noche / Auxiliares (MLA37207)": "MLA37207",
-    "Muebles para TV y Centros de Entretenimiento (MLA433223)": "MLA433223",
-    "Placard y Roperos (MLA37210)": "MLA37210"
-}
-
 if "authenticated_app" not in st.session_state:
     st.session_state["authenticated_app"] = False
 if "access_token" not in st.session_state:
@@ -48,8 +38,6 @@ if "lista_gold_df" not in st.session_state:
     st.session_state["lista_gold_df"] = None
 if "matriz_custom_df" not in st.session_state:
     st.session_state["matriz_custom_df"] = None
-if "selected_pub_data" not in st.session_state:
-    st.session_state["selected_pub_data"] = {}
 if "q_costos" not in st.session_state:
     st.session_state["q_costos"] = "7798274755803"
 if "search_query_mon" not in st.session_state:
@@ -500,7 +488,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.4 — Monitor con Cuotas Visibles & Reglas de Puesto 1")
+st.caption("v99.5 — Análisis Inverso de Descuento de Proveedor para Competir")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -623,8 +611,8 @@ with tabs[0]:
         st.table(df_desglose)
 
 with tabs[1]:
-    st.header("⚡ Monitor de Precios & Ajustador Automático por Competencia")
-    st.caption("Monitoreo en tiempo real de la competencia con opción de forzar precio para **ganar el 1º puesto previa aceptación del vendedor**.")
+    st.header("⚡ Monitor de Precios & Análisis de Descuento Requerido")
+    st.caption("Calcula automáticamente el costo Lista Gold, el precio del líder y el **descuento de proveedor necesario** para competir ganando tu margen objetivo.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -637,8 +625,8 @@ with tabs[1]:
                     break
 
     if opciones_ean_gold:
-        labels_gold = [op[0] for op in opciones_ean_gold]
-        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
+        labels_gold_s2 = [op[0] for op in opciones_ean_gold]
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold_s2, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
         st.markdown("---")
 
     col_m1, col_m2 = st.columns([3, 1])
@@ -646,19 +634,19 @@ with tabs[1]:
         query_mon = st.text_input("Buscador EAN / SKU / URL", key="search_query_mon")
     with col_m2:
         st.write("")
-        btn_run_monitor = st.button("⚡ ANALIZAR Y AJUSTAR", type="primary", use_container_width=True)
+        btn_run_monitor = st.button("⚡ ANALIZAR COMPETENCIA", type="primary", use_container_width=True)
 
     if btn_run_monitor or query_mon:
         found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
         found_mat_m, costo_env_m, peso_fact_m, _, _ = buscar_datos_en_matriz(query_mon, es_mercado_lider)
 
-        with st.spinner("Analizando competencia y calculando umbrales de precio..."):
+        with st.spinner("Analizando competencia y calculando descuentos necesarios..."):
             cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
 
         if not found_gold_m:
             st.markdown(f'<div class="badge-missing">❌ El código "{query_mon.strip()}" no está en la Lista Gold.</div><br>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ Producto en Lista Gold: **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
+            st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
             st.subheader("📊 Competencia Activa Detectada")
@@ -682,71 +670,56 @@ with tabs[1]:
             pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
             costo_envio_real = costo_env_m if found_mat_m else (15500.0 if es_mercado_lider else 28500.0)
 
-            margen_minimo_pct = st.slider("Margen Neto Mínimo Deseado (%) [Piso de Precio]", min_value=5.0, max_value=40.0, value=8.0, step=0.5)
-
-            factor_neto = 1.0 - (pct_comision_estrategia / 100.0) - 0.035 - 0.21 - (margen_minimo_pct / 100.0)
-            precio_piso = (costo_gold_m + costo_envio_real) / factor_neto if factor_neto > 0 else costo_gold_m * 1.5
-
-            st.markdown("### 🛡️ Motor de Reglas & Estrategias de Competencia")
+            st.markdown("### 🎯 Análisis Inverso: Descuento de Proveedor Requerido para Ganar al 1º")
             
-            c_strat1, c_strat2 = st.columns(2)
-            with c_strat1:
-                estrategia = st.selectbox(
-                    "Estrategia de Actualización de Precio",
+            c_arg1, c_arg2 = st.columns(2)
+            with c_arg1:
+                margen_deseado_analisis = st.slider("Margen Neto Objetivo Buscado (%)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+            with c_arg2:
+                estrategia_precio = st.selectbox(
+                    "Precio Objetivo a Igualar / Vencer",
                     [
-                        "Estar 1% por debajo del líder (Superar al 1º)",
-                        "Igualar exactamente al precio del líder",
-                        "Estar $500 por debajo del líder"
+                        "Igualar al PVP del 1º Líder",
+                        "Estar 1% por debajo del 1º Líder",
+                        "Estar $500 por debajo del 1º Líder"
                     ]
                 )
-            with c_strat2:
-                st.write("")
-                st.write("")
-                auto_sync_enabled = st.checkbox("🟢 Activar Sincronización Automática 24/7", value=False)
 
-            if "Estar 1%" in estrategia:
-                precio_sugerido_bruto = pvp_competidor * 0.99
-            elif "Igualar" in estrategia:
-                precio_sugerido_bruto = pvp_competidor
+            if "1%" in estrategia_precio:
+                precio_objetivo = pvp_competidor * 0.99
+            elif "Igualar" in estrategia_precio:
+                precio_objetivo = pvp_competidor
             else:
-                precio_sugerido_bruto = pvp_competidor - 500.0
+                precio_objetivo = pvp_competidor - 500.0
 
-            por_debajo_del_piso = precio_sugerido_bruto < precio_piso
+            # Cálculo de deducciones totales a ese precio objetivo
+            comision_monto = precio_objetivo * (pct_comision_estrategia / 100.0)
+            iibb_monto = precio_objetivo * 0.035
+            iva_monto = precio_objetivo * 0.21
+            ganancia_objetiva_monto = precio_objetivo * (margen_deseado_analisis / 100.0)
 
-            if por_debajo_del_piso:
-                st.markdown("---")
-                st.warning(f"⚠️ **Atención:** El precio para ganar al 1º es de **${precio_sugerido_bruto:,.2f}**, el cual queda por debajo de tu Piso Seguro de **${precio_piso:,.2f}**.")
-                
-                acepta_forzar = st.checkbox(
-                    "⚠️ **ACEPTO FORZAR EL PRECIO DEL 1º PUESTO** (Asumo vender a este precio para ganar posicionamiento)",
-                    value=False
-                )
+            # Costo de producto máximo soportado para cumplir con el margen y precio objetivo
+            costo_producto_objetivo = precio_objetivo - comision_monto - iibb_monto - iva_monto - costo_envio_real - ganancia_objetiva_monto
 
-                if acepta_forzar:
-                    precio_final_sugerido = precio_sugerido_bruto
-                    st.success("🟢 **Autorización Otorgada:** Se aplicará el precio del 1º puesto.")
-                else:
-                    precio_final_sugerido = precio_piso
-                    st.info("🛡️ **Protección Activa:** Aplicando Precio Piso de resguardo.")
+            # Descuento necesario sobre la lista gold
+            if costo_gold_m > 0:
+                descuento_requerido_pct = ((costo_gold_m - costo_producto_objetivo) / costo_gold_m) * 100.0
             else:
-                acepta_forzar = True
-                precio_final_sugerido = precio_sugerido_bruto
+                descuento_requerido_pct = 0.0
 
-            m_c1, m_c2, m_c3 = st.columns(3)
-            m_c1.metric("🥇 PVP Líder Competencia", f"${pvp_competidor:,.2f}")
-            m_c2.metric("🛡️ Precio Piso (Mínimo Seguro)", f"${precio_piso:,.2f}", f"{margen_minimo_pct}% Margen Mín.")
-            m_c3.metric("🎯 Precio Final a Aplicar", f"${precio_final_sugerido:,.2f}", "Puesto 1 Autorizado" if (por_debajo_del_piso and acepta_forzar) else "Protegido")
-
-            m_com_real = precio_final_sugerido * (pct_comision_estrategia / 100.0)
-            m_iibb_real = precio_final_sugerido * 0.035
-            m_iva_real = precio_final_sugerido * 0.21
-            ganancia_neta_sugerida = precio_final_sugerido - m_com_real - m_iibb_real - m_iva_real - costo_envio_real - costo_gold_m
-            margen_neta_sugerido_pct = (ganancia_neta_sugerida / precio_final_sugerido) * 100.0 if precio_final_sugerido > 0 else 0.0
-
-            if ganancia_neta_sugerida < 0:
-                st.error(f"🔴 **Pérdida Estimada al Ganar el 1º Puesto:** **-${abs(ganancia_neta_sugerida):,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen)")
+            m_d1, m_d2, m_d3 = st.columns(3)
+            m_d1.metric("🥇 Precio Objetivo Competencia", f"${precio_objetivo:,.2f}")
+            m_d2.metric("📦 Costo Gold de Referencia", f"${costo_gold_m:,.2f}")
+            
+            if descuento_requerido_pct <= 0:
+                m_d3.metric("✨ Descuento de Proveedor Requerido", "0.0%", "Rentable sin descuento extra")
             else:
-                st.info(f"🔵 **Ganancia Estimada al Aplicar Precio:** **${ganancia_neta_sugerida:,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen Real)")
+                m_d3.metric("📉 Descuento Proveedor Requerido", f"{descuento_requerido_pct:.1f}%", f"Costo objetivo: ${costo_producto_objetivo:,.2f}")
+
+            if descuento_requerido_pct > 0:
+                st.markdown(f'<div class="card-noviable">⚠️ <b>ANÁLISIS DE VIABILIDAD:</b> Para vender a <b>${precio_objetivo:,.2f}</b> y obtener un <b>{margen_deseado_analisis}%</b> de margen neto limpio (descontando comisiones, impuestos y envío de Mercado Líder), tu proveedor te debe otorgar un descuento del <b>{descuento_requerido_pct:.1f}%</b> sobre tu costo de Lista Gold actual (bajanado el costo unitario a <b>${costo_producto_objetivo:,.2f}</b>).</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="card-viable">🟢 <b>EXCELENTE RENTABILIDAD:</b> A este precio de venta ya superas el margen del <b>{margen_deseado_analisis}%</b> sin necesidad de negociar un descuento adicional.</div>', unsafe_allow_html=True)
 
             st.markdown("---")
             col_act1, col_act2 = st.columns([2, 1])
@@ -754,11 +727,11 @@ with tabs[1]:
                 item_id_a_actualizar = st.text_input("ID de tu Publicación en MeLi a Actualizar (ej. MLA12345678)", value=pub_id_competidor)
             with col_act2:
                 st.write("")
-                btn_ejecutar_actualizacion = st.button("🚀 ACTUALIZAR PRECIO EN MERCADO LIBRE", type="primary", use_container_width=True)
+                btn_ejecutar_actualizacion = st.button("🚀 APLICAR PRECIO OBJETIVO EN MELI", type="primary", use_container_width=True)
 
             if btn_ejecutar_actualizacion:
                 with st.spinner("Enviando actualización de precio a Mercado Libre..."):
-                    exito_up, msg_up = actualizar_item_meli(item_id_a_actualizar, precio_final_sugerido, st.session_state["access_token"])
+                    exito_up, msg_up = actualizar_item_meli(item_id_a_actualizar, precio_objetivo, st.session_state["access_token"])
                     if exito_up:
                         st.success(msg_up)
                     else:
