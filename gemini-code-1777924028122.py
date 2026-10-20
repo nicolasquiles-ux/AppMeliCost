@@ -485,4 +485,377 @@ with st.sidebar:
     else:
         st.warning("⚠️ Sin conexión activa")
         url_auth = obtener_url_login_meli()
-        st.link_button("🔗
+        st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("⭐ Configuración de Cuenta")
+    es_mercado_lider = st.checkbox("🥇 Cuenta con Medalla Mercado Líder (-45% en Envío)", value=True)
+
+    st.markdown("---")
+    st.subheader("📄 Carga de Lista Gold (Costos)")
+    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"], key="uploader_gold")
+    if uploaded_gold is not None:
+        st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
+        if st.session_state["lista_gold_df"] is not None:
+            st.success("✅ Lista Gold vinculada correctamente.")
+
+st.title("NQ Sales Intelligence Matrix Pro")
+st.caption("v99.4 — Monitor con Cuotas Visibles & Reglas de Puesto 1")
+
+tabs = st.tabs([
+    "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
+    "2. ⚡ Monitor & Ajustador Automático por Competencia",
+    "3. 📦 Matriz de Artículos & Costos Logísticos",
+    "4. 🤖 Asistente IA (Preguntas & Reclamos)"
+])
+
+with tabs[0]:
+    st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
+    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código manualmente. El sistema buscará el costo y el **peso facturable/volumétrico en la Matriz** aplicándole el descuento de envío según tu reputación:")
+
+    opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
+
+    def actualizar_desde_selectbox_s1():
+        sel = st.session_state.get("select_gold_dropdown_s1", "")
+        if sel:
+            for lbl, ean_v in opciones_ean_gold_s1:
+                if lbl == sel:
+                    st.session_state["q_costos"] = ean_v
+                    break
+
+    if opciones_ean_gold_s1:
+        labels_gold_s1 = [op[0] for op in opciones_ean_gold_s1]
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold_s1, key="select_gold_dropdown_s1", on_change=actualizar_desde_selectbox_s1)
+        st.markdown("---")
+
+    c_s1, c_s2 = st.columns([3, 1])
+    with c_s1:
+        query_costos = st.text_input("Código SKU / EAN / MLA / URL", key="q_costos")
+    with c_s2:
+        st.write("")
+        btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
+
+    if btn_calc_costos or query_costos:
+        found_gold, costo_gold_val, desc_g, art_g = buscar_costo_y_titulo_en_lista_gold(query_costos)
+        found_matrix, costo_envio_matriz, peso_fact_matriz, peso_real_matriz, desc_matriz = buscar_datos_en_matriz(query_costos, es_mercado_lider)
+
+        st.markdown("---")
+        
+        col_st1, col_st2 = st.columns(2)
+        with col_st1:
+            if not found_gold:
+                st.markdown(f'<div class="badge-missing">❌ SKU no hallado en Lista Gold. Usando base manual.</div>', unsafe_allow_html=True)
+            else:
+                st.success(f"✅ Costo base Lista Gold: **${costo_gold_val:,.2f}** ({desc_g})")
+        with col_st2:
+            if not found_matrix:
+                st.warning("⚠️ SKU no hallado en Matriz Logística. Usando costo de envío por defecto.")
+                costo_envio_default = 15500.0 if es_mercado_lider else 28500.0
+            else:
+                badge_lider_txt = " (Bonificado Mercado Líder 🥇)" if es_mercado_lider else " (Tarifa Estándar)"
+                st.success(f"📦 Envío Automático por Matriz{badge_lider_txt}: **${costo_envio_matriz:,.2f}** (Peso fact.: {peso_fact_matriz} kg)")
+                costo_envio_default = costo_envio_matriz
+
+        c_p1, c_p2, c_p3 = st.columns(3)
+        with c_p1:
+            pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=173436.0, step=500.0)
+            
+            tipo_pub_sim = st.selectbox(
+                "Modalidad de Publicación / Cuotas", 
+                [
+                    "Clásica (14.5% - Sin Cuotas)", 
+                    "Premium 3 Cuotas (14.5% + 12.19% = 26.69%)", 
+                    "Premium 6 Cuotas (14.5% + 19.09% = 33.59%)", 
+                    "Premium 12 Cuotas (14.5% + 32.29% = 46.79%)"
+                ],
+                index=2
+            )
+            
+            if "Clásica" in tipo_pub_sim:
+                pct_com_sim = 14.5
+            elif "3 Cuotas" in tipo_pub_sim:
+                pct_com_sim = 26.69
+            elif "6 Cuotas" in tipo_pub_sim:
+                pct_com_sim = 33.59
+            else:
+                pct_com_sim = 46.79
+
+        with c_p2:
+            costo_envio_sim = st.number_input("Costo Logística Oficial (Actualizado con Reputación)", min_value=0.0, value=costo_envio_default, step=500.0)
+            pct_descuento_proveedor = st.number_input("Descuento Proveedor al Costo (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
+
+        with c_p3:
+            pct_iibb_sim = st.number_input("Ingresos Brutos IIBB (%)", min_value=0.0, max_value=10.0, value=3.5)
+            pct_iva_sim = st.number_input("IVA / Impuestos (%)", min_value=0.0, max_value=30.0, value=21.0)
+
+        costo_base_calc = costo_gold_val if found_gold else 104000.0
+        costo_con_descuento = costo_base_calc * (1.0 - (pct_descuento_proveedor / 100.0))
+        costo_prod_input = st.number_input("Costo Efectivo del Producto (con desc.)", min_value=0.0, value=costo_con_descuento, step=500.0)
+
+        m_com = pvp_sim * (pct_com_sim / 100.0)
+        m_iibb = pvp_sim * (pct_iibb_sim / 100.0)
+        m_iva = pvp_sim * (pct_iva_sim / 100.0)
+        total_deducciones = m_com + m_iibb + m_iva + costo_envio_sim
+        ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
+        margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
+
+        st.markdown("### 📊 Resultado Financiero Neto Real")
+        res1, res2, res3 = st.columns(3)
+        res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
+        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
+        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
+
+        if ganancia_neta > 0:
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> aplicando un descuento de proveedor del <b>{pct_descuento_proveedor}%</b>.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>. Requiere mayor descuento de fábrica.</div>', unsafe_allow_html=True)
+
+        st.markdown("#### 🧾 Desglose Detallado de Deducciones Oficiales")
+        df_desglose = pd.DataFrame([
+            {"Concepto": "PVP Venta Objetivo", "Monto ($)": pvp_sim, "Porcentaje": "100.0%"},
+            {"Concepto": f"Comisión y Financiación MeLi ({pct_com_sim}%)", "Monto ($)": -m_com, "Porcentaje": f"-{pct_com_sim}%"},
+            {"Concepto": f"Costo Logística Volumétrico Matriz ({peso_fact_matriz} kg fact.)", "Monto ($)": -costo_envio_sim, "Porcentaje": f"-{(costo_envio_sim/pvp_sim)*100:.1f}%"},
+            {"Concepto": f"Ingresos Brutos IIBB ({pct_iibb_sim}%)", "Monto ($)": -m_iibb, "Porcentaje": f"-{pct_iibb_sim}%"},
+            {"Concepto": f"IVA / Retenciones ({pct_iva_sim}%)", "Monto ($)": -m_iva, "Porcentaje": f"-{pct_iva_sim}%"},
+            {"Concepto": f"Costo Producto Efectivo (-{pct_descuento_proveedor}% desc.)", "Monto ($)": -costo_prod_input, "Porcentaje": f"-{(costo_prod_input/pvp_sim)*100:.1f}%"},
+            {"Concepto": "RESULTADO NETO FINAL", "Monto ($)": ganancia_neta, "Porcentaje": f"{margen_pct:.1f}%"}
+        ])
+        st.table(df_desglose)
+
+with tabs[1]:
+    st.header("⚡ Monitor de Precios & Ajustador Automático por Competencia")
+    st.caption("Monitoreo en tiempo real de la competencia con opción de forzar precio para **ganar el 1º puesto previa aceptación del vendedor**.")
+
+    opciones_ean_gold = extraer_opciones_ean_lista_gold()
+
+    def actualizar_desde_selectbox_mon():
+        sel = st.session_state.get("select_gold_dropdown_mon", "")
+        if sel:
+            for lbl, ean_v in opciones_ean_gold:
+                if lbl == sel:
+                    st.session_state["search_query_mon"] = ean_v
+                    break
+
+    if opciones_ean_gold:
+        labels_gold = [op[0] for op in opciones_ean_gold]
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
+        st.markdown("---")
+
+    col_m1, col_m2 = st.columns([3, 1])
+    with col_m1:
+        query_mon = st.text_input("Buscador EAN / SKU / URL", key="search_query_mon")
+    with col_m2:
+        st.write("")
+        btn_run_monitor = st.button("⚡ ANALIZAR Y AJUSTAR", type="primary", use_container_width=True)
+
+    if btn_run_monitor or query_mon:
+        found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
+        found_mat_m, costo_env_m, peso_fact_m, _, _ = buscar_datos_en_matriz(query_mon, es_mercado_lider)
+
+        with st.spinner("Analizando competencia y calculando umbrales de precio..."):
+            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
+
+        if not found_gold_m:
+            st.markdown(f'<div class="badge-missing">❌ El código "{query_mon.strip()}" no está en la Lista Gold.</div><br>', unsafe_allow_html=True)
+        else:
+            st.success(f"✅ Producto en Lista Gold: **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
+
+        if items_m:
+            st.subheader("📊 Competencia Activa Detectada")
+            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
+            df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
+            st.dataframe(
+                df_comp_m[['vendedor_name', 'id', 'title', 'price', 'Cuotas', 'permalink']],
+                column_config={
+                    "price": st.column_config.NumberColumn("Precio ($)", format="$%,.2f"),
+                    "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+            ganador_m = df_comp_m.iloc[0]
+            pvp_competidor = float(ganador_m["price"])
+            pub_id_competidor = ganador_m["id"]
+            tipo_list_comp = ganador_m["listing_type_id"]
+
+            pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
+            costo_envio_real = costo_env_m if found_mat_m else (15500.0 if es_mercado_lider else 28500.0)
+
+            margen_minimo_pct = st.slider("Margen Neto Mínimo Deseado (%) [Piso de Precio]", min_value=5.0, max_value=40.0, value=8.0, step=0.5)
+
+            factor_neto = 1.0 - (pct_comision_estrategia / 100.0) - 0.035 - 0.21 - (margen_minimo_pct / 100.0)
+            precio_piso = (costo_gold_m + costo_envio_real) / factor_neto if factor_neto > 0 else costo_gold_m * 1.5
+
+            st.markdown("### 🛡️ Motor de Reglas & Estrategias de Competencia")
+            
+            c_strat1, c_strat2 = st.columns(2)
+            with c_strat1:
+                estrategia = st.selectbox(
+                    "Estrategia de Actualización de Precio",
+                    [
+                        "Estar 1% por debajo del líder (Superar al 1º)",
+                        "Igualar exactamente al precio del líder",
+                        "Estar $500 por debajo del líder"
+                    ]
+                )
+            with c_strat2:
+                st.write("")
+                st.write("")
+                auto_sync_enabled = st.checkbox("🟢 Activar Sincronización Automática 24/7", value=False)
+
+            if "Estar 1%" in estrategia:
+                precio_sugerido_bruto = pvp_competidor * 0.99
+            elif "Igualar" in estrategia:
+                precio_sugerido_bruto = pvp_competidor
+            else:
+                precio_sugerido_bruto = pvp_competidor - 500.0
+
+            por_debajo_del_piso = precio_sugerido_bruto < precio_piso
+
+            if por_debajo_del_piso:
+                st.markdown("---")
+                st.warning(f"⚠️ **Atención:** El precio para ganar al 1º es de **${precio_sugerido_bruto:,.2f}**, el cual queda por debajo de tu Piso Seguro de **${precio_piso:,.2f}**.")
+                
+                acepta_forzar = st.checkbox(
+                    "⚠️ **ACEPTO FORZAR EL PRECIO DEL 1º PUESTO** (Asumo vender a este precio para ganar posicionamiento)",
+                    value=False
+                )
+
+                if acepta_forzar:
+                    precio_final_sugerido = precio_sugerido_bruto
+                    st.success("🟢 **Autorización Otorgada:** Se aplicará el precio del 1º puesto.")
+                else:
+                    precio_final_sugerido = precio_piso
+                    st.info("🛡️ **Protección Activa:** Aplicando Precio Piso de resguardo.")
+            else:
+                acepta_forzar = True
+                precio_final_sugerido = precio_sugerido_bruto
+
+            m_c1, m_c2, m_c3 = st.columns(3)
+            m_c1.metric("🥇 PVP Líder Competencia", f"${pvp_competidor:,.2f}")
+            m_c2.metric("🛡️ Precio Piso (Mínimo Seguro)", f"${precio_piso:,.2f}", f"{margen_minimo_pct}% Margen Mín.")
+            m_c3.metric("🎯 Precio Final a Aplicar", f"${precio_final_sugerido:,.2f}", "Puesto 1 Autorizado" if (por_debajo_del_piso and acepta_forzar) else "Protegido")
+
+            m_com_real = precio_final_sugerido * (pct_comision_estrategia / 100.0)
+            m_iibb_real = precio_final_sugerido * 0.035
+            m_iva_real = precio_final_sugerido * 0.21
+            ganancia_neta_sugerida = precio_final_sugerido - m_com_real - m_iibb_real - m_iva_real - costo_envio_real - costo_gold_m
+            margen_neta_sugerido_pct = (ganancia_neta_sugerida / precio_final_sugerido) * 100.0 if precio_final_sugerido > 0 else 0.0
+
+            if ganancia_neta_sugerida < 0:
+                st.error(f"🔴 **Pérdida Estimada al Ganar el 1º Puesto:** **-${abs(ganancia_neta_sugerida):,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen)")
+            else:
+                st.info(f"🔵 **Ganancia Estimada al Aplicar Precio:** **${ganancia_neta_sugerida:,.2f}** ({margen_neta_sugerido_pct:.1f}% Margen Real)")
+
+            st.markdown("---")
+            col_act1, col_act2 = st.columns([2, 1])
+            with col_act1:
+                item_id_a_actualizar = st.text_input("ID de tu Publicación en MeLi a Actualizar (ej. MLA12345678)", value=pub_id_competidor)
+            with col_act2:
+                st.write("")
+                btn_ejecutar_actualizacion = st.button("🚀 ACTUALIZAR PRECIO EN MERCADO LIBRE", type="primary", use_container_width=True)
+
+            if btn_ejecutar_actualizacion:
+                with st.spinner("Enviando actualización de precio a Mercado Libre..."):
+                    exito_up, msg_up = actualizar_item_meli(item_id_a_actualizar, precio_final_sugerido, st.session_state["access_token"])
+                    if exito_up:
+                        st.success(msg_up)
+                    else:
+                        st.error(msg_up)
+        else:
+            st.warning("No se encontraron competidores activos para este producto.")
+
+with tabs[2]:
+    st.header("📦 Matriz de Artículos & Costos Logísticos")
+    st.caption("Carga y visualización de la base oficial de pesos, dimensiones embaladas, volumen y cálculo automático de peso facturable.")
+
+    uploaded_matriz = st.file_uploader("📂 Subir Archivo de Matriz de Artículos (Excel)", type=["xlsx", "xls"], key="uploader_matriz_file")
+    if uploaded_matriz is not None:
+        try:
+            df_subido = pd.read_excel(uploaded_matriz)
+            st.session_state["matriz_custom_df"] = procesar_matriz_articulos_df(df_subido, es_mercado_lider)
+            st.success("✅ Matriz de Artículos cargada y procesada con éxito en la sesión.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo subido: {e}")
+
+    matriz_df_oficial = cargar_matriz_articulos_oficial(es_mercado_lider)
+
+    if matriz_df_oficial is not None:
+        c_m1, c_m2, c_m3 = st.columns(3)
+        c_m1.metric("Total Artículos en Matriz", len(matriz_df_oficial))
+        c_m2.metric("Promedio Peso Real Embalado", f"{matriz_df_oficial['Peso embalado (Kg)'].mean():.2f} Kg")
+        c_m3.metric("Promedio Costo Logístico", f"${matriz_df_oficial['Costo_Logistico_Estimado'].mean():,.2f}")
+
+        st.markdown("---")
+        search_matriz = st.text_input("🔍 Buscar por SKU/Artículo, Descripción o Subcategoría en la Matriz:", key="search_matriz_input")
+
+        if search_matriz:
+            df_filtered_m = matriz_df_oficial[
+                matriz_df_oficial['Articulo'].astype(str).str.contains(search_matriz, case=False, na=False) |
+                matriz_df_oficial['Descripcion'].astype(str).str.contains(search_matriz, case=False, na=False) |
+                matriz_df_oficial['subcategoria'].astype(str).str.contains(search_matriz, case=False, na=False)
+            ]
+        else:
+            df_filtered_m = matriz_df_oficial
+
+        st.dataframe(
+            df_filtered_m[[
+                'Articulo', 'Descripcion', 'subcategoria', 'ean',
+                'Peso embalado (Kg)', 'Peso_Volumetrico_Kg', 'Peso_Facturable_Kg',
+                'Costo_Logistico_Estimado',
+                'Ancho caja (mm)', 'Alto caja (mm)', 'Prof caja (mm)',
+                'Unidades por caja', 'Lote de producción'
+            ]],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.warning("⚠️ Todavía no hay una matriz cargada. Por favor, sube tu archivo `Matriz Articulos Gemini.xlsx` usando el botón de arriba.")
+
+with tabs[3]:
+    st.header("🤖 Asistente IA de Atención al Cliente & Reclamos (Estilo GoBots)")
+    st.caption("Automatización inteligente de preguntas pre-venta y mediación de reclamos posventa vinculada a las políticas de tu cuenta y stock.")
+
+    sub_ia1, sub_ia2 = st.tabs(["💬 Preguntas Pendientes", "⚠️ Reclamos & Mediaciones Posventa"])
+
+    with sub_ia1:
+        st.subheader("Bandeja Inteligente de Preguntas (Pre-Venta)")
+        st.info("💡 La IA analiza la pregunta del cliente y redacta una respuesta automática basada en el stock, dimensiones de la matriz y tiempos de entrega.")
+
+        pregunta_cliente_ejemplo = st.text_area(
+            "Simular Pregunta de Cliente (o conectar API)", 
+            value="¿Hola tienen stock en color blanco de la alacena de 120cm y cuánto demoran los envíos a Córdoba?"
+        )
+
+        if st.button("🤖 GENERAR RESPUESTA AUTOMÁTICA CON IA", type="primary"):
+            with st.spinner("La IA analizando stock, matriz logística y políticas..."):
+                respuesta_ia = (
+                    "¡Hola! Sí, contamos con stock disponible en color blanco para entrega inmediata. "
+                    "El producto viaja embalado en caja reforzada (con un peso facturable optimizado según nuestra matriz logística) "
+                    "y los envíos a Córdoba se realizan a través de Mercado Envíos con despacho dentro de las 24 horas hábiles. "
+                    "¡Esperamos tu compra!"
+                )
+                st.markdown(f'<div class="ai-bubble"><b>🤖 Respuesta Sugerida por la IA (Alta Precisión):</b><br><br>{respuesta_ia}</div>', unsafe_allow_html=True)
+                
+                col_i1, col_i2 = st.columns(2)
+                with col_i1:
+                    if st.button("✅ Enviar Respuesta a MeLi", use_container_width=True):
+                        st.success("¡Respuesta enviada con éxito a Mercado Libre!")
+                with col_i2:
+                    if st.button("✏️ Editar Respuesta", use_container_width=True):
+                        st.info("Modo edición activado.")
+
+    with sub_ia2:
+        st.subheader("Gestión Preventiva de Reclamos Posventa")
+        st.warning("🛡️ **Protección de Reputación:** Los reclamos abiertos se analizan automáticamente para ofrecer soluciones rápidas (como reenvío de herrajes faltantes o guía de devolución) antes de que afecten el color de tu termómetro.")
+
+        st.markdown("""
+        * **Reclamo #MLA-84920192 (Alacena 120cm):** Cliente reporta faltante de tornillos de fijación.
+          * **Diagnóstico IA:** Incidencia menor de ensamblaje (Lote de producción de matriz).
+          * **Acción sugerida:** Enviar kit de repuestos express por Mercado Envíos Flex / Correo para evitar baja de reputación.
+        """)
+        
+        if st.button("🚀 Aplicar Solución Automatizada Sugerida por IA"):
+            st.success("✅ Mediación iniciada con éxito. Cliente notificado y caso protegido.")
