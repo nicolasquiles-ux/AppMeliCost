@@ -19,6 +19,7 @@ st.markdown("""
     .stButton>button { border-radius: 8px; font-weight: 600; }
     .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
     .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
+    .card-alert { background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; }
     .badge-missing { background-color: #ff4d4d; color: white; padding: 10px; border-radius: 6px; font-weight: bold; }
     .ai-bubble { background-color: #e2f0d9; padding: 15px; border-radius: 10px; border-left: 5px solid #385723; margin-bottom: 10px; }
     </style>
@@ -488,11 +489,11 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.6 — Validación Real (Costo Gold x 2 & Descuento Proveedor 15%-25%)")
+st.caption("v99.7 — Control de Precios & Análisis Inverso con Importe de Costo Requerido")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
-    "2. ⚡ Monitor & Análisis de Descuento Requerido",
+    "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
     "3. 📦 Matriz de Artículos & Costos Logísticos",
     "4. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
@@ -613,8 +614,8 @@ with tabs[0]:
         st.table(df_desglose)
 
 with tabs[1]:
-    st.header("⚡ Monitor de Precios & Análisis de Descuento Requerido")
-    st.caption("Compara el precio del líder de la competencia frente a tu **Costo Gold** aplicando la fluctuación real de descuento del proveedor (15% a 25%).")
+    st.header("⚡ Monitor de Precios & Control de Precios (Análisis Inverso)")
+    st.caption("Monitoreo de competencia con alerta de control de precios mínimos y cálculo del **importe y porcentaje de descuento necesario**.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -642,7 +643,7 @@ with tabs[1]:
         found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
         found_mat_m, costo_env_m, peso_fact_m, _, _ = buscar_datos_en_matriz(query_mon, es_mercado_lider)
 
-        with st.spinner("Analizando competencia y calculando descuentos necesarios..."):
+        with st.spinner("Analizando competencia y controlando precios mínimos..."):
             cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
 
         if not found_gold_m:
@@ -672,18 +673,18 @@ with tabs[1]:
             pct_comision_estrategia = 33.59 if "pro" in str(tipo_list_comp) else 14.5
             costo_envio_real = costo_env_m if found_mat_m else (15500.0 if es_mercado_lider else 28500.0)
 
-            st.markdown("### 🎯 Análisis Inverso: Descuento de Proveedor Requerido (Fluctuación 15% - 25%)")
+            st.markdown("### 🛡️ Control de Precios & Análisis Inverso de Descuento")
             
             c_arg1, c_arg2 = st.columns(2)
             with c_arg1:
-                margen_deseado_analisis = st.slider("Margen Neto Objetivo Buscado (%)", min_value=0.0, max_value=30.0, value=8.0, step=0.5)
+                margen_deseado_analisis = st.slider("Margen Neto Mínimo Deseado (%) [Umbral de Alerta de Precios]", min_value=1.0, max_value=25.0, value=5.0, step=0.5)
             with c_arg2:
                 estrategia_precio = st.selectbox(
                     "Precio Objetivo a Igualar / Vencer",
                     [
                         "Igualar al PVP del 1º Líder",
                         "Estar 1% por debajo del 1º Líder",
-                        "Estar $500 por debajo del 1º Líder"
+                        "Estar $500 por debajo del líder"
                     ]
                 )
 
@@ -694,6 +695,12 @@ with tabs[1]:
             else:
                 precio_objetivo = pvp_competidor - 500.0
 
+            # Cálculo de piso seguro basado en el margen mínimo deseado (ej. 5%)
+            factor_piso = 1.0 - (pct_comision_estrategia / 100.0) - 0.035 - 0.21 - (margen_deseado_analisis / 100.0)
+            costo_referencia_piso = costo_gold_m * 0.80 # Asumiendo un 20% de descuento estándar proveedor
+            precio_piso_seguro = (costo_referencia_piso + costo_envio_real) / factor_piso if factor_piso > 0 else costo_gold_m * 1.5
+
+            # Análisis Inverso: Costo y Descuento Necesario para el Precio Objetivo
             comision_monto = precio_objetivo * (pct_comision_estrategia / 100.0)
             iibb_monto = precio_objetivo * 0.035
             iva_monto = precio_objetivo * 0.21
@@ -706,21 +713,24 @@ with tabs[1]:
             else:
                 descuento_requerido_pct = 0.0
 
-            m_d1, m_d2, m_d3 = st.columns(3)
-            m_d1.metric("🥇 Precio Objetivo Competencia", f"${precio_objetivo:,.2f}")
-            m_d2.metric("📦 Costo Gold de Referencia", f"${costo_gold_m:,.2f}")
-            
-            if descuento_requerido_pct <= 0:
-                m_d3.metric("✨ Descuento de Proveedor Requerido", "0.0%", "Rentable sin descuento extra")
+            # Control de Precios: Alerta si el competidor o el precio objetivo está por debajo del umbral de rentabilidad mínima
+            rompe_control_precios = precio_objetivo < precio_piso_seguro
+
+            if rompe_control_precios:
+                st.markdown(f'<div class="card-alert">⚠️ <b>CONTROL DE PRECIOS ACTIVADO:</b> El precio del líder (<b>${pvp_competidor:,.2f}</b>) viola el margen mínimo de seguridad del <b>{margen_deseado_analisis}%</b>. Nadie debería bajar más de este límite el PVP (Piso recomendado: <b>${precio_piso_seguro:,.2f}</b>). Vender por debajo implica pérdida o margen insuficiente.</div>', unsafe_allow_html=True)
             else:
-                m_d3.metric("📉 Descuento Proveedor Requerido", f"{descuento_requerido_pct:.1f}%", f"Rango habitual: 15% - 25%")
+                st.markdown(f'<div class="card-viable">🟢 <b>CONTROL DE PRECIOS OK:</b> El precio de la competencia respeta el umbral de rentabilidad mínima del <b>{margen_deseado_analisis}%</b>.</div>', unsafe_allow_html=True)
+
+            m_d1, m_d2, m_d3, m_d4 = st.columns(4)
+            m_d1.metric("🥇 Precio Objetivo", f"${precio_objetivo:,.2f}")
+            m_d2.metric("📉 Descuento Proveedor Req.", f"{descuento_requerido_pct:.1f}%", "Rango: 15% - 25%")
+            m_d3.metric("💵 Importe de Costo Necesario", f"${costo_producto_objetivo:,.2f}", f"Gold actual: ${costo_gold_m:,.2f}")
+            m_d4.metric("🛡️ Piso de Seguridad", f"${precio_piso_seguro:,.2f}", f"Mín. {margen_deseado_analisis}%")
 
             if 15.0 <= descuento_requerido_pct <= 25.0:
-                st.markdown(f'<div class="card-viable">🟢 <b>VIABLE DENTRO DE FLUCTUACIÓN:</b> Para vender a <b>${precio_objetivo:,.2f}</b> con un <b>{margen_deseado_analisis}%</b> de margen neto, necesitás un descuento del <b>{descuento_requerido_pct:.1f}%</b>, el cual se encuentra perfectamente dentro del rango habitual de fábrica (15% - 25%).</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-viable">🟢 <b>VIABLE DENTRO DE FLUCTUACIÓN:</b> Para cumplir con el objetivo, necesitás un descuento del <b>{descuento_requerido_pct:.1f}%</b> (<b>${costo_producto_objetivo:,.2f}</b> por unidad), el cual está dentro del rango habitual de fábrica (15% - 25%).</div>', unsafe_allow_html=True)
             elif descuento_requerido_pct > 25.0:
-                st.markdown(f'<div class="card-noviable">🔴 <b>DEMASIADO AGRESIVO (FUERA DE RANGO):</b> El descuento requerido es del <b>{descuento_requerido_pct:.1f}%</b>, superando la fluctuación máxima del proveedor (25%). Vender a este precio destruye el margen o genera pérdida.</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="card-viable">🟢 <b>EXCELENTE RENTABILIDAD:</b> A este precio superas el margen objetivo con un descuento menor al 15%.</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-noviable">🔴 <b>DEMASIADO AGRESIVO:</b> El descuento requerido es del <b>{descuento_requerido_pct:.1f}%</b> (requiere bajar el costo a <b>${costo_producto_objetivo:,.2f}</b>), superando la fluctuación máxima del proveedor (25%).</div>', unsafe_allow_html=True)
 
             st.markdown("---")
             col_act1, col_act2 = st.columns([2, 1])
