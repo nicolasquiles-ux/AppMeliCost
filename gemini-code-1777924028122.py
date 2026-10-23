@@ -426,9 +426,10 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
+# FUNCIÓN CORREGIDA: Consulta segura de preguntas reales en la API de MeLi
 def consultar_preguntas_meli_real(item_or_catalog_query: str, access_token: str):
     if not access_token:
-        return [], "⚠️ Para buscar preguntas en vivo en Mercado Libre, conectá tu cuenta de MeLi o ingresá un Access Token en el panel lateral."
+        return [], "⚠️ Conectá tu cuenta de MeLi o ingresá un Access Token para consultar preguntas en vivo."
 
     headers = {"Authorization": f"Bearer {access_token.strip()}"}
     clean_q = item_or_catalog_query.strip().upper()
@@ -442,25 +443,23 @@ def consultar_preguntas_meli_real(item_or_catalog_query: str, access_token: str)
             item_id_busqueda = items_res[0]["id"]
 
     if not item_id_busqueda:
-        return [], f"❌ No se encontró una publicación activa en MeLi para la búsqueda: '{item_or_catalog_query}'."
+        return [], f"❌ No se encontró una publicación activa en MeLi para: '{item_or_catalog_query}'."
 
-    url_questions = f"https://api.mercadolibre.com/questions/search?item=#{item_id_busqueda}"
+    # Usamos el endpoint correcto de preguntas para ítems del vendedor autenticado
+    url_questions = f"https://api.mercadolibre.com/questions/search?item={item_id_busqueda}"
     try:
         res = requests.get(url_questions, headers=headers, timeout=8)
         if res.status_code == 200:
             data = res.json()
             preguntas = data.get("questions", [])
-            return preguntas, f"✅ Se obtuvieron {len(preguntas)} preguntas reales para el ítem `{item_id_busqueda}`."
+            return preguntas, f"✅ Se obtuvieron {len(preguntas)} preguntas reales para `{item_id_busqueda}`."
         else:
-            url_alt = f"https://api.mercadolibre.com/questions?item_id={item_id_busqueda}"
-            res_alt = requests.get(url_alt, headers=headers, timeout=8)
-            if res_alt.status_code == 200:
-                data_alt = res_alt.json()
-                preguntas = data_alt.get("questions", [])
-                return preguntas, f"✅ Se obtuvieron {len(preguntas)} preguntas reales para el ítem `{item_id_busqueda}`."
-            else:
-                err_msg = res.json().get("message", f"Error HTTP {res.status_code}")
-                return [], f"⚠️ Nota API MeLi: {err_msg} (Mostrando base de conocimiento experta y simulador activo para `{item_id_busqueda}`)."
+            # Si MeLi retorna error por restricciones de propiedad del ítem, informamos claramente al usuario
+            err_data = res.json() if res.content else {}
+            err_msg = err_data.get("message", f"Error HTTP {res.status_code}")
+            if "not owner" in err_msg.lower() or "invalid" in err_msg.lower():
+                return [], f"🛡️ **Nota de Privacidad MeLi:** El ítem `{item_id_busqueda}` pertenece a la competencia o no está en tu cuenta. Por seguridad, MeLi no expone preguntas privadas de terceros. Usando asistente experto y simulador activo para dar respuesta rápida."
+            return [], f"⚠️ Nota API MeLi: {err_msg}."
     except Exception as e:
         return [], f"⚠️ Excepción consultando API de Preguntas: {str(e)}"
 
@@ -529,7 +528,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v100.0 — Funcionalidad Completa con Búsqueda Exacta en API MeLi por Artículo y Pregunta")
+st.caption("v100.1 — Búsqueda Exacta en API MeLi & Manejo Seguro de Preguntas")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
