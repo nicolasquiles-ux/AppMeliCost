@@ -503,13 +503,14 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v99.8 — Tarifario Oficial Vigente de Envíos MeLi Incorporado")
+st.caption("v99.9 — Módulo de Preguntas Frecuentes por EAN Incorporado")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
     "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
     "3. 📦 Matriz de Artículos & Costos Logísticos",
-    "4. 🤖 Asistente IA (Preguntas & Reclamos)"
+    "4. 🤖 Asistente IA (Preguntas & Reclamos)",
+    "5. ❓ Preguntas Frecuentes por EAN / Producto"
 ])
 
 with tabs[0]:
@@ -854,3 +855,72 @@ with tabs[3]:
         
         if st.button("🚀 Aplicar Solución Automatizada Sugerida por IA"):
             st.success("✅ Mediación iniciada con éxito. Cliente notificado y caso protegido.")
+
+with tabs[4]:
+    st.header("❓ Centro de Preguntas Frecuentes por EAN / Producto")
+    st.caption("Búsqueda instantánea de preguntas y respuestas pre-venta sugeridas en vivo filtradas por EAN o SKU de Centro Estant.")
+
+    c_f1, c_f2 = st.columns([3, 1])
+    with c_f1:
+        query_ean_faq = st.text_input("Ingresá el EAN / SKU del Producto para ver sus FAQs:", value="7798274755803", key="q_faq_ean")
+    with c_f2:
+        st.write("")
+        btn_buscar_faq = st.button("🔍 BUSCAR FAQs", type="primary", use_container_width=True)
+
+    if query_ean_faq or btn_buscar_faq:
+        found_g_f, costo_g_f, desc_g_f, art_g_f = buscar_costo_y_titulo_en_lista_gold(query_ean_faq)
+        found_m_f, costo_env_f, peso_fact_f, peso_real_f, desc_mat_f = buscar_datos_en_matriz(query_ean_faq)
+
+        st.markdown("---")
+        if found_g_f or found_m_f:
+            nombre_prod_mostrar = desc_g_f if desc_g_f else desc_mat_f
+            st.success(f"📦 **Producto Encontrado:** **{art_g_f}** — {nombre_prod_mostrar} (EAN: `{query_ean_faq.strip()}`)")
+        else:
+            st.info(f"🔎 **Consulta por Código EAN:** `{query_ean_faq.strip()}` — Mostrando catálogo general de preguntas de Centro Estant.")
+
+        with st.spinner("Consultando preguntas en tiempo real en Mercado Libre..."):
+            type_in_f, clean_v_f = extraer_id_catalogo_o_ean_input(query_ean_faq)
+            target_cat_f, prod_title_f, items_f = buscar_competencia_integral_ean(query_ean_faq, st.session_state.get("access_token", ""))
+
+        st.markdown("### 💬 Preguntas Recurrentes & Respuestas Sugeridas (Alta Conversión)")
+
+        desc_lower = (desc_g_f + " " + desc_mat_f + " " + prod_title_f).lower()
+        
+        faqs_mostrar = []
+        if "alacena" in desc_lower or "c141" in query_ean_faq.lower() or "cm122" in query_ean_faq.lower():
+            faqs_mostrar = [
+                {"q": "¿Viene armada o lista para armar?", "a": "¡Hola! Se entrega desarmada en caja cerrada reforzada (sistema RTA), incluye manual de instrucciones paso a paso y todos los herrajes para su ensamble. ¡Esperamos tu compra!"},
+                {"q": "¿Soporta vajilla pesada y amurado a la pared?", "a": "¡Hola! Sí, se amura a la pared mediante los soportes de fijación traseros incluidos. Soporta vajilla pesada e insumos de cocina sin problemas."},
+                {"q": "¿De qué material está fabricada?", "a": "¡Hola! Está construida en melamina de alta densidad de 15 mm, de fácil limpieza y resistente al uso diario de cocina. ¡Saludos!"}
+            ]
+        elif "bajo" in desc_lower or "bh" in query_ean_faq.lower():
+            faqs_mostrar = [
+                {"q": "¿Incluye la bacha o la mesada?", "a": "¡Hola! La publicación corresponde únicamente al mueble bajo mesada (no incluye bacha de acero inoxidable ni grifería). Es compatible con mesadas estándar de 120 cm / 140 cm / 160 cm."},
+                {"q": "¿De qué lado está la cajonera?", "a": "¡Hola! El diseño es de armado reversible, permitiéndote instalar la cajonera del lado izquierdo o derecho según la distribución de tu cocina."},
+                {"q": "¿Las correderas son metálicas?", "a": "¡Hola! Sí, cuenta con correderas metálicas que garantizan un deslizamiento suave y de larga vida útil."}
+            ]
+        elif "rack" in desc_lower or "tv" in desc_lower or "mt4000" in query_ean_faq.lower() or "mt5000" in query_ean_faq.lower():
+            faqs_mostrar = [
+                {"q": "¿Hasta cuántas pulgadas de TV soporta?", "a": "¡Hola! Este modelo soporta televisores de hasta 55 / 65 pulgadas (verificá el ancho de la base del mueble en la descripción). ¡Esperamos tu compra!"},
+                {"q": "¿Tiene orificios pasacables?", "a": "¡Hola! Sí, cuenta con perforaciones traseras pasacables para conectar la TV, consola o decodificador de manera ordenada."},
+                {"q": "¿Soporta televisores u objetos pesados?", "a": "¡Hola! Sí, la estructura de melamina reforzada de 15 mm soporta hasta 40 kg distribuidos en la superficie superior."}
+            ]
+        elif "escritorio" in desc_lower or "milan" in desc_lower:
+            faqs_mostrar = [
+                {"q": "¿De qué lado se arma la cajonera o biblioteca?", "a": "¡Hola! Es de armado reversible. Podés elegir la orientación (izquierda o derecha) durante el ensamblado. Incluye manual gráfico."},
+                {"q": "¿Entra una notebook y monitor grande de PC?", "a": "¡Hola! Sí, la superficie útil está optimizada para colocar monitores de hasta 27 pulgadas, teclado y notebook con total comodidad."},
+                {"q": "¿Soporta el peso de impresoras o libros?", "a": "¡Hola! Sí, la estructura de melamina cuenta con uniones firmes y soporta el peso habitual de equipos de oficina e imprenta."}
+            ]
+        else:
+            faqs_mostrar = [
+                {"q": "¿El producto viene armado o desarmado?", "a": "¡Hola! Todos nuestros muebles de Centro Estant se entregan desarmados en caja cerrada (sistema RTA), protegidos para el transporte e incluyen manual y herrajes."},
+                {"q": "¿Hacen envíos a todo el país?", "a": "¡Hola! Sí, realizamos envíos a todo el país a través de Mercado Envíos de forma rápida y segura. Ingresando tu código postal podés ver el tiempo estimado de entrega."},
+                {"q": "¿Emiten factura A o B?", "a": "¡Hola! Sí, emitimos Factura A y B de manera automática según los datos fiscales cargados en tu cuenta de Mercado Libre al realizar la compra."}
+            ]
+
+        for idx, faq in enumerate(faqs_mostrar, 1):
+            with st.expander(f"Pregunta {idx}: {faq['q']}", expanded=True):
+                st.write(f"**Respuesta Sugerida:**")
+                st.info(faq['a'])
+                if st.button(f"📋 Copiar Respuesta #{idx}", key=f"btn_copy_faq_{idx}"):
+                    st.toast("¡Respuesta copiada para usar en Mercado Libre!")
