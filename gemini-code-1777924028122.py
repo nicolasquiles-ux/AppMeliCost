@@ -30,7 +30,7 @@ CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
 # ------------------------------------------------------------------------------
-# PARÁMETROS FISCALES Y LOGÍSTICOS OFICIALES (ACTUALIZADOS)
+# PARÁMETROS FISCALES Y LOGÍSTICOS OFICIALES
 # ------------------------------------------------------------------------------
 ALICUOTA_IVA = 0.21       # 21% IVA Real
 ALICUOTA_IIBB = 0.035     # 3.5% IIBB
@@ -205,7 +205,6 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
             if not matches.empty:
                 row = matches.iloc[0]
                 peso_real_total = float(row.get('Peso embalado (Kg)', 0.0))
-                # Intentar leer cajas / bultos si existe la columna
                 cant_cajas = int(row.get('Cantidad Cajas', 1)) if pd.notna(row.get('Cantidad Cajas')) and int(row.get('Cantidad Cajas', 1)) > 0 else 1
                 
                 peso_unitario = peso_real_total / cant_cajas if cant_cajas > 0 else peso_real_total
@@ -338,7 +337,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=1800)  # Caching para evitar recargas infinitas (loops) en monitor de competencia
+@st.cache_data(ttl=1800)  # Caching para evitar recargas infinitas (loops)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
@@ -389,7 +388,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             pass
 
     items_procesados = []
-    for r in raw_items[:25]:
+    for r in raw_items[:50]:
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
@@ -486,12 +485,12 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v101.0 — Impuestos 24.5% Oficial, Fletes por Bulto & Monitor de Competencia Sin Loops")
+st.caption("v102.0 — Monitor de Mercado (Ventas por Categoría & Top 15) Integrado")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
     "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
-    "3. 📊 Panel de Control y Monitor de Mercado (Top 15)",
+    "3. 📊 Monitor de Mercado (Ventas por Categoría & Top 15)",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
@@ -644,66 +643,74 @@ with tabs[1]:
             )
 
 # ------------------------------------------------------------------------------
-# TAB 3: PANEL DE CONTROL Y MONITOR DE MERCADO (TOP 15 & CATEGORÍAS)
+# TAB 3: MONITOR DE MERCADO (VENTAS POR CATEGORÍA & TOP 15)
 # ------------------------------------------------------------------------------
 with tabs[2]:
-    st.header("📊 Panel de Control y Monitor de Mercado (Top 15 por Categoría)")
-    st.markdown("Visualización en tiempo real del volumen acumulado (`sold_quantity`) y estimación de facturación de la competencia.")
+    st.header("📊 Monitor de Mercado (Ventas por Categoría & Top 15)")
+    st.markdown("Análisis competitivo en tiempo real basado en el rastreo de `sold_quantity` (volumen acumulado) y estimación de facturación por categoría.")
 
-    query_cat = st.text_input("Filtrar por término / categoría en Mercado Libre", value="Ropero ropero placard")
-    if st.button("🔄 Actualizar Datos de Mercado", type="primary"):
-        st.cache_data.clear()
+    col_mkt1, col_mkt2 = st.columns([3, 1])
+    with col_mkt1:
+        search_term_mkt = st.text_input("Término de Búsqueda de Mercado / Categoría", value="Ropero placard")
+    with col_mkt2:
+        st.write("")
+        btn_refresh_mkt = st.button("🔄 Actualizar Datos Mercado", type="primary", use_container_width=True)
 
-    _, _, items_mercado = buscar_competencia_integral_ean(query_cat, st.session_state["access_token"])
+    if search_term_mkt:
+        with st.spinner("Rastreando publicaciones y ventas acumuladas en Mercado Libre..."):
+            _, _, items_mkt = buscar_competencia_integral_ean(search_term_mkt, st.session_state["access_token"])
 
-    if items_mercado:
-        df_mercado = pd.DataFrame(items_mercado)
-        df_mercado["facturacion_estimada"] = df_mercado["price"] * df_mercado["sold_quantity"]
+        if items_mkt:
+            df_mkt = pd.DataFrame(items_mkt)
+            df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-        st.subheader("1. Resumen por Categoría")
-        cat_summary = df_mercado.groupby("category_id").agg(
-            Publicaciones=("id", "count"),
-            Unidades_Vendidas=("sold_quantity", "sum"),
-            Facturacion_Total=("facturacion_estimada", "sum"),
-            Precio_Promedio=("price", "mean")
-        ).reset_index()
+            st.markdown("---")
+            st.subheader("1. Resumen de Ventas y Facturación Estimada por Categoría")
 
-        total_fact_mkt = cat_summary["Facturacion_Total"].sum()
-        cat_summary["Cuota_%"] = (cat_summary["Facturacion_Total"] / total_fact_mkt * 100) if total_fact_mkt > 0 else 0
+            cat_summary = df_mkt.groupby("category_id").agg(
+                Publicaciones=("id", "count"),
+                Unidades_Vendidas=("sold_quantity", "sum"),
+                Facturacion_Total=("facturacion_estimada", "sum"),
+                Precio_Promedio=("price", "mean")
+            ).reset_index()
 
-        st.dataframe(
-            cat_summary,
-            column_config={
-                "category_id": "ID Categoría",
-                "Publicaciones": st.column_config.NumberColumn("Publicaciones", format="%d"),
-                "Unidades_Vendidas": st.column_config.NumberColumn("Unidades Vendidas", format="%d"),
-                "Facturacion_Total": st.column_config.NumberColumn("Facturación Est. ($)", format="$%.0f"),
-                "Precio_Promedio": st.column_config.NumberColumn("Precio Prom. ($)", format="$%.0f"),
-                "Cuota_%": st.column_config.NumberColumn("Cuota Muestra (%)", format="%.1f%%")
-            },
-            use_container_width=True,
-            hide_index=True
-        )
+            total_mkt_fact = cat_summary["Facturacion_Total"].sum()
+            cat_summary["Cuota_Mercado_%"] = (cat_summary["Facturacion_Total"] / total_mkt_fact * 100) if total_mkt_fact > 0 else 0
 
-        st.markdown("---")
-        st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado")
-        top_15_mkt = df_mercado.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
-        top_15_mkt.index += 1
+            st.dataframe(
+                cat_summary,
+                column_config={
+                    "category_id": "ID Categoría MeLi",
+                    "Publicaciones": st.column_config.NumberColumn("Publicaciones Activas", format="%d"),
+                    "Unidades_Vendidas": st.column_config.NumberColumn("Unidades Vendidas Acum.", format="%d"),
+                    "Facturacion_Total": st.column_config.NumberColumn("Facturación Est. ($)", format="$%.0f"),
+                    "Precio_Promedio": st.column_config.NumberColumn("Precio Promedio ($)", format="$%.0f"),
+                    "Cuota_Mercado_%": st.column_config.NumberColumn("Cuota de Mercado (%)", format="%.1f%%")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
 
-        st.dataframe(
-            top_15_mkt[["vendedor_name", "title", "price", "sold_quantity", "facturacion_estimada", "permalink"]],
-            column_config={
-                "vendedor_name": "Vendedor",
-                "title": "Título de Publicación",
-                "price": st.column_config.NumberColumn("PVP Actual ($)", format="$%.0f"),
-                "sold_quantity": st.column_config.NumberColumn("Ventas Acum. (`sold_quantity`)", format="%d"),
-                "facturacion_estimada": st.column_config.NumberColumn("Facturación Est. ($)", format="$%.0f"),
-                "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
-            },
-            use_container_width=True
-        )
-    else:
-        st.info("Ingresá un término para rastrear el mercado.")
+            st.markdown("---")
+            st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado")
+
+            top_15_mkt = df_mkt.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
+            top_15_mkt.index += 1  # Ranking desde 1
+
+            st.dataframe(
+                top_15_mkt[["vendedor_name", "title", "price", "sold_quantity", "facturacion_estimada", "permalink"]],
+                column_config={
+                    "vendedor_name": "Vendedor / Competidor",
+                    "title": "Título de la Publicación",
+                    "price": st.column_config.NumberColumn("PVP Actual ($)", format="$%.0f"),
+                    "sold_quantity": st.column_config.NumberColumn("Ventas Acum. (`sold_quantity`)", format="%d"),
+                    "facturacion_estimada": st.column_config.NumberColumn("Facturación Acum. Est. ($)", format="$%.0f"),
+                    "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
+                },
+                use_container_width=True
+            )
+        else:
+            st.warning("No se encontraron publicaciones activas para el término ingresado.")
 
 # ------------------------------------------------------------------------------
 # TAB 4: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
