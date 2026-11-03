@@ -337,7 +337,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=1800)  # Caching para evitar recargas infinitas (loops)
+@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
@@ -387,6 +387,42 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
+    # ENRIQUECIMIENTO MASIVO VÍA /items?ids= PARA OBTENER STOCK REAL Y VENTAS
+    list_ids = []
+    for r in raw_items[:50]:
+        i_id = r.get("item_id") or r.get("id", "")
+        if i_id:
+            list_ids.append(i_id)
+
+    detalles_dict = {}
+    if list_ids:
+        for i in range(0, len(list_ids), 20):
+            chunk = list_ids[i:i+20]
+            ids_str = ",".join(chunk)
+            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
+            try:
+                res_m = requests.get(url_multiget, headers=headers, timeout=8)
+                if res_m.status_code == 200:
+                    for entry in res_m.json():
+                        if entry.get("code") == 200:
+                            b = entry.get("body", {})
+                            it_id = b.get("id")
+                            
+                            stk = int(b.get("available_quantity", 0))
+                            vars_list = b.get("variations", [])
+                            if vars_list and isinstance(vars_list, list):
+                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                                if stk_vars > 0:
+                                    stk = stk_vars
+                                    
+                            detalles_dict[it_id] = {
+                                "stock_real": stk,
+                                "sold_real": int(b.get("sold_quantity", 0)),
+                                "price_real": float(b.get("price", 0.0))
+                            }
+            except Exception:
+                pass
+
     items_procesados = []
     for r in raw_items[:50]:
         item_id = r.get("item_id") or r.get("id", "")
@@ -405,25 +441,23 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
-        # Calcular stock total (sumando variaciones si las tiene, o available_quantity)
-        stock_total = int(r.get("available_quantity", 0))
-        variations = r.get("variations", [])
-        if variations and isinstance(variations, list):
-            stock_total = sum(int(v.get("available_quantity", 0)) for v in variations if isinstance(v, dict))
+        det = detalles_dict.get(item_id, {})
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
+        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
+        price_final = det.get("price_real", float(r.get("price", 0.0)))
 
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
             "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
-            "price": float(r.get("price", 0.0)),
+            "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": stock_total,  # <--- Aquí toma el stock real total calculado
+            "stock": stock_final,
+            "sold_quantity": sold_final,
             "permalink": url_oficial,
-            "sold_quantity": int(r.get("sold_quantity", 0)),
-            "category_id": r.get("category_id", "MLA372132")
+            "category_id": r.get("category_id", "MLA4765")
         })
-        
 
     return target_catalog_id, product_title, items_procesados
 
@@ -492,7 +526,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v103.0 — Monitor de Mercado con Stock Disponible (available_quantity) Integrado")
+st.caption("v104.0 — Sistema Integral con Monitor de Mercado, Stock Real en Vivo y Simulación de Costos")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
@@ -655,7 +689,7 @@ with tabs[1]:
 # ------------------------------------------------------------------------------
 with tabs[2]:
     st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
-    st.markdown("Análisis competitivo en tiempo real rastreando el **stock disponible (`stock`)**, el volumen acumulado de ventas (`sold_quantity`) y la facturación estimada por categoría.")
+    st.markdown("Análisis competitivo en tiempo real rastreando el **stock disponible en vivo (`stock`)**, el volumen acumulado de ventas (`sold_quantity`) y la facturación estimada por categoría.")
 
     col_mkt1, col_mkt2 = st.columns([3, 1])
     with col_mkt1:
@@ -665,7 +699,7 @@ with tabs[2]:
         btn_refresh_mkt = st.button("🔄 Actualizar Datos Mercado", type="primary", use_container_width=True)
 
     if search_term_mkt:
-        with st.spinner("Rastreando publicaciones, stock y ventas acumuladas en Mercado Libre..."):
+        with st.spinner("Rastreando publicaciones, stock real y ventas acumuladas en Mercado Libre..."):
             _, _, items_mkt = buscar_competencia_integral_ean(search_term_mkt, st.session_state["access_token"])
 
         if items_mkt:
