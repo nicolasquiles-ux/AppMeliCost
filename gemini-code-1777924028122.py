@@ -30,7 +30,7 @@ CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
 # ------------------------------------------------------------------------------
-# PARÁMETROS FISCALES Y LOGÍSTICOS OFICIALES
+# PARÁMETROS FISCALES Y LOGÍSTICOS OFICIALES (24.5% Impuestos)
 # ------------------------------------------------------------------------------
 ALICUOTA_IVA = 0.21       # 21% IVA Real
 ALICUOTA_IIBB = 0.035     # 3.5% IIBB
@@ -412,9 +412,9 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             "price": float(r.get("price", 0.0)),
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": r.get("available_quantity", 1),
+            "stock": int(r.get("available_quantity", 0)),
             "permalink": url_oficial,
-            "sold_quantity": r.get("sold_quantity", 0),
+            "sold_quantity": int(r.get("sold_quantity", 0)),
             "category_id": r.get("category_id", "MLA372132")
         })
 
@@ -485,12 +485,12 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v102.0 — Monitor de Mercado (Ventas por Categoría & Top 15) Integrado")
+st.caption("v103.0 — Monitor de Mercado con Stock Disponible (available_quantity) Integrado")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
     "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
-    "3. 📊 Monitor de Mercado (Ventas por Categoría & Top 15)",
+    "3. 📊 Monitor de Mercado (Stock, Ventas & Top 15)",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
@@ -633,9 +633,10 @@ with tabs[1]:
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
             st.dataframe(
-                df_comp_m[['vendedor_name', 'id', 'title', 'price', 'Cuotas', 'permalink']],
+                df_comp_m[['vendedor_name', 'id', 'title', 'price', 'stock', 'Cuotas', 'permalink']],
                 column_config={
                     "price": st.column_config.NumberColumn("Precio ($)", format="$%,.2f"),
+                    "stock": st.column_config.NumberColumn("Stock Disp.", format="%d"),
                     "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
                 },
                 use_container_width=True,
@@ -643,11 +644,11 @@ with tabs[1]:
             )
 
 # ------------------------------------------------------------------------------
-# TAB 3: MONITOR DE MERCADO (VENTAS POR CATEGORÍA & TOP 15)
+# TAB 3: MONITOR DE MERCADO (STOCK, VENTAS & TOP 15)
 # ------------------------------------------------------------------------------
 with tabs[2]:
-    st.header("📊 Monitor de Mercado (Ventas por Categoría & Top 15)")
-    st.markdown("Análisis competitivo en tiempo real basado en el rastreo de `sold_quantity` (volumen acumulado) y estimación de facturación por categoría.")
+    st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
+    st.markdown("Análisis competitivo en tiempo real rastreando el **stock disponible (`stock`)**, el volumen acumulado de ventas (`sold_quantity`) y la facturación estimada por categoría.")
 
     col_mkt1, col_mkt2 = st.columns([3, 1])
     with col_mkt1:
@@ -657,7 +658,7 @@ with tabs[2]:
         btn_refresh_mkt = st.button("🔄 Actualizar Datos Mercado", type="primary", use_container_width=True)
 
     if search_term_mkt:
-        with st.spinner("Rastreando publicaciones y ventas acumuladas en Mercado Libre..."):
+        with st.spinner("Rastreando publicaciones, stock y ventas acumuladas en Mercado Libre..."):
             _, _, items_mkt = buscar_competencia_integral_ean(search_term_mkt, st.session_state["access_token"])
 
         if items_mkt:
@@ -665,10 +666,11 @@ with tabs[2]:
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
             st.markdown("---")
-            st.subheader("1. Resumen de Ventas y Facturación Estimada por Categoría")
+            st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
 
             cat_summary = df_mkt.groupby("category_id").agg(
                 Publicaciones=("id", "count"),
+                Stock_Total_Disponible=("stock", "sum"),
                 Unidades_Vendidas=("sold_quantity", "sum"),
                 Facturacion_Total=("facturacion_estimada", "sum"),
                 Precio_Promedio=("price", "mean")
@@ -682,7 +684,8 @@ with tabs[2]:
                 column_config={
                     "category_id": "ID Categoría MeLi",
                     "Publicaciones": st.column_config.NumberColumn("Publicaciones Activas", format="%d"),
-                    "Unidades_Vendidas": st.column_config.NumberColumn("Unidades Vendidas Acum.", format="%d"),
+                    "Stock_Total_Disponible": st.column_config.NumberColumn("Stock Total Disp.", format="%d"),
+                    "Unidades_Vendidas": st.column_config.NumberColumn("Ventas Acum.", format="%d"),
                     "Facturacion_Total": st.column_config.NumberColumn("Facturación Est. ($)", format="$%.0f"),
                     "Precio_Promedio": st.column_config.NumberColumn("Precio Promedio ($)", format="$%.0f"),
                     "Cuota_Mercado_%": st.column_config.NumberColumn("Cuota de Mercado (%)", format="%.1f%%")
@@ -692,17 +695,18 @@ with tabs[2]:
             )
 
             st.markdown("---")
-            st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado")
+            st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado (con Stock en Vivo)")
 
             top_15_mkt = df_mkt.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
             top_15_mkt.index += 1  # Ranking desde 1
 
             st.dataframe(
-                top_15_mkt[["vendedor_name", "title", "price", "sold_quantity", "facturacion_estimada", "permalink"]],
+                top_15_mkt[["vendedor_name", "title", "price", "stock", "sold_quantity", "facturacion_estimada", "permalink"]],
                 column_config={
                     "vendedor_name": "Vendedor / Competidor",
                     "title": "Título de la Publicación",
                     "price": st.column_config.NumberColumn("PVP Actual ($)", format="$%.0f"),
+                    "stock": st.column_config.NumberColumn("Stock Disp. (`stock`)", format="%d"),
                     "sold_quantity": st.column_config.NumberColumn("Ventas Acum. (`sold_quantity`)", format="%d"),
                     "facturacion_estimada": st.column_config.NumberColumn("Facturación Acum. Est. ($)", format="$%.0f"),
                     "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
