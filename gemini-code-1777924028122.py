@@ -405,6 +405,12 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
+        # Calcular stock total (sumando variaciones si las tiene, o available_quantity)
+        stock_total = int(r.get("available_quantity", 0))
+        variations = r.get("variations", [])
+        if variations and isinstance(variations, list):
+            stock_total = sum(int(v.get("available_quantity", 0)) for v in variations if isinstance(v, dict))
+
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
@@ -412,11 +418,12 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             "price": float(r.get("price", 0.0)),
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": int(r.get("available_quantity", 0)),
+            "stock": stock_total,  # <--- Aquí toma el stock real total calculado
             "permalink": url_oficial,
             "sold_quantity": int(r.get("sold_quantity", 0)),
             "category_id": r.get("category_id", "MLA372132")
         })
+        
 
     return target_catalog_id, product_title, items_procesados
 
