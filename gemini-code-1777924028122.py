@@ -18,10 +18,7 @@ st.set_page_config(
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
-    /* Estilo General */
     .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    
-    /* Header Principal */
     .header-box {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         color: #ffffff;
@@ -32,21 +29,15 @@ st.markdown("""
     }
     .header-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin: 0; color: #38bdf8; }
     .header-subtitle { font-size: 14px; color: #94a3b8; margin-top: 4px; }
-    
-    /* Tarjetas de Métricas KPI */
     .kpi-card {
         background: #ffffff;
         padding: 20px;
         border-radius: 14px;
         border: 1px solid #e2e8f0;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-        transition: transform 0.2s, box-shadow 0.2s;
     }
-    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06); }
     .kpi-label { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
     .kpi-value { font-size: 26px; font-weight: 800; color: #0f172a; margin: 6px 0; }
-    
-    /* Tarjetas de Estado (Viable vs No Viable) */
     .card-viable {
         background: #f0fdf4;
         color: #166534;
@@ -90,9 +81,6 @@ st.markdown("""
         font-weight: 700;
         border: 1px solid #fca5a5;
     }
-    
-    /* Sidebar styling */
-    .css-1d3b13e { background-color: #0f172a; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -393,7 +381,8 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     if not seller_id or str(seller_id) in ["N/A", "None", "", "0"]:
         return "Vendedor Mercado Libre"
     url = f"https://api.mercadolibre.com/users/{seller_id}"
-    headers = {"Authorization": f"Bearer {token.strip()}"} if access_token else {}
+    # CORREGIDO: Se reemplazó 'token.strip()' por 'access_token.strip()' para solucionar el NameError
+    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -408,7 +397,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=900)  # Caching optimizado
+@st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
@@ -619,7 +608,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v115.0 UI)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v116.0 Fix)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -714,7 +703,6 @@ with tabs[0]:
         st.markdown("---")
         st.subheader("💡 Métricas Financieras Clave (Auditoría Neta)")
         
-        # TARJETAS DESTACADAS VISUALMENTE
         r1, r2, r3 = st.columns(3)
         with r1:
             st.markdown(f"""
@@ -830,7 +818,6 @@ with tabs[2]:
             df_mkt = pd.DataFrame(items_mkt)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-            # HIGHLIGHT DESTACADO: ALERTA DE QUIEBRE
             quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
             if not quiebres_inminentes.empty:
                 st.markdown(f'''
