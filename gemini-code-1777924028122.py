@@ -13,15 +13,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Estética Profesional Avanzada (UI / UX Moderna sobre Código Base 1000)
 st.markdown("""
     <style>
-    .main { background-color: #f4f6f9; }
-    .stMetric { background-color: #ffffff; padding: 18px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .stButton>button { border-radius: 8px; font-weight: 600; }
-    .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
-    .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
-    .badge-missing { background-color: #ff4d4d; color: white; padding: 10px; border-radius: 6px; font-weight: bold; }
-    .ai-bubble { background-color: #e2f0d9; padding: 15px; border-radius: 10px; border-left: 5px solid #385723; margin-bottom: 10px; }
+    .main { background-color: #f8fafc; }
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    .stButton>button { border-radius: 10px; font-weight: 600; padding: 0.5rem 1rem; transition: all 0.3s ease; }
+    .card-viable { background-color: #ecfdf5; color: #065f46; padding: 18px; border-radius: 12px; border: 1px solid #a7f3d0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .card-noviable { background-color: #fef2f2; color: #991b1b; padding: 18px; border-radius: 12px; border: 1px solid #fecaca; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .badge-missing { background-color: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-weight: bold; border: 1px solid #fca5a5; }
+    .ai-bubble { background-color: #f0fdf4; padding: 18px; border-radius: 12px; border-left: 5px solid #16a34a; border: 1px solid #dcfce7; margin-bottom: 12px; }
+    .warning-stock { background-color: #fff7ed; color: #c2410c; padding: 12px; border-radius: 8px; border: 1px solid #ffedd5; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -322,7 +324,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     if not seller_id or str(seller_id) in ["N/A", "None", "", "0"]:
         return "Vendedor Mercado Libre"
     url = f"https://api.mercadolibre.com/users/{seller_id}"
-    headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {token.strip()}"} if access_token else {}
     try:
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -337,7 +339,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote
+@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote (CODIGO BASE 1000)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
@@ -525,22 +527,22 @@ with st.sidebar:
         if st.session_state["lista_gold_df"] is not None:
             st.success("✅ Lista Gold vinculada correctamente.")
 
-st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v104.0 — Sistema Integral con Monitor de Mercado, Stock Real en Vivo y Simulación de Costos")
+st.title("⚡ NQ Sales Intelligence Matrix Pro")
+st.caption("v112.0 Pro — Código Base 1000 + Alertas de Stock, Márgenes Protegidos & Auditoría Neta")
 
 tabs = st.tabs([
-    "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
-    "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
-    "3. 📊 Monitor de Mercado (Stock, Ventas & Top 15)",
+    "1. 🧮 Simulación de Costos & Auditoría Neta",
+    "2. ⚡ Monitor & Control de Precios (Anti-Pérdida)",
+    "3. 📊 Monitor de Mercado & Alerta de Quiebre",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: SIMULACIÓN DE COSTOS & RENTABILIDAD
+# TAB 1: SIMULACIÓN DE COSTOS & RENTABILIDAD (AUDITORÍA NETA)
 # ------------------------------------------------------------------------------
 with tabs[0]:
-    st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
+    st.header("🧮 Análisis Estructurado de Costos con Auditoría Neta Real")
     st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código. El sistema calcula los fletes por bulto y los coeficientes con el **24,5% de impuestos** (IVA 21% + IIBB 3.5%):")
 
     opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
@@ -616,19 +618,19 @@ with tabs[0]:
         ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
         margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
 
-        st.markdown("### 📊 Resultado Financiero Neto Real")
+        st.markdown("### 📊 Auditoría de Facturación Neta a Bolsillo")
         res1, res2, res3 = st.columns(3)
         res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
-        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
-        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
+        res2.metric("Comisiones, Taxes & Fletes", f"${total_deducciones:,.2f}")
+        res3.metric("Neto Libre a Bolsillo", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
 
         if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen neto positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-noviable">🔴 <b>ALERTA ROJA (PÉRDIDA):</b> Esta publicación genera una pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: MONITOR & CONTROL DE PRECIOS (ANÁLISIS INVERSO)
+# TAB 2: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
 # ------------------------------------------------------------------------------
 with tabs[1]:
     st.header("⚡ Monitor de Precios & Control de Precios (Análisis Inverso)")
@@ -670,8 +672,15 @@ with tabs[1]:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
-            st.subheader("📊 Competencia Activa Detectada")
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
+            
+            min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
+            costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
+            
+            if min_comp_price > 0 and min_comp_price < costo_total_operativo:
+                st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a ${min_comp_price:,.2f}. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No bajes a su nivel!</div><br>', unsafe_allow_html=True)
+
+            st.subheader("📊 Competencia Activa Detectada")
             df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
             st.dataframe(
                 df_comp_m[['vendedor_name', 'id', 'title', 'price', 'stock', 'Cuotas', 'permalink']],
@@ -685,7 +694,7 @@ with tabs[1]:
             )
 
 # ------------------------------------------------------------------------------
-# TAB 3: MONITOR DE MERCADO (STOCK, VENTAS & TOP 15)
+# TAB 3: MONITOR DE MERCADO (STOCK, VENTAS & ALERTA DE QUIEBRE)
 # ------------------------------------------------------------------------------
 with tabs[2]:
     st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
@@ -705,6 +714,10 @@ with tabs[2]:
         if items_mkt:
             df_mkt = pd.DataFrame(items_mkt)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
+
+            quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
+            if not quiebres_inminentes.empty:
+                st.markdown(f'<div class="warning-stock">🚨 <b>ALERTA DE QUIEBRE DE STOCK:</b> Se detectaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Oportunidad para capturar tráfico!</div><br>', unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
