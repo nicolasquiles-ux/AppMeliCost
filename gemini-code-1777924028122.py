@@ -13,17 +13,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estética Profesional Avanzada (UI / UX Moderna)
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; }
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
-    .stButton>button { border-radius: 10px; font-weight: 600; padding: 0.5rem 1rem; transition: all 0.3s ease; }
-    .card-viable { background-color: #ecfdf5; color: #065f46; padding: 18px; border-radius: 12px; border: 1px solid #a7f3d0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-    .card-noviable { background-color: #fef2f2; color: #991b1b; padding: 18px; border-radius: 12px; border: 1px solid #fecaca; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-    .badge-missing { background-color: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-weight: bold; border: 1px solid #fca5a5; }
-    .ai-bubble { background-color: #f0fdf4; padding: 18px; border-radius: 12px; border-left: 5px solid #16a34a; border: 1px solid #dcfce7; margin-bottom: 12px; }
-    .warning-stock { background-color: #fff7ed; color: #c2410c; padding: 12px; border-radius: 8px; border: 1px solid #ffedd5; font-weight: 600; }
+    .main { background-color: #f4f6f9; }
+    .stMetric { background-color: #ffffff; padding: 18px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .stButton>button { border-radius: 8px; font-weight: 600; }
+    .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
+    .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
+    .badge-missing { background-color: #ff4d4d; color: white; padding: 10px; border-radius: 6px; font-weight: bold; }
+    .ai-bubble { background-color: #e2f0d9; padding: 15px; border-radius: 10px; border-left: 5px solid #385723; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -296,6 +294,19 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
 
     return False, 0.0, "", ""
 
+def extraer_id_catalogo_o_ean_input(input_raw: str):
+    raw = input_raw.strip()
+    if "mercadolibre.com" in raw and "/p/MLA" in raw:
+        match = re.search(r'/p/(MLA\d+)', raw)
+        if match:
+            return "CATALOG_ID", match.group(1)
+    if raw.upper().startswith("MLA"):
+        return "CATALOG_ID", raw.upper()
+    clean_digits = re.sub(r'\D', '', raw)
+    if clean_digits:
+        return "EAN", clean_digits
+    return "TEXT", raw
+
 def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
     if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
         return permalink_api
@@ -326,53 +337,94 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    clean_val = str(query_key).strip()
-    raw_items = []
+    type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
+    
+    catalog_id = clean_val if type_input == "CATALOG_ID" else ""
     product_title = ""
-    target_catalog_id = clean_val
+    raw_items = []
 
-    is_pure_ean = clean_val.isdigit() and len(clean_val) >= 8
-    if is_pure_ean:
+    if type_input == "EAN":
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
         try:
             res_p = requests.get(url_ean, headers=headers, timeout=8)
             if res_p.status_code == 200:
                 p_results = res_p.json().get("results", [])
                 if p_results:
-                    target_catalog_id = p_results[0].get("id", "")
+                    catalog_id = p_results[0].get("id", "")
                     product_title = p_results[0].get("name", "")
-                    url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
-                    res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
-                    if res_pi.status_code == 200:
-                        raw_items = res_pi.json().get("results", [])
+        except Exception:
+            pass
+
+    target_catalog_id = catalog_id if catalog_id else "MLA27874272"
+    
+    url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
+    try:
+        res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
+        if res_pi.status_code == 200:
+            raw_items = res_pi.json().get("results", [])
+    except Exception:
+        pass
+
+    if not raw_items:
+        url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={target_catalog_id}"
+        try:
+            res_ci = requests.get(url_c_items, headers=headers, timeout=8)
+            if res_ci.status_code == 200:
+                raw_items = res_ci.json().get("results", [])
         except Exception:
             pass
 
     if not raw_items:
-        search_term = product_title if product_title else clean_val
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(search_term)}&limit=50"
+        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
-            res_q = requests.get(url_q, headers=headers, timeout=10)
+            res_q = requests.get(url_q, headers=headers, timeout=8)
             if res_q.status_code == 200:
-                data_json = res_q.json()
-                raw_items = data_json.get("results", [])
+                raw_items = res_q.json().get("results", [])
         except Exception:
             pass
 
-    if not raw_items and is_pure_ean:
-        url_q2 = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_val}&limit=50"
-        try:
-            res_q2 = requests.get(url_q2, headers=headers, timeout=10)
-            if res_q2.status_code == 200:
-                raw_items = res_q2.json().get("results", [])
-        except Exception:
-            pass
+    # ENRIQUECIMIENTO MASIVO VÍA /items?ids= PARA OBTENER STOCK REAL Y VENTAS
+    list_ids = []
+    for r in raw_items[:50]:
+        i_id = r.get("item_id") or r.get("id", "")
+        if i_id:
+            list_ids.append(i_id)
+
+    detalles_dict = {}
+    if list_ids:
+        for i in range(0, len(list_ids), 20):
+            chunk = list_ids[i:i+20]
+            ids_str = ",".join(chunk)
+            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
+            try:
+                res_m = requests.get(url_multiget, headers=headers, timeout=8)
+                if res_m.status_code == 200:
+                    for entry in res_m.json():
+                        if entry.get("code") == 200:
+                            b = entry.get("body", {})
+                            it_id = b.get("id")
+                            
+                            stk = int(b.get("available_quantity", 0))
+                            vars_list = b.get("variations", [])
+                            if vars_list and isinstance(vars_list, list):
+                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                                if stk_vars > 0:
+                                    stk = stk_vars
+                                    
+                            detalles_dict[it_id] = {
+                                "stock_real": stk,
+                                "sold_real": int(b.get("sold_quantity", 0)),
+                                "price_real": float(b.get("price", 0.0))
+                            }
+            except Exception:
+                pass
 
     items_procesados = []
-    for r in raw_items:
+    for r in raw_items[:50]:
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
@@ -382,36 +434,29 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             seller_id = r.get("seller", {}).get("id")
         if not seller_id:
             seller_id = r.get("seller_id")
-        
+
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
         url_oficial = construir_url_canonica_meli(item_id, r.get("permalink", ""))
-
-        stk = int(r.get("available_quantity", 0))
-        vars_list = r.get("variations", [])
-        if vars_list and isinstance(vars_list, list):
-            stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
-            if stk_vars > 0:
-                stk = stk_vars
-
-        sold = int(r.get("sold_quantity", 0))
-        price = float(r.get("price", 0.0))
-        title = r.get("title", product_title if product_title else "Mueble Centro Estant")
-        cat_id = r.get("category_id", "MLA4765")
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
+        det = detalles_dict.get(item_id, {})
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
+        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
+        price_final = det.get("price_real", float(r.get("price", 0.0)))
+
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": title,
-            "price": price,
+            "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
+            "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": stk,
-            "sold_quantity": sold,
+            "stock": stock_final,
+            "sold_quantity": sold_final,
             "permalink": url_oficial,
-            "category_id": cat_id
+            "category_id": r.get("category_id", "MLA4765")
         })
 
     return target_catalog_id, product_title, items_procesados
@@ -480,23 +525,23 @@ with st.sidebar:
         if st.session_state["lista_gold_df"] is not None:
             st.success("✅ Lista Gold vinculada correctamente.")
 
-st.title("⚡ NQ Sales Intelligence Matrix Pro")
-st.caption("v111.0 — Suite Completa (Lista Gold, Matriz Logística, Monitor de Mercado, Alertas & Auditoría)")
+st.title("NQ Sales Intelligence Matrix Pro")
+st.caption("v104.0 — Sistema Integral con Monitor de Mercado, Stock Real en Vivo y Simulación de Costos")
 
 tabs = st.tabs([
-    "1. 🧮 Simulación de Costos & Auditoría Neta",
-    "2. ⚡ Monitor & Control de Precios (Anti-Pérdida)",
-    "3. 📊 Monitor de Mercado & Alerta de Quiebre",
+    "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
+    "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
+    "3. 📊 Monitor de Mercado (Stock, Ventas & Top 15)",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: SIMULACIÓN DE COSTOS & AUDITORÍA NETA
+# TAB 1: SIMULACIÓN DE COSTOS & RENTABILIDAD
 # ------------------------------------------------------------------------------
 with tabs[0]:
-    st.header("🧮 Análisis Estructurado de Costos con Auditoría Neta Real")
-    st.markdown("Seleccioná un producto de la **Lista Gold** o ingresá el código. El sistema calcula los fletes por bulto y los coeficientes con el **24,5% de impuestos** (IVA 21% + IIBB 3.5%):")
+    st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
+    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código. El sistema calcula los fletes por bulto y los coeficientes con el **24,5% de impuestos** (IVA 21% + IIBB 3.5%):")
 
     opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
 
@@ -571,23 +616,23 @@ with tabs[0]:
         ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
         margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
 
-        st.markdown("### 📊 Auditoría de Facturación Neta a Bolsillo")
+        st.markdown("### 📊 Resultado Financiero Neto Real")
         res1, res2, res3 = st.columns(3)
         res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
-        res2.metric("Comisiones, Taxes & Fletes", f"${total_deducciones:,.2f}")
-        res3.metric("Neto Libre a Bolsillo", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
+        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
+        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
 
         if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen neto positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>ALERTA ROJA (PÉRDIDA):</b> Esta publicación genera una pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
+# TAB 2: MONITOR & CONTROL DE PRECIOS (ANÁLISIS INVERSO)
 # ------------------------------------------------------------------------------
 with tabs[1]:
-    st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
-    st.markdown("Monitoreo de competencia con alerta de control de precios mínimos y cálculo del importe y porcentaje de descuento necesario.")
+    st.header("⚡ Monitor de Precios & Control de Precios (Análisis Inverso)")
+    st.caption("Monitoreo de competencia con alerta de control de precios mínimos y cálculo del importe y porcentaje de descuento necesario.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -625,15 +670,8 @@ with tabs[1]:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
-            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
-            
-            min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
-            costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
-            
-            if min_comp_price > 0 and min_comp_price < costo_total_operativo:
-                st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a ${min_comp_price:,.2f}. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No bajes a su nivel!</div><br>', unsafe_allow_html=True)
-
             st.subheader("📊 Competencia Activa Detectada")
+            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
             st.dataframe(
                 df_comp_m[['vendedor_name', 'id', 'title', 'price', 'stock', 'Cuotas', 'permalink']],
@@ -647,7 +685,7 @@ with tabs[1]:
             )
 
 # ------------------------------------------------------------------------------
-# TAB 3: MONITOR DE MERCADO & ALERTA DE QUIEBRE
+# TAB 3: MONITOR DE MERCADO (STOCK, VENTAS & TOP 15)
 # ------------------------------------------------------------------------------
 with tabs[2]:
     st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
@@ -667,10 +705,6 @@ with tabs[2]:
         if items_mkt:
             df_mkt = pd.DataFrame(items_mkt)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
-
-            quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
-            if not quiebres_inminentes.empty:
-                st.markdown(f'<div class="warning-stock">🚨 <b>ALERTA DE QUIEBRE DE STOCK:</b> Se detectaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Oportunidad para capturar tráfico!</div><br>', unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
@@ -705,7 +739,7 @@ with tabs[2]:
             st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado (con Stock en Vivo)")
 
             top_15_mkt = df_mkt.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
-            top_15_mkt.index += 1
+            top_15_mkt.index += 1  # Ranking desde 1
 
             st.dataframe(
                 top_15_mkt[["vendedor_name", "title", "price", "stock", "sold_quantity", "facturacion_estimada", "permalink"]],
