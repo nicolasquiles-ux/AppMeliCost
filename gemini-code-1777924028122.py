@@ -325,36 +325,69 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     return f"Vendedor #{seller_id}"
 
 # ==============================================================================
-# FUNCIÓN ROBUSTA DIRECTA DE BÚSQUEDA EN MEILI (CAPTUROS STOCK & VENTAS REALES)
+# FUNCIÓN DE BÚSQUEDA INTELIGENTE CON DOBLE FALLBACK (EAN + TEXTO LIBRE)
 # ==============================================================================
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     clean_val = str(query_key).strip()
-    
-    # Búsqueda directa por texto o EAN en el motor principal de MeLi
-    url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(clean_val)}&limit=50"
     raw_items = []
     product_title = ""
     target_catalog_id = clean_val
 
-    try:
-        res_q = requests.get(url_q, headers=headers, timeout=10)
-        if res_q.status_code == 200:
-            data_json = res_q.json()
-            raw_items = data_json.get("results", [])
-    except Exception:
-        pass
+    # 1. Si es un EAN numérico puro, intentar primero buscar por el identificador de producto de catálogo
+    is_pure_ean = clean_val.isdigit() and len(clean_val) >= 8
+    if is_pure_ean:
+        url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
+        try:
+            res_p = requests.get(url_ean, headers=headers, timeout=8)
+            if res_p.status_code == 200:
+                p_results = res_p.json().get("results", [])
+                if p_results:
+                    target_catalog_id = p_results[0].get("id", "")
+                    product_title = p_results[0].get("name", "")
+                    # Obtener items de ese catálogo
+                    url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
+                    res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
+                    if res_pi.status_code == 200:
+                        raw_items = res_pi.json().get("results", [])
+        except Exception:
+            pass
+
+    # 2. Si no dio resultados por catálogo o no es un EAN puro, buscar por texto libre en el buscador general
+    if not raw_items:
+        # Si tenemos un título de producto del catálogo previo, usarlo; sino el texto ingresado
+        search_term = product_title if product_title else clean_val
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(search_term)}&limit=50"
+        try:
+            res_q = requests.get(url_q, headers=headers, timeout=10)
+            if res_q.status_code == 200:
+                data_json = res_q.json()
+                raw_items = data_json.get("results", [])
+        except Exception:
+            pass
+
+    # 3. Si aún no hay resultados y probamos con el EAN numérico en el buscador general por si acaso
+    if not raw_items and is_pure_ean:
+        url_q2 = f"https://api.mercadolibre.com/sites/MLA/search?q={clean_val}&limit=50"
+        try:
+            res_q2 = requests.get(url_q2, headers=headers, timeout=10)
+            if res_q2.status_code == 200:
+                raw_items = res_q2.json().get("results", [])
+        except Exception:
+            pass
 
     items_procesados = []
     for r in raw_items:
-        item_id = r.get("id", "")
+        item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
 
         seller_id = None
         if isinstance(r.get("seller"), dict):
             seller_id = r.get("seller", {}).get("id")
+        if not seller_id:
+            seller_id = r.get("seller_id")
         
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
         url_oficial = construir_url_canonica_meli(item_id, r.get("permalink", ""))
@@ -371,7 +404,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
         sold = int(r.get("sold_quantity", 0))
         price = float(r.get("price", 0.0))
-        title = r.get("title", "Mueble Centro Estant")
+        title = r.get("title", product_title if product_title else "Mueble Centro Estant")
         cat_id = r.get("category_id", "MLA4765")
 
         inst = r.get("installments", {})
@@ -457,7 +490,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v105.0 — Búsqueda Directa en Motor MeLi con Stock & Ventas Reales Garantizadas")
+st.caption("v106.0 — Búsqueda Inteligente con Doble Fallback (EAN / Catálogo + Texto Libre)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
