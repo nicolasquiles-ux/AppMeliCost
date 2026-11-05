@@ -481,7 +481,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("⚡ NQ Sales Intelligence Matrix Pro")
-st.caption("v110.0 — Suite Avanzada con Alertas de Stock, Márgenes Protegidos & Auditoría Neta")
+st.caption("v111.0 — Suite Completa (Lista Gold, Matriz Logística, Monitor de Mercado, Alertas & Auditoría)")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos & Auditoría Neta",
@@ -496,7 +496,7 @@ tabs = st.tabs([
 # ------------------------------------------------------------------------------
 with tabs[0]:
     st.header("🧮 Análisis Estructurado de Costos con Auditoría Neta Real")
-    st.markdown("Evaluá la rentabilidad exacta con retenciones fiscales (24.5%) y fletes consolidados por bulto.")
+    st.markdown("Seleccioná un producto de la **Lista Gold** o ingresá el código. El sistema calcula los fletes por bulto y los coeficientes con el **24,5% de impuestos** (IVA 21% + IIBB 3.5%):")
 
     opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
 
@@ -518,7 +518,7 @@ with tabs[0]:
         query_costos = st.text_input("Código SKU / EAN / MLA / URL", key="q_costos")
     with c_s2:
         st.write("")
-        btn_calc_costos = st.button("🧮 CALCULAR RENTABILIDAD", type="primary", use_container_width=True)
+        btn_calc_costos = st.button("🧮 CALCULAR COSTOS", type="primary", use_container_width=True)
 
     if btn_calc_costos or query_costos:
         found_gold, costo_gold_val, desc_g, art_g = buscar_costo_y_titulo_en_lista_gold(query_costos)
@@ -587,7 +587,7 @@ with tabs[0]:
 # ------------------------------------------------------------------------------
 with tabs[1]:
     st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
-    st.markdown("Compara tu costo de reposición con el precio del competidor más barato para evitar guerras de precios suicidas.")
+    st.markdown("Monitoreo de competencia con alerta de control de precios mínimos y cálculo del importe y porcentaje de descuento necesario.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -616,7 +616,7 @@ with tabs[1]:
         pvp_ref_mon = costo_gold_m * 2.0 if found_gold_m else 208000.0
         found_mat_m, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_mon, pvp_ref_mon)
 
-        with st.spinner("Analizando competencia y márgenes..."):
+        with st.spinner("Analizando competencia y controlando precios..."):
             cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
 
         if not found_gold_m:
@@ -627,9 +627,8 @@ with tabs[1]:
         if items_m:
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             
-            # Utilidad Anti-Pérdida: Analizar si el competidor más barato vende por debajo del costo operativo
             min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
-            costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20) # Comision aprox
+            costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
             
             if min_comp_price > 0 and min_comp_price < costo_total_operativo:
                 st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a ${min_comp_price:,.2f}. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No bajes a su nivel!</div><br>', unsafe_allow_html=True)
@@ -651,8 +650,8 @@ with tabs[1]:
 # TAB 3: MONITOR DE MERCADO & ALERTA DE QUIEBRE
 # ------------------------------------------------------------------------------
 with tabs[2]:
-    st.header("📊 Monitor de Mercado & Alerta Temprana de Quiebre de Stock")
-    st.markdown("Rastreo de stock disponible en vivo (`stock`), ventas acumuladas y **detección de competidores con riesgo inminente de quiebre de stock ($\le 2$ unidades)**.")
+    st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
+    st.markdown("Análisis competitivo en tiempo real rastreando el **stock disponible en vivo (`stock`)**, el volumen acumulado de ventas (`sold_quantity`) y la facturación estimada por categoría.")
 
     col_mkt1, col_mkt2 = st.columns([3, 1])
     with col_mkt1:
@@ -662,17 +661,16 @@ with tabs[2]:
         btn_refresh_mkt = st.button("🔄 Actualizar Datos Mercado", type="primary", use_container_width=True)
 
     if search_term_mkt:
-        with st.spinner("Rastreando publicaciones, stock real y alertas de quiebre..."):
+        with st.spinner("Rastreando publicaciones, stock real y ventas acumuladas en Mercado Libre..."):
             _, _, items_mkt = buscar_competencia_integral_ean(search_term_mkt, st.session_state["access_token"])
 
         if items_mkt:
             df_mkt = pd.DataFrame(items_mkt)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-            # Alerta Temprana de Quiebre de Stock
             quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
             if not quiebres_inminentes.empty:
-                st.markdown(f'<div class="warning-stock">🚨 <b>ALERTA DE QUIEBRE DE STOCK:</b> Se detectaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Oportunidad para capturar tráfico o subir precio!</div><br>', unsafe_allow_html=True)
+                st.markdown(f'<div class="warning-stock">🚨 <b>ALERTA DE QUIEBRE DE STOCK:</b> Se detectaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Oportunidad para capturar tráfico!</div><br>', unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
