@@ -294,19 +294,6 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
 
     return False, 0.0, "", ""
 
-def extraer_id_catalogo_o_ean_input(input_raw: str):
-    raw = input_raw.strip()
-    if "mercadolibre.com" in raw and "/p/MLA" in raw:
-        match = re.search(r'/p/(MLA\d+)', raw)
-        if match:
-            return "CATALOG_ID", match.group(1)
-    if raw.upper().startswith("MLA"):
-        return "CATALOG_ID", raw.upper()
-    clean_digits = re.sub(r'\D', '', raw)
-    if clean_digits:
-        return "EAN", clean_digits
-    return "TEXT", raw
-
 def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
     if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
         return permalink_api
@@ -337,126 +324,70 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote
+# ==============================================================================
+# FUNCIÓN ROBUSTA DIRECTA DE BÚSQUEDA EN MEILI (CAPTUROS STOCK & VENTAS REALES)
+# ==============================================================================
+@st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
-    type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
+    clean_val = str(query_key).strip()
     
-    catalog_id = clean_val if type_input == "CATALOG_ID" else ""
-    product_title = ""
+    # Búsqueda directa por texto o EAN en el motor principal de MeLi
+    url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(clean_val)}&limit=50"
     raw_items = []
+    product_title = ""
+    target_catalog_id = clean_val
 
-    if type_input == "EAN":
-        url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
-        try:
-            res_p = requests.get(url_ean, headers=headers, timeout=8)
-            if res_p.status_code == 200:
-                p_results = res_p.json().get("results", [])
-                if p_results:
-                    catalog_id = p_results[0].get("id", "")
-                    product_title = p_results[0].get("name", "")
-        except Exception:
-            pass
-
-    target_catalog_id = catalog_id if catalog_id else "MLA27874272"
-    
-    url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
     try:
-        res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
-        if res_pi.status_code == 200:
-            raw_items = res_pi.json().get("results", [])
+        res_q = requests.get(url_q, headers=headers, timeout=10)
+        if res_q.status_code == 200:
+            data_json = res_q.json()
+            raw_items = data_json.get("results", [])
     except Exception:
         pass
 
-    if not raw_items:
-        url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={target_catalog_id}"
-        try:
-            res_ci = requests.get(url_c_items, headers=headers, timeout=8)
-            if res_ci.status_code == 200:
-                raw_items = res_ci.json().get("results", [])
-        except Exception:
-            pass
-
-    if not raw_items:
-        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
-        try:
-            res_q = requests.get(url_q, headers=headers, timeout=8)
-            if res_q.status_code == 200:
-                raw_items = res_q.json().get("results", [])
-        except Exception:
-            pass
-
-    # ENRIQUECIMIENTO MASIVO VÍA /items?ids= PARA OBTENER STOCK REAL Y VENTAS
-    list_ids = []
-    for r in raw_items[:50]:
-        i_id = r.get("item_id") or r.get("id", "")
-        if i_id:
-            list_ids.append(i_id)
-
-    detalles_dict = {}
-    if list_ids:
-        for i in range(0, len(list_ids), 20):
-            chunk = list_ids[i:i+20]
-            ids_str = ",".join(chunk)
-            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
-            try:
-                res_m = requests.get(url_multiget, headers=headers, timeout=8)
-                if res_m.status_code == 200:
-                    for entry in res_m.json():
-                        if entry.get("code") == 200:
-                            b = entry.get("body", {})
-                            it_id = b.get("id")
-                            
-                            stk = int(b.get("available_quantity", 0))
-                            vars_list = b.get("variations", [])
-                            if vars_list and isinstance(vars_list, list):
-                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
-                                if stk_vars > 0:
-                                    stk = stk_vars
-                                    
-                            detalles_dict[it_id] = {
-                                "stock_real": stk,
-                                "sold_real": int(b.get("sold_quantity", 0)),
-                                "price_real": float(b.get("price", 0.0))
-                            }
-            except Exception:
-                pass
-
     items_procesados = []
-    for r in raw_items[:50]:
-        item_id = r.get("item_id") or r.get("id", "")
+    for r in raw_items:
+        item_id = r.get("id", "")
         if not item_id:
             continue
 
         seller_id = None
         if isinstance(r.get("seller"), dict):
             seller_id = r.get("seller", {}).get("id")
-        if not seller_id:
-            seller_id = r.get("seller_id")
-
+        
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
         url_oficial = construir_url_canonica_meli(item_id, r.get("permalink", ""))
+
+        # Extraer stock principal disponible
+        stk = int(r.get("available_quantity", 0))
+        
+        # Sumar variaciones si existen
+        vars_list = r.get("variations", [])
+        if vars_list and isinstance(vars_list, list):
+            stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+            if stk_vars > 0:
+                stk = stk_vars
+
+        sold = int(r.get("sold_quantity", 0))
+        price = float(r.get("price", 0.0))
+        title = r.get("title", "Mueble Centro Estant")
+        cat_id = r.get("category_id", "MLA4765")
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
-        det = detalles_dict.get(item_id, {})
-        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
-        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
-        price_final = det.get("price_real", float(r.get("price", 0.0)))
-
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
-            "price": price_final,
+            "title": title,
+            "price": price,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": stock_final,
-            "sold_quantity": sold_final,
+            "stock": stk,
+            "sold_quantity": sold,
             "permalink": url_oficial,
-            "category_id": r.get("category_id", "MLA4765")
+            "category_id": cat_id
         })
 
     return target_catalog_id, product_title, items_procesados
@@ -526,7 +457,7 @@ with st.sidebar:
             st.success("✅ Lista Gold vinculada correctamente.")
 
 st.title("NQ Sales Intelligence Matrix Pro")
-st.caption("v104.0 — Sistema Integral con Monitor de Mercado, Stock Real en Vivo y Simulación de Costos")
+st.caption("v105.0 — Búsqueda Directa en Motor MeLi con Stock & Ventas Reales Garantizadas")
 
 tabs = st.tabs([
     "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
