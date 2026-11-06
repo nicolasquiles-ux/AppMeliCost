@@ -513,7 +513,7 @@ with st.sidebar:
             st.session_state["user_info"] = {}
             st.rerun()
     else:
-        st.warning(⚠️ Sin conexión activa")
+        st.warning("⚠️ Sin conexión activa")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
@@ -580,7 +580,7 @@ with tabs[0]:
                 st.success(f"✅ Costo base Lista Gold: **${costo_gold_val:,.2f}** ({desc_g})")
         with col_st2:
             if not found_mat:
-                st.warning(⚠️ SKU no hallado en Matriz Logística. Usando costo de envío oficial estándar.")
+                st.warning("⚠️ SKU no hallado en Matriz Logística. Usando costo de envío oficial estándar.")
                 costo_env_tot_default = 39090.0
                 cant_cajas_mat = 1
                 peso_unit = 10.0
