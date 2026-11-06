@@ -375,6 +375,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
 
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
+    # La API pública de búsqueda de MeLi funciona perfectamente sin token o con token Bearer válido.
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
     
@@ -391,8 +392,8 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
                 if p_results:
                     catalog_id = p_results[0].get("id", "")
                     product_title = p_results[0].get("name", "")
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Aviso en búsqueda EAN: {e}")
 
     target_catalog_id = catalog_id if catalog_id else "MLA27874272"
     
@@ -413,8 +414,9 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
+    # Si aún no hay items, hacemos búsqueda abierta por texto (término general)
     if not raw_items:
-        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
+        term_search = clean_val if clean_val else "Ropero placard"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -487,7 +489,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
+            "title": r.get("title", product_title if product_title else "Mueble Mercado Libre"),
             "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
@@ -500,7 +502,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     return target_catalog_id, product_title, items_procesados
 
 # ------------------------------------------------------------------------------
-# GESTIÓN DE ACCESO AUTOMÁTICO (LOGIN DIRECTO + BYPASS DE TOKEN)
+# GESTIÓN DE ACCESO AUTOMÁTICO (LOGIN DIRECTO + BYPASS)
 # ------------------------------------------------------------------------------
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -511,18 +513,16 @@ if not st.session_state["authenticated_app"]:
         
         user_input = st.text_input("Usuario", value="admin")
         pwd_input = st.text_input("Contraseña", type="password", value="admin123")
-        
-        # Opción para conectar de forma directa con token guardado o de pruebas
-        token_input_directo = st.text_input("Access Token MeLi (Opcional para entrar directo)", type="password", placeholder="Pegá tu token aquí si lo tenés a mano")
+        token_input_directo = st.text_input("Access Token MeLi (Opcional)", type="password", placeholder="Pegá tu token aquí si lo tenés")
 
         col_b1, col_b2 = st.columns(2)
         with col_b1:
             btn_login = st.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True)
         with col_b2:
-            btn_bypass_meli = st.button("⚡ ENTRAR DIRECTO CON TOKEN", use_container_width=True)
+            btn_bypass_meli = st.button("⚡ ENTRAR DIRECTO", use_container_width=True)
 
-        if btn_login:
-            if user_input == "admin" and pwd_input == "admin123":
+        if btn_login or btn_bypass_meli:
+            if user_input == "admin" and pwd_input == "admin123" or btn_bypass_meli:
                 st.session_state["authenticated_app"] = True
                 if token_input_directo:
                     st.session_state["access_token"] = token_input_directo.strip()
@@ -530,14 +530,6 @@ if not st.session_state["authenticated_app"]:
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-
-        if btn_bypass_meli:
-            st.session_state["authenticated_app"] = True
-            if token_input_directo:
-                st.session_state["access_token"] = token_input_directo.strip()
-                st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
-            st.rerun()
-
     st.stop()
 
 # ------------------------------------------------------------------------------
@@ -575,9 +567,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # --------------------------------------------------------------------------
-    # UNIFICACIÓN DE CARGA DE ARCHIVOS (LISTA GOLD + MATRIZ LOGÍSTICA)
-    # --------------------------------------------------------------------------
     st.subheader("📁 Centro Unificado de Cargas")
     
     with st.expander("📄 1. Lista Gold (Costos)", expanded=True):
@@ -602,7 +591,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v120.0 Direct Token Fix)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v121.0 API Robust Fix)</div>
     </div>
 """, unsafe_allow_html=True)
 
