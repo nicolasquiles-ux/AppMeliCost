@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import re
+import json
 import os
 import numpy as np
 
@@ -12,74 +13,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ------------------------------------------------------------------------------
-# ESTÉTICA PROFESIONAL Y MODERNA DE ALTO IMPACTO (UI / UX EXECUTIVE)
-# ------------------------------------------------------------------------------
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .header-box {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        color: #ffffff;
-        padding: 24px 32px;
-        border-radius: 16px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
-    }
-    .header-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin: 0; color: #38bdf8; }
-    .header-subtitle { font-size: 14px; color: #94a3b8; margin-top: 4px; }
-    .kpi-card {
-        background: #ffffff;
-        padding: 20px;
-        border-radius: 14px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-    }
-    .kpi-label { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 26px; font-weight: 800; color: #0f172a; margin: 6px 0; }
-    .card-viable {
-        background: #f0fdf4;
-        color: #166534;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #bbf7d0;
-        box-shadow: 0 4px 10px rgba(22, 101, 52, 0.05);
-        font-size: 15px;
-    }
-    .card-noviable {
-        background: #fef2f2;
-        color: #991b1b;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #fecaca;
-        box-shadow: 0 4px 10px rgba(153, 27, 27, 0.05);
-        font-size: 15px;
-    }
-    .warning-stock {
-        background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-        color: #c2410c;
-        padding: 16px 20px;
-        border-radius: 12px;
-        border-left: 6px solid #f97316;
-        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.08);
-        font-size: 15px;
-    }
-    .ai-bubble {
-        background: #f0fdf4;
-        padding: 20px;
-        border-radius: 14px;
-        border-left: 6px solid #22c55e;
-        border: 1px solid #dcfce7;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-    }
-    .badge-missing {
-        background-color: #fee2e2;
-        color: #991b1b;
-        padding: 12px 16px;
-        border-radius: 10px;
-        font-weight: 700;
-        border: 1px solid #fca5a5;
-    }
+    .main { background-color: #f4f6f9; }
+    .stMetric { background-color: #ffffff; padding: 18px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .stButton>button { border-radius: 8px; font-weight: 600; }
+    .card-viable { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb; }
+    .card-noviable { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; }
+    .badge-missing { background-color: #ff4d4d; color: white; padding: 10px; border-radius: 6px; font-weight: bold; }
+    .ai-bubble { background-color: #e2f0d9; padding: 15px; border-radius: 10px; border-left: 5px solid #385723; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -102,6 +44,8 @@ TASAS_CUOTAS = {
     "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208, "divisor": 1 - 0.353 - TOTAL_IMPUESTOS},
 }
 
+if "authenticated_app" not in st.session_state:
+    st.session_state["authenticated_app"] = False
 if "access_token" not in st.session_state:
     st.session_state["access_token"] = ""
 if "user_info" not in st.session_state:
@@ -150,19 +94,6 @@ def obtener_perfil_meli(token: str):
     except Exception:
         pass
     return {}
-
-# CAPTURA OAUTH NATIVA AL INICIAR LA APP
-query_params = st.query_params
-code_auth = query_params.get("code", None)
-
-if code_auth and not st.session_state["access_token"]:
-    with st.spinner("Autenticando con Mercado Libre..."):
-        exito, token_resp = intercambiar_code_por_token(code_auth)
-        if exito:
-            st.session_state["access_token"] = token_resp.get("access_token", "")
-            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
-            st.query_params.clear()
-            st.rerun()
 
 def procesar_archivo_lista_gold(file):
     try:
@@ -406,7 +337,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=900)  # Caching optimizado para evitar loops y consultar stock real en lote
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
@@ -456,6 +387,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
+    # ENRIQUECIMIENTO MASIVO VÍA /items?ids= PARA OBTENER STOCK REAL Y VENTAS
     list_ids = []
     for r in raw_items[:50]:
         i_id = r.get("item_id") or r.get("id", "")
@@ -492,7 +424,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
                 pass
 
     items_procesados = []
-    for idx, r in enumerate(raw_items[:50]):
+    for r in raw_items[:50]:
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
@@ -514,9 +446,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
 
-        if stock_final <= 0:
-            stock_final = max(1, 15 - ((idx * 3 + sold_final) % 12))
-
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
@@ -532,14 +461,43 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
-# ------------------------------------------------------------------------------
-# SIDEBAR UNIFICADO: CENTRO DE CARGA DE ARCHIVOS Y CONEXIÓN OAUTH v112.0
-# ------------------------------------------------------------------------------
+query_params = st.query_params
+code_auth = query_params.get("code", None)
+
+if code_auth and not st.session_state["access_token"]:
+    with st.spinner("Conectando con Mercado Libre..."):
+        exito, token_resp = intercambiar_code_por_token(code_auth)
+        if exito:
+            st.session_state["access_token"] = token_resp.get("access_token", "")
+            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+            st.session_state["authenticated_app"] = True
+            st.query_params.clear()
+            st.rerun()
+
+if not st.session_state["authenticated_app"]:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.title("⚡ NQ Sales Intelligence")
+        st.subheader("Acceso al Panel Operativo")
+        user = st.text_input("Usuario", value="admin")
+        pwd = st.text_input("Contraseña", type="password", value="admin123")
+        if st.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
+            st.session_state["authenticated_app"] = True
+            st.rerun()
+    st.stop()
+
 with st.sidebar:
     st.title("⚡ Control Panel")
     
+    if st.button("🔴 Cerrar Sesión App", use_container_width=True):
+        st.session_state["authenticated_app"] = False
+        st.session_state["access_token"] = ""
+        st.session_state["user_info"] = {}
+        st.rerun()
+
     st.markdown("---")
-    st.subheader("🔗 Conexión Mercado Libre")
+    st.subheader("🔗 Conexión a Mercado Libre")
     
     manual_token = st.text_input("Access Token Directo (Opcional)", value=st.session_state["access_token"], type="password")
     if manual_token != st.session_state["access_token"]:
@@ -555,54 +513,35 @@ with st.sidebar:
             st.session_state["user_info"] = {}
             st.rerun()
     else:
-        st.warning("⚠️ Sin conexión activa")
+        st.warning(⚠️ Sin conexión activa")
         url_auth = obtener_url_login_meli()
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
-    
-    st.subheader("📁 Centro Unificado de Cargas")
-    
-    with st.expander("📄 1. Lista Gold (Costos)", expanded=True):
-        uploaded_gold = st.file_uploader("Subir Lista Gold (Excel/CSV)", type=["xlsx", "csv"], key="uploader_gold_side")
-        if uploaded_gold is not None:
-            st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
-            if st.session_state["lista_gold_df"] is not None:
-                st.success("✅ Lista Gold vinculada.")
+    st.subheader("📄 Carga de Lista Gold (Costos)")
+    uploaded_gold = st.file_uploader("Subir Excel / CSV (Costos)", type=["xlsx", "csv"], key="uploader_gold")
+    if uploaded_gold is not None:
+        st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
+        if st.session_state["lista_gold_df"] is not None:
+            st.success("✅ Lista Gold vinculada correctamente.")
 
-    with st.expander("📦 2. Matriz Logística (Bultos)", expanded=True):
-        uploaded_matriz = st.file_uploader("Subir Matriz de Artículos (Excel)", type=["xlsx"], key="uploader_matriz_side")
-        if uploaded_matriz is not None:
-            try:
-                st.session_state["matriz_custom_df"] = pd.read_excel(uploaded_matriz)
-                st.success("✅ Matriz Logística cargada.")
-            except Exception as e:
-                st.error(f"Error al leer matriz: {e}")
-
-# ------------------------------------------------------------------------------
-# HEADER PRINCIPAL DE ALTO IMPACTO VISUAL
-# ------------------------------------------------------------------------------
-st.markdown("""
-    <div class="header-box">
-        <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v123.0 Direct App Fix)</div>
-    </div>
-""", unsafe_allow_html=True)
+st.title("NQ Sales Intelligence Matrix Pro")
+st.caption("v104.0 — Sistema Integral con Monitor de Mercado, Stock Real en Vivo y Simulación de Costos")
 
 tabs = st.tabs([
-    "1. 🧮 Simulación de Costos & Auditoría Neta",
-    "2. ⚡ Monitor & Control de Precios (Anti-Pérdida)",
-    "3. 📊 Monitor de Mercado & Alerta de Quiebre",
+    "1. 🧮 Simulación de Costos MeLi & Rentabilidad",
+    "2. ⚡ Monitor & Control de Precios (Análisis Inverso)",
+    "3. 📊 Monitor de Mercado (Stock, Ventas & Top 15)",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)"
 ])
 
 # ------------------------------------------------------------------------------
-# TAB 1: SIMULACIÓN DE COSTOS & AUDITORÍA NETA
+# TAB 1: SIMULACIÓN DE COSTOS & RENTABILIDAD
 # ------------------------------------------------------------------------------
 with tabs[0]:
-    st.header("🧮 Simulación de Costos & Auditoría Neta Real")
-    st.caption("Cálculo preciso de rentabilidad libre a bolsillo descontando comisiones, IIBB, IVA (24.5%) y flete por bulto.")
+    st.header("🧮 Análisis Estructurado de Costos con Datos Oficiales MeLi")
+    st.write("Seleccioná un producto de la **Lista Gold** o ingresá el código. El sistema calcula los fletes por bulto y los coeficientes con el **24,5% de impuestos** (IVA 21% + IIBB 3.5%):")
 
     opciones_ean_gold_s1 = extraer_opciones_ean_lista_gold()
 
@@ -641,7 +580,7 @@ with tabs[0]:
                 st.success(f"✅ Costo base Lista Gold: **${costo_gold_val:,.2f}** ({desc_g})")
         with col_st2:
             if not found_mat:
-                st.warning("⚠️ SKU no hallado en Matriz Logística. Usando costo de envío oficial estándar.")
+                st.warning(⚠️ SKU no hallado en Matriz Logística. Usando costo de envío oficial estándar.")
                 costo_env_tot_default = 39090.0
                 cant_cajas_mat = 1
                 peso_unit = 10.0
@@ -677,44 +616,23 @@ with tabs[0]:
         ganancia_neta = pvp_sim - total_deducciones - costo_prod_input
         margen_pct = (ganancia_neta / pvp_sim) * 100.0 if pvp_sim > 0 else 0.0
 
-        st.markdown("---")
-        st.subheader("💡 Métricas Financieras Clave (Auditoría Neta)")
-        
-        r1, r2, r3 = st.columns(3)
-        with r1:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Precio de Venta (PVP)</div>
-                <div class="kpi-value" style="color: #0284c7;">${pvp_sim:,.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with r2:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Deducciones (Comisión + Taxes + Flete)</div>
-                <div class="kpi-value" style="color: #e11d48;">${total_deducciones:,.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with r3:
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Neto Libre a Bolsillo</div>
-                <div class="kpi-value" style="color: {'#16a34a' if ganancia_neta > 0 else '#dc2626'};">${ganancia_neta:,.2f} ({margen_pct:.1f}%)</div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown("### 📊 Resultado Financiero Neto Real")
+        res1, res2, res3 = st.columns(3)
+        res1.metric("PVP Simulado", f"${pvp_sim:,.2f}")
+        res2.metric("Total Deducciones MeLi & Tax", f"${total_deducciones:,.2f}")
+        res3.metric("Ganancia Neta Final", f"${ganancia_neta:,.2f}", f"{margen_pct:.1f}% Margen")
 
-        st.markdown("<br>", unsafe_allow_html=True)
         if ganancia_neta > 0:
-            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen neto positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b> libre a bolsillo.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-viable">🟢 <b>OPERACIÓN RENTABLE:</b> Margen positivo de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="card-noviable">🔴 <b>ALERTA ROJA (PÉRDIDA):</b> Esta publicación genera una pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card-noviable">🔴 <b>OPERACIÓN CON PÉRDIDA:</b> Pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
+# TAB 2: MONITOR & CONTROL DE PRECIOS (ANÁLISIS INVERSO)
 # ------------------------------------------------------------------------------
 with tabs[1]:
-    st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
-    st.caption("Monitoreo de la competencia en tiempo real con alertas de margen protegido para evitar vender por debajo del costo.")
+    st.header("⚡ Monitor de Precios & Control de Precios (Análisis Inverso)")
+    st.caption("Monitoreo de competencia con alerta de control de precios mínimos y cálculo del importe y porcentaje de descuento necesario.")
 
     opciones_ean_gold = extraer_opciones_ean_lista_gold()
 
@@ -752,15 +670,8 @@ with tabs[1]:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
-            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
-            
-            min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
-            costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
-            
-            if min_comp_price > 0 and min_comp_price < costo_total_operativo:
-                st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a <b>${min_comp_price:,.2f}</b>. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No iguaIes ese precio!</div><br>', unsafe_allow_html=True)
-
             st.subheader("📊 Competencia Activa Detectada")
+            df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
             st.dataframe(
                 df_comp_m[['vendedor_name', 'id', 'title', 'price', 'stock', 'Cuotas', 'permalink']],
@@ -774,11 +685,11 @@ with tabs[1]:
             )
 
 # ------------------------------------------------------------------------------
-# TAB 3: MONITOR DE MERCADO & ALERTA DE QUIEBRE DE STOCK
+# TAB 3: MONITOR DE MERCADO (STOCK, VENTAS & TOP 15)
 # ------------------------------------------------------------------------------
 with tabs[2]:
-    st.header("📊 Monitor de Mercado & Alerta de Quiebre de Stock")
-    st.caption("Detección de oportunidades comerciales monitoreando publicaciones activas con stock crítico (≤ 2 unidades).")
+    st.header("📊 Monitor de Mercado (Stock Disponible, Ventas & Top 15)")
+    st.markdown("Análisis competitivo en tiempo real rastreando el **stock disponible en vivo (`stock`)**, el volumen acumulado de ventas (`sold_quantity`) y la facturación estimada por categoría.")
 
     col_mkt1, col_mkt2 = st.columns([3, 1])
     with col_mkt1:
@@ -795,14 +706,7 @@ with tabs[2]:
             df_mkt = pd.DataFrame(items_mkt)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-            quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
-            if not quiebres_inminentes.empty:
-                st.markdown(f'''
-                <div class="warning-stock">
-                    🚨 <b>ALERTA DE QUIEBRE DE STOCK DETECTADA:</b> Se identificaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Momento ideal para ajustar precios o capturar demanda!
-                </div><br>
-                ''', unsafe_allow_html=True)
-
+            st.markdown("---")
             st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
 
             cat_summary = df_mkt.groupby("category_id").agg(
@@ -835,7 +739,7 @@ with tabs[2]:
             st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado (con Stock en Vivo)")
 
             top_15_mkt = df_mkt.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
-            top_15_mkt.index += 1
+            top_15_mkt.index += 1  # Ranking desde 1
 
             st.dataframe(
                 top_15_mkt[["vendedor_name", "title", "price", "stock", "sold_quantity", "facturacion_estimada", "permalink"]],
@@ -858,29 +762,36 @@ with tabs[2]:
 # ------------------------------------------------------------------------------
 with tabs[3]:
     st.header("📦 Matriz de Artículos & Costos Logísticos Oficiales")
-    st.caption("Visualización y auditoría de dimensiones, bultos y fletes por peso volumétrico.")
+    st.markdown("Subí tu matriz de artículos personalizada en Excel o utiliza la base interna para auditar pesos, dimensiones y bultos.")
+    
+    uploaded_matriz = st.file_uploader("Subir Matriz de Artículos Excel", type=["xlsx"], key="uploader_matriz")
+    if uploaded_matriz is not None:
+        try:
+            st.session_state["matriz_custom_df"] = pd.read_excel(uploaded_matriz)
+            st.success("✅ Matriz de artículos cargada con éxito.")
+        except Exception as e:
+            st.error(f"Error al leer matriz: {e}")
 
     matriz_actual = cargar_matriz_articulos_oficial()
     if matriz_actual is not None:
-        st.success(f"✅ Matriz Logística cargada activamente ({len(matriz_actual)} artículos registrados).")
         st.dataframe(matriz_actual, use_container_width=True)
     else:
-        st.info("ℹ️ No hay matriz personalizada cargada. Podés cargar tu archivo Excel desde el 'Centro Unificado de Cargas' en el panel lateral.")
+        st.info("No hay matriz cargada. Subí el archivo en el uploader superior.")
 
 # ------------------------------------------------------------------------------
 # TAB 5: ASISTENTE IA (PREGUNTAS & RECLAMOS)
 # ------------------------------------------------------------------------------
 with tabs[4]:
     st.header("🤖 Asistente IA para Gestión de Preguntas & Reclamos")
-    st.caption("Generación automática de respuestas optimizadas para posventa y atención al cliente.")
+    st.markdown("Simulación y respuesta automática basada en el contexto de tus muebles y políticas de envío (ME2 vs ME1).")
 
     pregunta_user = st.text_input("Simular consulta de cliente (Ej: '¿Hacen envíos a Córdoba y cuánto pesa la caja?')")
     if pregunta_user:
         st.markdown(f"""
         <div class="ai-bubble">
-            <b>💡 Respuesta Sugerida por la IA:</b><br><br>
-            ¡Hola! Gracias por tu interés en nuestros productos. Hacemos envíos a todo el país mediante Mercado Envíos.<br>
-            Te recordamos que los productos de múltiples bultos se embalan y despachan con protección reforzada para garantizar que lleguen en perfecto estado.<br>
-            ¿Te podemos ayudar con las medidas o el armado de algún modelo en particular?
+            <b>Respuesta Sugerida por la IA:</b><br>
+            ¡Hola! Gracias por tu interés en nuestros muebles Centro Estant. Hacemos envíos a todo el país. 
+            Te recordamos que los productos pesados o de múltiples bultos se despachan mediante transporte especializado (ME1 / Expreso) para garantizar que lleguen en perfecto estado. 
+            ¿Te podemos ayudar con las medidas de algún modelo en particular?
         </div>
         """, unsafe_allow_html=True)
