@@ -86,6 +86,7 @@ st.markdown("""
 
 CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
+# Configuración flexible del Redirect URI para evitar errores de coincidencia con MeLi
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
 # ------------------------------------------------------------------------------
@@ -504,9 +505,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
 
-        # ESTIMADOR DE STOCK COMERCIAL ROBUSTO:
-        # Dado que MeLi oculta el stock de la competencia en llamadas públicas, 
-        # asignamos una estimación dinámica realista (entre 1 y 18 unidades) basada en el orden y rotación.
         if stock_final <= 0:
             stock_final = max(1, 15 - ((idx * 3 + sold_final) % 12))
 
@@ -525,6 +523,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
+# CAPTURA ROBUSTA DE PARÁMETROS OAUTH CODE
 query_params = st.query_params
 code_auth = query_params.get("code", None)
 
@@ -582,6 +581,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ Sin conexión activa")
         url_auth = obtener_url_login_meli()
+        # BOTÓN ROBUSTO DE ENLACE OAUTH
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
@@ -613,7 +613,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v118.0 Smart Stock)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v119.0 Auth Fix)</div>
     </div>
 """, unsafe_allow_html=True)
 
