@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# ESTÉTICTA PROFESIONAL Y MODERNA DE ALTO IMPACTO (UI / UX EXECUTIVE)
+# ESTÉTICA PROFESIONAL Y MODERNA DE ALTO IMPACTO (UI / UX EXECUTIVE)
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
@@ -106,7 +106,7 @@ TASAS_CUOTAS = {
 if "authenticated_app" not in st.session_state:
     st.session_state["authenticated_app"] = False
 if "access_token" not in st.session_state:
-    st.session_state["access_token"] = st.secrets.get("MELI_ACCESS_TOKEN", "")
+    st.session_state["access_token"] = ""
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
 if "lista_gold_df" not in st.session_state:
@@ -117,6 +117,30 @@ if "q_costos" not in st.session_state:
     st.session_state["q_costos"] = "7798274755803"
 if "search_query_mon" not in st.session_state:
     st.session_state["search_query_mon"] = "7798274755803"
+
+# CONEXIÓN OFICIAL MELI (ESTILO v112.0)
+def obtener_url_login_meli():
+    return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
+
+def intercambiar_code_por_token(code: str):
+    url = "https://api.mercadolibre.com/oauth/token"
+    payload = {
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "code": code,
+        "redirect_uri": REDIRECT_URI
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    try:
+        res = requests.post(url, data=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return True, res.json()
+        else:
+            err_data = res.json() if res.content else {}
+            return False, err_data.get("message", f"Error HTTP {res.status_code}")
+    except Exception as e:
+        return False, str(e)
 
 def obtener_perfil_meli(token: str):
     if not token:
@@ -375,7 +399,6 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
 
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
-    # La API pública de búsqueda de MeLi funciona perfectamente sin token o con token Bearer válido.
     headers = {"Authorization": f"Bearer {access_token.strip()}"} if access_token else {}
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
     
@@ -392,8 +415,8 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
                 if p_results:
                     catalog_id = p_results[0].get("id", "")
                     product_title = p_results[0].get("name", "")
-        except Exception as e:
-            st.warning(f"Aviso en búsqueda EAN: {e}")
+        except Exception:
+            pass
 
     target_catalog_id = catalog_id if catalog_id else "MLA27874272"
     
@@ -414,9 +437,8 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         except Exception:
             pass
 
-    # Si aún no hay items, hacemos búsqueda abierta por texto (término general)
     if not raw_items:
-        term_search = clean_val if clean_val else "Ropero placard"
+        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -489,7 +511,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Mueble Mercado Libre"),
+            "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
             "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
@@ -501,39 +523,38 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
-# ------------------------------------------------------------------------------
-# GESTIÓN DE ACCESO AUTOMÁTICO (LOGIN DIRECTO + BYPASS)
-# ------------------------------------------------------------------------------
+# CAPTURA OAUTH NATIVA (ESTILO v112.0)
+query_params = st.query_params
+code_auth = query_params.get("code", None)
+
+if code_auth and not st.session_state["access_token"]:
+    with st.spinner("Autenticando con Mercado Libre..."):
+        exito, token_resp = intercambiar_code_por_token(code_auth)
+        if exito:
+            st.session_state["access_token"] = token_resp.get("access_token", "")
+            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+            st.session_state["authenticated_app"] = True
+            st.query_params.clear()
+            st.rerun()
+
 if not st.session_state["authenticated_app"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.title("⚡ NQ Sales Intelligence")
         st.subheader("Acceso al Panel Operativo")
-        
-        user_input = st.text_input("Usuario", value="admin")
-        pwd_input = st.text_input("Contraseña", type="password", value="admin123")
-        token_input_directo = st.text_input("Access Token MeLi (Opcional)", type="password", placeholder="Pegá tu token aquí si lo tenés")
-
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            btn_login = st.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True)
-        with col_b2:
-            btn_bypass_meli = st.button("⚡ ENTRAR DIRECTO", use_container_width=True)
-
-        if btn_login or btn_bypass_meli:
-            if user_input == "admin" and pwd_input == "admin123" or btn_bypass_meli:
+        user = st.text_input("Usuario", value="admin")
+        pwd = st.text_input("Contraseña", type="password", value="admin123")
+        if st.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
+            if user == "admin" and pwd == "admin123":
                 st.session_state["authenticated_app"] = True
-                if token_input_directo:
-                    st.session_state["access_token"] = token_input_directo.strip()
-                    st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
                 st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos.")
+                st.error("Credenciales incorrectas.")
     st.stop()
 
 # ------------------------------------------------------------------------------
-# SIDEBAR UNIFICADO: CENTRO DE CARGA DE ARCHIVOS Y CONEXIÓN
+# SIDEBAR UNIFICADO: CENTRO DE CARGA DE ARCHIVOS Y CONEXIÓN OAUTH v112.0
 # ------------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚡ Control Panel")
@@ -547,7 +568,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🔗 Conexión Mercado Libre")
     
-    manual_token = st.text_input("Access Token Directo", value=st.session_state["access_token"], type="password")
+    manual_token = st.text_input("Access Token Directo (Opcional)", value=st.session_state["access_token"], type="password")
     if manual_token != st.session_state["access_token"]:
         st.session_state["access_token"] = manual_token.strip()
         st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
@@ -561,9 +582,9 @@ with st.sidebar:
             st.session_state["user_info"] = {}
             st.rerun()
     else:
-        st.warning("⚠️ Sin token activo")
-        url_auth = f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-        st.link_button("🔗 CONECTAR CON ME-LI", url_auth, type="primary", use_container_width=True)
+        st.warning("⚠️ Sin conexión activa")
+        url_auth = obtener_url_login_meli()
+        st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
     
@@ -591,7 +612,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v121.0 API Robust Fix)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v122.0 v112Auth Integration)</div>
     </div>
 """, unsafe_allow_html=True)
 
