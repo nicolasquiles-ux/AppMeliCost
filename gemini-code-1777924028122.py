@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import re
-import json
 import os
 import numpy as np
 
@@ -103,8 +102,6 @@ TASAS_CUOTAS = {
     "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208, "divisor": 1 - 0.353 - TOTAL_IMPUESTOS},
 }
 
-if "authenticated_app" not in st.session_state:
-    st.session_state["authenticated_app"] = False
 if "access_token" not in st.session_state:
     st.session_state["access_token"] = ""
 if "user_info" not in st.session_state:
@@ -118,7 +115,6 @@ if "q_costos" not in st.session_state:
 if "search_query_mon" not in st.session_state:
     st.session_state["search_query_mon"] = "7798274755803"
 
-# CONEXIÓN OFICIAL MELI (ESTILO v112.0)
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
 
@@ -154,6 +150,19 @@ def obtener_perfil_meli(token: str):
     except Exception:
         pass
     return {}
+
+# CAPTURA OAUTH NATIVA AL INICIAR LA APP
+query_params = st.query_params
+code_auth = query_params.get("code", None)
+
+if code_auth and not st.session_state["access_token"]:
+    with st.spinner("Autenticando con Mercado Libre..."):
+        exito, token_resp = intercambiar_code_por_token(code_auth)
+        if exito:
+            st.session_state["access_token"] = token_resp.get("access_token", "")
+            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+            st.query_params.clear()
+            st.rerun()
 
 def procesar_archivo_lista_gold(file):
     try:
@@ -523,48 +532,12 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
-# CAPTURA OAUTH NATIVA (ESTILO v112.0)
-query_params = st.query_params
-code_auth = query_params.get("code", None)
-
-if code_auth and not st.session_state["access_token"]:
-    with st.spinner("Autenticando con Mercado Libre..."):
-        exito, token_resp = intercambiar_code_por_token(code_auth)
-        if exito:
-            st.session_state["access_token"] = token_resp.get("access_token", "")
-            st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
-            st.session_state["authenticated_app"] = True
-            st.query_params.clear()
-            st.rerun()
-
-if not st.session_state["authenticated_app"]:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        st.title("⚡ NQ Sales Intelligence")
-        st.subheader("Acceso al Panel Operativo")
-        user = st.text_input("Usuario", value="admin")
-        pwd = st.text_input("Contraseña", type="password", value="admin123")
-        if st.button("🔑 INICIAR SESIÓN", type="primary", use_container_width=True):
-            if user == "admin" and pwd == "admin123":
-                st.session_state["authenticated_app"] = True
-                st.rerun()
-            else:
-                st.error("Credenciales incorrectas.")
-    st.stop()
-
 # ------------------------------------------------------------------------------
 # SIDEBAR UNIFICADO: CENTRO DE CARGA DE ARCHIVOS Y CONEXIÓN OAUTH v112.0
 # ------------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚡ Control Panel")
     
-    if st.button("🔴 Cerrar Sesión", use_container_width=True):
-        st.session_state["authenticated_app"] = False
-        st.session_state["access_token"] = ""
-        st.session_state["user_info"] = {}
-        st.rerun()
-
     st.markdown("---")
     st.subheader("🔗 Conexión Mercado Libre")
     
@@ -612,7 +585,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v122.0 v112Auth Integration)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v123.0 Direct App Fix)</div>
     </div>
 """, unsafe_allow_html=True)
 
