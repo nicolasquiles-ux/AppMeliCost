@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO CON DIAGNÓSTICO DE ATRIBUTOS
+# TAB 6: PUBLICADOR A CATÁLOGO ESTRICTO DE MERCADO LIBRE
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo con Diagnóstico de Atributos")
-    st.caption("Herramienta de diagnóstico y publicación directa con lectura de atributos obligatorios de la categoría.")
+    st.header("🚀 Publicador a Catálogo Estricto & Sumado Automático")
+    st.caption("Publicación directa vinculando el EAN al catálogo de MeLi resolviendo atributos obligatorios y esquema de familia.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -925,7 +925,7 @@ with tabs[5]:
         found_mat_b, costo_env_b, peso_u_b, peso_tot_b, tarifa_u_b, cant_cajas_b, desc_mat_b = buscar_datos_en_matriz(query_builder, pvp_sugerido_b)
 
         cat_product_id = ""
-        cat_meli_id = "MLA4765"
+        cat_meli_id = "MLA4765"  # ID por defecto seguro para muebles / alacenas
         titulo_meli_catalogo = f"{desc_gold_b if desc_gold_b else 'Mueble Alacena'} {art_gold_b}".strip()
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
@@ -940,7 +940,9 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
-                        cat_meli_id = results[0].get("domain_id", "MLA4765").replace("MLA-", "MLA")
+                        domain_raw = results[0].get("domain_id", "MLA4765")
+                        # Forzamos un ID numérico válido si el dominio viene en texto plano
+                        cat_meli_id = domain_raw.replace("MLA-", "MLA") if domain_raw.startswith("MLA") else "MLA4765"
                         if results[0].get("name"):
                             titulo_meli_catalogo = results[0].get("name")
             except Exception:
@@ -952,25 +954,6 @@ with tabs[5]:
         else:
             st.warning("⚠️ No se detectó ficha directa de catálogo para este EAN. Se creará publicación estándar.")
 
-        # BOTÓN DE DIAGNÓSTICO DE CATEGORÍA
-        if st.button("🔍 DIAGNOSTICAR ATRIBUTOS OBLIGATORIOS DE LA CATEGORÍA"):
-            if not st.session_state["access_token"]:
-                st.error("❌ Se requiere un token activo para consultar la API de categorías.")
-            else:
-                url_att = f"https://api.mercadolibre.com/categories/{cat_meli_id}/attributes"
-                try:
-                    res_att = requests.get(url_att, headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"}, timeout=8)
-                    if res_att.status_code == 200:
-                        attrs_data = res_att.json()
-                        req_attrs = [a for a in attrs_data if a.get("tags", {}).get("required") == True]
-                        st.write(f"📋 Atributos obligatorios para la categoría `{cat_meli_id}`:")
-                        for ra in req_attrs:
-                            st.code(f"ID: {ra.get('id')} — Nombre: {ra.get('name')} (Tipo: {ra.get('type')})")
-                    else:
-                        st.error(f"No se pudieron consultar los atributos: {res_att.text}")
-                except Exception as e:
-                    st.error(f"Error de conexión al auditar: {e}")
-
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             pub_title = st.text_input("📌 Título de la Publicación", value=titulo_meli_catalogo[:60], key="input_pub_title")
@@ -980,7 +963,8 @@ with tabs[5]:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (FAMILY_NAME)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
-            pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
+            # Aseguramos que el campo de categoría empiece por MLA limpio
+            pub_cat_id = st.text_input("📂 ID Categoría MeLi (Ej: MLA4765)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
@@ -993,7 +977,6 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload ultra limpio con los atributos esenciales requeridos
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
