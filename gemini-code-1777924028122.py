@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v128.0 Catalog End-to-End Strict Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v129.0 Catalog Diagnostic & Strict Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -596,7 +596,7 @@ tabs = st.tabs([
     "3. 📊 Monitor de Mercado & Alerta de Quiebre",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)",
-    "6. 🚀 Publicador a Catálogo Estricto"
+    "6. 🚀 Publicador a Catálogo con Diagnóstico"
 ])
 
 # ------------------------------------------------------------------------------
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO ESTRICTO DE MERCADO LIBRE
+# TAB 6: PUBLICADOR A CATÁLOGO CON DIAGNÓSTICO DE ATRIBUTOS
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Estricto & Sumado Automático")
-    st.caption("Publicación directa vinculando el EAN al catálogo de MeLi resolviendo atributos obligatorios y esquema de familia.")
+    st.header("🚀 Publicador a Catálogo con Diagnóstico de Atributos")
+    st.caption("Herramienta de diagnóstico y publicación directa con lectura de atributos obligatorios de la categoría.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -952,6 +952,25 @@ with tabs[5]:
         else:
             st.warning("⚠️ No se detectó ficha directa de catálogo para este EAN. Se creará publicación estándar.")
 
+        # BOTÓN DE DIAGNÓSTICO DE CATEGORÍA
+        if st.button("🔍 DIAGNOSTICAR ATRIBUTOS OBLIGATORIOS DE LA CATEGORÍA"):
+            if not st.session_state["access_token"]:
+                st.error("❌ Se requiere un token activo para consultar la API de categorías.")
+            else:
+                url_att = f"https://api.mercadolibre.com/categories/{cat_meli_id}/attributes"
+                try:
+                    res_att = requests.get(url_att, headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"}, timeout=8)
+                    if res_att.status_code == 200:
+                        attrs_data = res_att.json()
+                        req_attrs = [a for a in attrs_data if a.get("tags", {}).get("required") == True]
+                        st.write(f"📋 Atributos obligatorios para la categoría `{cat_meli_id}`:")
+                        for ra in req_attrs:
+                            st.code(f"ID: {ra.get('id')} — Nombre: {ra.get('name')} (Tipo: {ra.get('type')})")
+                    else:
+                        st.error(f"No se pudieron consultar los atributos: {res_att.text}")
+                except Exception as e:
+                    st.error(f"Error de conexión al auditar: {e}")
+
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             pub_title = st.text_input("📌 Título de la Publicación", value=titulo_meli_catalogo[:60], key="input_pub_title")
@@ -974,7 +993,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload robusto con atributos estrictos requeridos por catálogo
+                # Payload ultra limpio con los atributos esenciales requeridos
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
