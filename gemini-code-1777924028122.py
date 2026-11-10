@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v126.0 Catalog Listing Family Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v127.0 Catalog Family Fix Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -958,7 +958,7 @@ with tabs[5]:
             pub_ean = st.text_input("🏷️ Código EAN / GTIN", value=clean_val if clean_val else query_builder, key="input_pub_ean")
             pub_brand = st.text_input("🏢 Marca", value="Centro Estant", key="input_pub_brand")
             pub_model = st.text_input("📐 Modelo", value=art_gold_b if art_gold_b else "AL120BL", key="input_pub_model")
-            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value="Alacenas", key="input_pub_family_name")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia (FAMILY_NAME)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
             pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
@@ -974,7 +974,14 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload completo incluyendo el atributo 'family_name' requerido por la categoría
+                # Payload con atributo normalizado id en mayúsculas para cumplir con la validación de atributos de MeLi
+                attributes_list = [
+                    {"id": "BRAND", "value_name": pub_brand},
+                    {"id": "MODEL", "value_name": pub_model},
+                    {"id": "GTIN", "value_name": pub_ean},
+                    {"id": "FAMILY_NAME", "value_name": pub_family_name}
+                ]
+
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
@@ -992,12 +999,7 @@ with tabs[5]:
                         "local_pick_up": False,
                         "free_shipping": False
                     },
-                    "attributes": [
-                        {"id": "BRAND", "value_name": pub_brand},
-                        {"id": "MODEL", "value_name": pub_model},
-                        {"id": "GTIN", "value_name": pub_ean},
-                        {"id": "FAMILY_NAME", "value_name": pub_family_name}
-                    ]
+                    "attributes": attributes_list
                 }
 
                 if pub_catalog_id.strip():
