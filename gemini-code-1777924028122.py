@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v127.0 Catalog Family Fix Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v128.0 Catalog End-to-End Strict Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -596,7 +596,7 @@ tabs = st.tabs([
     "3. 📊 Monitor de Mercado & Alerta de Quiebre",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)",
-    "6. 🚀 Publicador a Catálogo Dinámico"
+    "6. 🚀 Publicador a Catálogo Estricto"
 ])
 
 # ------------------------------------------------------------------------------
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DINÁMICO DE MERCADO LIBRE
+# TAB 6: PUBLICADOR A CATÁLOGO ESTRICTO DE MERCADO LIBRE
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo & Sumado Automático")
-    st.caption("Publicación directa vinculando el EAN al catálogo existente de Mercado Libre con atributos dinámicos.")
+    st.header("🚀 Publicador a Catálogo Estricto & Sumado Automático")
+    st.caption("Publicación directa vinculando el EAN al catálogo de MeLi resolviendo atributos obligatorios y esquema de familia.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -950,7 +950,7 @@ with tabs[5]:
         if cat_product_id:
             st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`**")
         else:
-            st.info("ℹ️ No se detectó ficha directa de catálogo previa. Se creará publicación estándar vinculada por EAN.")
+            st.warning("⚠️ No se detectó ficha directa de catálogo para este EAN. Se creará publicación estándar.")
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
@@ -962,7 +962,7 @@ with tabs[5]:
 
         with f_col2:
             pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
-            pub_catalog_id = st.text_input("🎯 Catalog Product ID (Opcional)", value=cat_product_id, key="input_pub_catalog_id")
+            pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
             pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_pro (Premium)", "gold_special (Clásica)"], index=0, key="input_pub_type")
@@ -974,14 +974,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con atributo normalizado id en mayúsculas para cumplir con la validación de atributos de MeLi
-                attributes_list = [
-                    {"id": "BRAND", "value_name": pub_brand},
-                    {"id": "MODEL", "value_name": pub_model},
-                    {"id": "GTIN", "value_name": pub_ean},
-                    {"id": "FAMILY_NAME", "value_name": pub_family_name}
-                ]
-
+                # Payload robusto con atributos estrictos requeridos por catálogo
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
@@ -999,7 +992,12 @@ with tabs[5]:
                         "local_pick_up": False,
                         "free_shipping": False
                     },
-                    "attributes": attributes_list
+                    "attributes": [
+                        {"id": "BRAND", "value_name": pub_brand},
+                        {"id": "MODEL", "value_name": pub_model},
+                        {"id": "GTIN", "value_name": pub_ean},
+                        {"id": "FAMILY_NAME", "value_name": pub_family_name}
+                    ]
                 }
 
                 if pub_catalog_id.strip():
@@ -1017,12 +1015,12 @@ with tabs[5]:
                             data_created = res_api.json()
                             item_id = data_created.get("id")
                             permalink = data_created.get("permalink")
-                            st.success(f"🎉 ¡Te sumaste al catálogo con éxito! ID Item: **{item_id}**")
+                            st.success(f"🎉 ¡Operación exitosa! ID Item: **{item_id}**")
                             st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
                         else:
                             err_resp = res_api.json() if res_api.content else {}
                             st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
                             if "cause" in err_resp:
-                                st.write("📋 Detalle retornado por la API:", err_resp.get("cause"))
+                                st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
                 except Exception as e:
                     st.error(f"Error de conexión: {e}")
