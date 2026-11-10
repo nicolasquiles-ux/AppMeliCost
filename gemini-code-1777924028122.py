@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v125.0 Catalog Listing Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v126.0 Catalog Listing Family Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -892,7 +892,7 @@ with tabs[4]:
 # ------------------------------------------------------------------------------
 with tabs[5]:
     st.header("🚀 Publicador a Catálogo & Sumado Automático")
-    st.caption("Publicación directa vinculando el EAN al catálogo existente de Mercado Libre para evitar rechazos de atributos.")
+    st.caption("Publicación directa vinculando el EAN al catálogo existente de Mercado Libre con atributos dinámicos.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -924,7 +924,6 @@ with tabs[5]:
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
         found_mat_b, costo_env_b, peso_u_b, peso_tot_b, tarifa_u_b, cant_cajas_b, desc_mat_b = buscar_datos_en_matriz(query_builder, pvp_sugerido_b)
 
-        # RASTREO DINÁMICO DE CATÁLOGO Y CATEGORÍA DESDE MELI API
         cat_product_id = ""
         cat_meli_id = "MLA4765"
         titulo_meli_catalogo = f"{desc_gold_b if desc_gold_b else 'Mueble Alacena'} {art_gold_b}".strip()
@@ -959,14 +958,14 @@ with tabs[5]:
             pub_ean = st.text_input("🏷️ Código EAN / GTIN", value=clean_val if clean_val else query_builder, key="input_pub_ean")
             pub_brand = st.text_input("🏢 Marca", value="Centro Estant", key="input_pub_brand")
             pub_model = st.text_input("📐 Modelo", value=art_gold_b if art_gold_b else "AL120BL", key="input_pub_model")
-            pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
-            pub_catalog_id = st.text_input("🎯 Catalog Product ID (Opcional)", value=cat_product_id, key="input_pub_catalog_id")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
+            pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
+            pub_catalog_id = st.text_input("🎯 Catalog Product ID (Opcional)", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
             pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_pro (Premium)", "gold_special (Clásica)"], index=0, key="input_pub_type")
-            pub_family = st.text_input("🏷️ Familia / Línea de Producto (Exigido por MeLi)", value="Línea Blanco / Muebles", key="input_pub_family")
 
         st.markdown("---")
         if st.button("🚀 SUMARSE / PUBLICAR A CATÁLOGO MELI", type="primary", use_container_width=True):
@@ -975,7 +974,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload dinámico con el esquema completo exigido por la API
+                # Payload completo incluyendo el atributo 'family_name' requerido por la categoría
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
@@ -997,11 +996,10 @@ with tabs[5]:
                         {"id": "BRAND", "value_name": pub_brand},
                         {"id": "MODEL", "value_name": pub_model},
                         {"id": "GTIN", "value_name": pub_ean},
-                        {"id": "LINE", "value_name": pub_family}
+                        {"id": "FAMILY_NAME", "value_name": pub_family_name}
                     ]
                 }
 
-                # Si existe ID de catálogo, se lo inyecta para sumarse directamente
                 if pub_catalog_id.strip():
                     payload_post["catalog_product_id"] = pub_catalog_id.strip()
 
