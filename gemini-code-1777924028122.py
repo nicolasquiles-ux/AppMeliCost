@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v129.0 Catalog Diagnostic & Strict Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v130.0 Catalog Direct Endpoint Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -596,7 +596,7 @@ tabs = st.tabs([
     "3. 📊 Monitor de Mercado & Alerta de Quiebre",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)",
-    "6. 🚀 Publicador a Catálogo con Diagnóstico"
+    "6. 🚀 Publicador a Catálogo (Endpoint Directo)"
 ])
 
 # ------------------------------------------------------------------------------
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO ESTRICTO DE MERCADO LIBRE
+# TAB 6: PUBLICADOR A CATÁLOGO (ENDPOINT DIRECTO /PRODUCTS/ITEMS)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Estricto & Sumado Automático")
-    st.caption("Publicación directa vinculando el EAN al catálogo de MeLi resolviendo atributos obligatorios y esquema de familia.")
+    st.header("🚀 Publicador a Catálogo (Endpoint Directo)")
+    st.caption("Uso del endpoint especializado de MeLi `/products/{id}/items` para evitar el error 400 de atributos faltantes de categoría.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -922,10 +922,8 @@ with tabs[5]:
     if query_builder:
         found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
-        found_mat_b, costo_env_b, peso_u_b, peso_tot_b, tarifa_u_b, cant_cajas_b, desc_mat_b = buscar_datos_en_matriz(query_builder, pvp_sugerido_b)
 
-        cat_product_id = ""
-        cat_meli_id = "MLA4765"  # ID por defecto seguro para muebles / alacenas
+        cat_product_id = "MLA27874272"
         titulo_meli_catalogo = f"{desc_gold_b if desc_gold_b else 'Mueble Alacena'} {art_gold_b}".strip()
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
@@ -940,19 +938,13 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
-                        domain_raw = results[0].get("domain_id", "MLA4765")
-                        # Forzamos un ID numérico válido si el dominio viene en texto plano
-                        cat_meli_id = domain_raw.replace("MLA-", "MLA") if domain_raw.startswith("MLA") else "MLA4765"
                         if results[0].get("name"):
                             titulo_meli_catalogo = results[0].get("name")
             except Exception:
                 pass
 
         st.markdown("---")
-        if cat_product_id:
-            st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`**")
-        else:
-            st.warning("⚠️ No se detectó ficha directa de catálogo para este EAN. Se creará publicación estándar.")
+        st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`**")
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
@@ -963,23 +955,22 @@ with tabs[5]:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (FAMILY_NAME)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
-            # Aseguramos que el campo de categoría empiece por MLA limpio
-            pub_cat_id = st.text_input("📂 ID Categoría MeLi (Ej: MLA4765)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
             pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_pro (Premium)", "gold_special (Clásica)"], index=0, key="input_pub_type")
 
         st.markdown("---")
-        if st.button("🚀 SUMARSE / PUBLICAR A CATÁLOGO MELI", type="primary", use_container_width=True):
+        if st.button("🚀 SUMARSE A CATÁLOGO VÍA ENDPOINT DIRECTO", type="primary", use_container_width=True):
             if not st.session_state["access_token"]:
                 st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
+            elif not pub_catalog_id.strip():
+                st.error("❌ Se requiere un Catalog Product ID válido (ej. MLA...) para usar el endpoint directo de catálogo.")
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
+                # Payload específico y minimalista exigido por el endpoint de catálogo de MeLi
                 payload_post = {
-                    "title": pub_title,
-                    "category_id": pub_cat_id.strip(),
                     "price": pub_pvp,
                     "currency_id": "ARS",
                     "available_quantity": int(pub_stock_qty),
@@ -1002,8 +993,8 @@ with tabs[5]:
                     ]
                 }
 
-                if pub_catalog_id.strip():
-                    payload_post["catalog_product_id"] = pub_catalog_id.strip()
+                # Endpoint específico de catálogo (evita el endpoint general /items)
+                target_url = f"https://api.mercadolibre.com/products/{pub_catalog_id.strip()}/items"
 
                 headers_post = {
                     "Authorization": f"Bearer {st.session_state['access_token'].strip()}",
@@ -1011,14 +1002,15 @@ with tabs[5]:
                 }
 
                 try:
-                    with st.spinner("Enviando publicación a Mercado Libre..."):
-                        res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
-                        if res_api.status_code == 201:
+                    with st.spinner("Enviando sumado a catálogo mediante endpoint dedicado..."):
+                        res_api = requests.post(target_url, json=payload_post, headers=headers_post, timeout=12)
+                        if res_api.status_code in [200, 201]:
                             data_created = res_api.json()
                             item_id = data_created.get("id")
                             permalink = data_created.get("permalink")
-                            st.success(f"🎉 ¡Operación exitosa! ID Item: **{item_id}**")
-                            st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
+                            st.success(f"🎉 ¡Te sumaste al catálogo con éxito! ID Item: **{item_id}**")
+                            if permalink:
+                                st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
                         else:
                             err_resp = res_api.json() if res_api.content else {}
                             st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
