@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import re
 import os
+import json
 import numpy as np
 
 st.set_page_config(
@@ -111,9 +112,9 @@ if "lista_gold_df" not in st.session_state:
 if "matriz_custom_df" not in st.session_state:
     st.session_state["matriz_custom_df"] = None
 if "q_costos" not in st.session_state:
-    st.session_state["q_costos"] = "7798274755803"
+    st.session_state["q_costos"] = "7798009181204"
 if "search_query_mon" not in st.session_state:
-    st.session_state["search_query_mon"] = "7798274755803"
+    st.session_state["search_query_mon"] = "7798009181204"
 
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
@@ -447,7 +448,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             pass
 
     if not raw_items:
-        term_search = clean_val if clean_val else "Centro Estant Alacena 120"
+        term_search = clean_val if clean_val else "Alacena 120"
         url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
         try:
             res_q = requests.get(url_q, headers=headers, timeout=8)
@@ -520,7 +521,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Mueble Centro Estant"),
+            "title": r.get("title", product_title if product_title else "Alacena Centro Estant"),
             "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
@@ -585,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v124.0 Publicador Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v125.0 Ficha Builder Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -595,7 +596,7 @@ tabs = st.tabs([
     "3. 📊 Monitor de Mercado & Alerta de Quiebre",
     "4. 📦 Matriz de Artículos & Costos Logísticos",
     "5. 🤖 Asistente IA (Preguntas & Reclamos)",
-    "6. 🚀 Publicador Automático & Sincronizador"
+    "6. 🚀 Armador de Ficha de Publicación"
 ])
 
 # ------------------------------------------------------------------------------
@@ -887,71 +888,149 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR AUTOMÁTICO & SINCRONIZADOR
+# TAB 6: ARMADOR DE FICHA Y PUBLICACIÓN DIRECTA VÍA API
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador Automático & Sincronizador de Precios")
-    st.caption("Generación de publicaciones, actualización masiva de precios protegidos y control directo hacia la API de Mercado Libre.")
+    st.header("🚀 Armador de Ficha de Publicación & Publicador Automático")
+    st.caption("Generación automática de fichas cruzando Lista Gold + Matriz Logística y envío directo vía API de Mercado Libre.")
 
-    col_pub1, col_pub2 = st.columns(2)
-    with col_pub1:
-        st.subheader("📝 Datos del Producto a Publicar")
-        pub_titulo = st.text_input("Título de la Publicación", value="Biblioteca 5 Estantes Melamina Centro Estant")
-        pub_cat = st.text_input("Categoría MeLi (ID)", value="MLA4765")
-        pub_precio = st.number_input("Precio de Venta Sugerido ($)", min_value=100.0, value=250000.0, step=1000.0)
-        pub_stock = st.number_input("Stock Inicial", min_value=1, value=10, step=1)
-        pub_tipo_list = st.selectbox("Tipo de Publicación", ["gold_pro (Premium)", "gold_special (Clásica)"], index=0)
+    opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
-    with col_pub2:
-        st.subheader("⚙️ Configuración y Envío a API")
-        st.info("ℹ️ Al hacer clic en el botón de abajo, la herramienta preparará el payload JSON con las especificaciones técnicas y se conectará mediante tu Token activo para publicar en Mercado Libre.")
+    def actualizar_desde_selectbox_pub():
+        sel = st.session_state.get("select_gold_dropdown_pub", "")
+        if sel:
+            for lbl, ean_v in opciones_ean_gold_pub:
+                if lbl == sel:
+                    st.session_state["q_builder"] = ean_v
+                    break
+
+    if "q_builder" not in st.session_state:
+        st.session_state["q_builder"] = "7798009181204"
+
+    if opciones_ean_gold_pub:
+        labels_gold_pub = [op[0] for op in opciones_ean_gold_pub]
+        st.selectbox("📋 Seleccionar Producto para Armar Ficha", labels_gold_pub, key="select_gold_dropdown_pub", on_change=actualizar_desde_selectbox_pub)
+        st.markdown("---")
+
+    c_b1, c_b2 = st.columns([3, 1])
+    with c_b1:
+        query_builder = st.text_input("Código SKU / EAN / Modelo para Ficha", key="q_builder")
+    with c_b2:
+        st.write("")
+        btn_armar_ficha = st.button("⚡ GENERAR FICHA TÉCNICA", type="primary", use_container_width=True)
+
+    if query_builder:
+        found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
+        pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
+        found_mat_b, costo_env_b, peso_u_b, peso_tot_b, tarifa_u_b, cant_cajas_b, desc_mat_b = buscar_datos_en_matriz(query_builder, pvp_sugerido_b)
+
+        titulo_sugerido = f"{desc_gold_b if desc_gold_b else 'Mueble Alacena 120cm'} {art_gold_b}".strip()
+        if len(titulo_sugerido) > 60:
+            titulo_sugerido = titulo_sugerido[:60]
+
+        st.markdown("---")
+        st.subheader("📋 Ficha Estructurada Lista para Publicar")
+
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            pub_title = st.text_input("📌 Título Optimizado MeLi (Máx 60 caracteres)", value=titulo_sugerido, key="input_pub_title")
+            pub_ean = st.text_input("🏷️ Código EAN / GTIN", value=query_builder, key="input_pub_ean")
+            pub_brand_model = st.text_input("🏢 Marca / Modelo", value=f"Centro Estant - {art_gold_b if art_gold_b else 'AL120BL'}", key="input_pub_brand")
+            pub_cat_id = st.text_input("📂 ID de Categoría MeLi", value="MLA4765", key="input_pub_cat_id")
+            pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_pro (Premium / Cuotas Sin Interés)", "gold_special (Clásica)"], index=0, key="input_pub_type")
+
+        with f_col2:
+            pub_pvp = st.number_input("💲 Precio de Venta Sugerido ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
+            pub_shipping_cost = st.number_input("📦 Flete Estimado ME2 ($ ARS)", value=costo_env_b, step=500.0, key="input_pub_shipping")
+            pub_boxes = st.number_input("🧱 Cantidad de Bultos / Cajas", value=cant_cajas_b, step=1, key="input_pub_boxes")
+            pub_stock_qty = st.number_input("📊 Stock Inicial Disponible", value=10, step=1, key="input_pub_stock_qty")
+            pub_weight = st.number_input("⚖️ Peso Total Embalado (Kg)", value=peso_tot_b, step=0.5, key="input_pub_weight")
+
+        st.markdown("---")
+        st.subheader("📝 Descripción Generada para Mercado Libre")
+
+        desc_texto_meli = f"""¡Hola! Gracias por elegir nuestros productos.
+
+CARACTERÍSTICAS DESTACADAS:
+• Producto: {pub_title}
+• Marca: Centro Estant
+• Modelo: {art_gold_b if art_gold_b else 'AL120BL'}
+• Código EAN: {pub_ean}
+• Cantidad de Cajas / Bultos: {pub_boxes} bulto(s)
+• Peso Total Embalado: {pub_weight} kg
+
+ENVÍOS Y LOGÍSTICA:
+Despachamos de forma segura a través de Mercado Envíos a todo el país. Los productos se embalan con protección reinforced para garantizar que lleguen en perfecto estado a tu domicilio.
+
+GARANTÍA:
+Garantía oficial de fábrica por 90 días."""
+
+        st.text_area("Copiar y Pegar Descripción en Mercado Libre", value=desc_texto_meli, height=200)
+
+        st.markdown("---")
+        st.subheader("🚀 Envío Directo a la API de Mercado Libre")
         
-        if st.button("🚀 CREAR PUBLICACIÓN EN MELI", type="primary", use_container_width=True):
+        if st.button("🚀 PUBLICAR AHORA EN MERCADO LIBRE", type="primary", use_container_width=True):
             if not st.session_state["access_token"]:
                 st.error("❌ Se requiere un Access Token activo de Mercado Libre en el panel lateral para publicar.")
             else:
-                payload_pub = {
-                    "title": pub_titulo,
-                    "category_id": pub_cat.strip(),
-                    "price": pub_precio,
+                tipo_list_clean = pub_type.split()[0]
+                payload_post = {
+                    "title": pub_title,
+                    "category_id": pub_cat_id.strip(),
+                    "price": pub_pvp,
                     "currency_id": "ARS",
-                    "available_quantity": int(pub_stock),
+                    "available_quantity": int(pub_stock_qty),
                     "buying_mode": "buy_it_now",
-                    "listing_type_id": pub_tipo_list.split()[0],
+                    "listing_type_id": tipo_list_clean,
                     "condition": "new",
-                    "sale_terms": [{"id": "WARRANTY_TIME", "value_name": "90 días"}],
-                    "shipping": {"mode": "me2", "local_pick_up": False, "free_shipping": False}
+                    "sale_terms": [
+                        {"id": "WARRANTY_TIME", "value_name": "90 días"}
+                    ],
+                    "shipping": {
+                        "mode": "me2",
+                        "local_pick_up": False,
+                        "free_shipping": False
+                    }
                 }
-                headers_pub = {
+                
+                headers_post = {
                     "Authorization": f"Bearer {st.session_state['access_token'].strip()}",
                     "Content-Type": "application/json"
                 }
-                try:
-                    with st.spinner("Enviando publicación a Mercado Libre..."):
-                        res_pub = requests.post("https://api.mercadolibre.com/items", json=payload_pub, headers=headers_pub, timeout=10)
-                        if res_pub.status_code == 201:
-                            data_pub = res_pub.json()
-                            item_id_creado = data_pub.get("id")
-                            permalink_creado = data_pub.get("permalink")
-                            st.success(f"🎉 ¡Publicación creada con éxito! ID: **{item_id_creado}**")
-                            st.markdown(f"🔗 [Ver publicación en Mercado Libre]({permalink_creado})")
-                        else:
-                            err_json = res_pub.json() if res_pub.content else {}
-                            st.error(f"Error de la API MeLi ({res_pub.status_code}): {err_json.get('message', res_pub.text)}")
-                except Exception as e:
-                    st.error(f"Error de conexión: {e}")
 
-    st.markdown("---")
-    st.subheader("📊 Lote Masivo de Sincronización")
-    st.caption("Cargá tu listado de productos para actualizar precios de forma masiva protegiendo el margen neto.")
-    
-    uploaded_masivo = st.file_uploader("Subir Archivo Excel/CSV para Actualización Masiva", type=["xlsx", "csv"], key="uploader_masivo")
-    if uploaded_masivo is not None:
-        try:
-            df_masivo = pd.read_excel(uploaded_masivo) if uploaded_masivo.name.endswith('.xlsx') else pd.read_csv(uploaded_masivo)
-            st.success(f"✅ Archivo masivo cargado con {len(df_masivo)} registros.")
-            st.dataframe(df_masivo.head(10), use_container_width=True)
-            if st.button("⚡ SINCRONIZAR PRECIOS EN LOTE"):
-                st.success("✨ Sincronización en lote simulada correctamente respetando los márgenes anti-pérdida.")
-        except Exception as e:
-            st.error(f"Error al leer el archivo masivo: {e}")
+                try:
+                    with st.spinner("Enviando publicación a Mercado Libre con permisos read/write..."):
+                        res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
+                        if res_api.status_code == 201:
+                            data_created = res_api.json()
+                            item_id = data_created.get("id")
+                            permalink = data_created.get("permalink")
+                            st.success(f"🎉 ¡Publicación creada con éxito en Mercado Libre! ID: **{item_id}**")
+                            st.markdown(f"🔗 [Ver Publicación en Vivo en Mercado Libre]({permalink})")
+                        else:
+                            err_resp = res_api.json() if res_api.content else {}
+                            st.error(f"Error de la API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
+                except Exception as e:
+                    st.error(f"Error de conexión al intentar publicar: {e}")
+
+        # Exportación de Ficha Técnica
+        ficha_json = {
+            "title": pub_title,
+            "ean": pub_ean,
+            "category_id": pub_cat_id,
+            "brand": "Centro Estant",
+            "model": art_gold_b if art_gold_b else "AL120BL",
+            "price": pub_pvp,
+            "shipping_cost": pub_shipping_cost,
+            "boxes_quantity": pub_boxes,
+            "total_weight_kg": pub_weight,
+            "description": desc_texto_meli
+        }
+
+        st.download_button(
+            label="💾 DESCARGAR FICHA TÉCNICA (JSON)",
+            data=json.dumps(ficha_json, indent=4, ensure_ascii=False),
+            file_name=f"ficha_publicacion_{pub_ean}.json",
+            mime="application/json"
+        )
