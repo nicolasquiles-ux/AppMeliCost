@@ -975,6 +975,8 @@ Garantía oficial de fábrica por 90 días."""
                 st.error("❌ Se requiere un Access Token activo de Mercado Libre en el panel lateral para publicar.")
             else:
                 tipo_list_clean = pub_type.split()[0]
+                
+                # Payload completo incluyendo los atributos obligatorios que exige la categoría en MeLi
                 payload_post = {
                     "title": pub_title,
                     "category_id": pub_cat_id.strip(),
@@ -991,7 +993,12 @@ Garantía oficial de fábrica por 90 días."""
                         "mode": "me2",
                         "local_pick_up": False,
                         "free_shipping": False
-                    }
+                    },
+                    "attributes": [
+                        {"id": "BRAND", "value_name": "Centro Estant"},
+                        {"id": "MODEL", "value_name": art_gold_b if art_gold_b else "AL120BL"},
+                        {"id": "GTIN", "value_name": pub_ean}
+                    ]
                 }
                 
                 headers_post = {
@@ -1000,7 +1007,7 @@ Garantía oficial de fábrica por 90 días."""
                 }
 
                 try:
-                    with st.spinner("Enviando publicación a Mercado Libre con permisos read/write..."):
+                    with st.spinner("Enviando publicación con atributos obligatorios a Mercado Libre..."):
                         res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
                         if res_api.status_code == 201:
                             data_created = res_api.json()
@@ -1011,26 +1018,7 @@ Garantía oficial de fábrica por 90 días."""
                         else:
                             err_resp = res_api.json() if res_api.content else {}
                             st.error(f"Error de la API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
+                            if "cause" in err_resp:
+                                st.write("Detalle de campos faltantes:", err_resp.get("cause"))
                 except Exception as e:
                     st.error(f"Error de conexión al intentar publicar: {e}")
-
-        # Exportación de Ficha Técnica
-        ficha_json = {
-            "title": pub_title,
-            "ean": pub_ean,
-            "category_id": pub_cat_id,
-            "brand": "Centro Estant",
-            "model": art_gold_b if art_gold_b else "AL120BL",
-            "price": pub_pvp,
-            "shipping_cost": pub_shipping_cost,
-            "boxes_quantity": pub_boxes,
-            "total_weight_kg": pub_weight,
-            "description": desc_texto_meli
-        }
-
-        st.download_button(
-            label="💾 DESCARGAR FICHA TÉCNICA (JSON)",
-            data=json.dumps(ficha_json, indent=4, ensure_ascii=False),
-            file_name=f"ficha_publicacion_{pub_ean}.json",
-            mime="application/json"
-        )
