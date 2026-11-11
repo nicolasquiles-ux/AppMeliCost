@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (TITLE FALLBACK FIXED)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (STRICT USER PRODUCTS)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Title Fallback Fixed)")
-    st.caption("Estructura blindada enviando title y family_name sincronizados junto a todos los atributos obligatorios.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Strict User Products)")
+    st.caption("Estructura puramente limpia basada en la regla User Products: sin 'title', solo 'family_name'.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -927,8 +927,7 @@ with tabs[5]:
         cat_meli_id = "MLA4765"
         modelo_val = art_gold_b if art_gold_b else "Standard"
         
-        # Título sumamente descriptivo para superar cualquier validación de longitud y contenido
-        titulo_def_completo = f"Alacena Mueble de Cocina Centro Estant Modelo {modelo_val} 120cm con Estantes"
+        family_name_def = f"Alacena Mueble de Cocina Centro Estant Modelo {modelo_val} 120cm"
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
@@ -943,7 +942,7 @@ with tabs[5]:
                     if results:
                         cat_product_id = results[0].get("id", "")
                         if results[0].get("name"):
-                            titulo_def_completo = f"{results[0].get('name')} Centro Estant Modelo {modelo_val} 120cm"
+                            family_name_def = f"{results[0].get('name')} Centro Estant Modelo {modelo_val}"
             except Exception:
                 pass
 
@@ -952,7 +951,7 @@ with tabs[5]:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_title_family = st.text_input("📌 Título y Familia del Producto", value=titulo_def_completo, key="input_pub_title_family")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=family_name_def, key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
@@ -980,10 +979,13 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload blindado enviando title Y family_name en simultáneo + channels + atributos obligatorios
+                # Payload estricto cumpliendo la regla User Products:
+                # - SIN 'title' (eliminado por completo)
+                # - CON 'family_name'
+                # - CON 'channels: ["marketplace"]'
+                # - CON atributos requeridos obligatorios
                 payload_post = {
-                    "title": pub_title_family.strip(),
-                    "family_name": pub_title_family.strip(),
+                    "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
                     "catalog_product_id": pub_catalog_id.strip(),
                     "price": float(pub_pvp),
