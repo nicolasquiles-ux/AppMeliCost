@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FULLY COMPLIANT SCHEMA)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (CATALOG TITLE-BUILDER FIXED)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Fully Compliant Schema)")
-    st.caption("Sumado al catálogo oficial con todos los atributos físicos y de ensamblado obligatorios.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Catalog Title-Builder Fixed)")
+    st.caption("Estructura exacta con family_name descriptivo y atributos completos exigidos por el decorador.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -925,6 +925,8 @@ with tabs[5]:
 
         cat_meli_id = "MLA4765"  # ID numérico de categoría de muebles
         modelo_val = art_gold_b if art_gold_b else "Standard"
+        
+        # Título enriquecido y largo para superar el mínimo de caracteres del decorador interno de MeLi
         titulo_largo_def = f"Alacena Mueble de Cocina Centro Estant Modelo {modelo_val} 120cm de Ancho"
 
         st.markdown("---")
@@ -932,7 +934,7 @@ with tabs[5]:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_family_name = st.text_input("🏷️ Nombre de Familia / Título (family_name)", value=titulo_largo_def, key="input_pub_family_name")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia / Título Descriptivo (family_name)", value=titulo_largo_def, key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
             pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
             pub_model = st.text_input("📌 Modelo (MODEL)", value=modelo_val, key="input_pub_model")
@@ -957,7 +959,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con todos los atributos obligatorios que exigía el decorador
+                # Payload oficial idéntico al que compartiste, sumando family_name enriquecido y los atributos completos
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
