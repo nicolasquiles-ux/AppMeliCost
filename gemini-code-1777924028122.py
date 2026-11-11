@@ -252,6 +252,42 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
             pass
     return None
 
+def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
+    matriz_df = cargar_matriz_articulos_oficial(pvp_referencia)
+    if matriz_df is None:
+        return False, 0.0, 0.0, 0.0, 0.0, 1, ""
+
+    q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
+    q_raw = str(clave_busqueda).strip().lower()
+    
+    for col in ['ean', 'Articulo']:
+        if col in matriz_df.columns:
+            series_clean = (
+                matriz_df[col]
+                .fillna('')
+                .astype(str)
+                .str.split('.')
+                .str[0]
+                .str.replace(r'\D', '', regex=True)
+            )
+            matches = matriz_df[series_clean == q_clean] if q_clean else pd.DataFrame()
+            if matches.empty and q_raw:
+                matches = matriz_df[matriz_df[col].astype(str).str.lower().str.contains(q_raw, na=False)]
+            
+            if not matches.empty:
+                row = matches.iloc[0]
+                peso_real_total = float(row.get('Peso embalado (Kg)', 0.0))
+                cant_cajas = int(row.get('Cantidad Cajas', 1)) if pd.notna(row.get('Cantidad Cajas')) and int(row.get('Cantidad Cajas', 1)) > 0 else 1
+                
+                peso_unitario = peso_real_total / cant_cajas if cant_cajas > 0 else peso_real_total
+                tarifa_unit = calcular_costo_envio_por_peso_facturable(peso_unitario, pvp_referencia)
+                costo_env_total = tarifa_unit * cant_cajas
+                
+                desc = str(row.get('Descripcion', ''))
+                return True, costo_env_total, peso_unit, peso_real_total, tarifa_unit, cant_cajas, desc
+
+    return False, 0.0, 0.0, 0.0, 0.0, 1, ""
+
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
@@ -354,7 +390,6 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
                 desc_val = str(matches.iloc[0][desc_cols[0]]) if desc_cols else ""
 
                 art_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["articul", "modelo", "codigo"])]
-                # Corrección segura para evitar UnboundLocalError
                 art_val = str(matches.iloc[0][art_cols[0]]) if art_cols and pd.notna(matches.iloc[0][art_cols[0]]) else ""
 
                 costo_parsed = limpiar_precio_moneda(matches.iloc[0][val_col])
@@ -584,7 +619,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v152.0 Variable Scope Fixed Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v153.0 Function Name Fixed Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
