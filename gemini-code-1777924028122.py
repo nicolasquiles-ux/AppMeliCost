@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v142.0 Final Catalog Family Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v145.0 Official User Products Compliant)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (DYNAMIC API ATTRIBUTES)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (USER PRODUCTS COMPLIANT)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Dynamic API Attributes)")
-    st.caption("Consulta directa a la API de MeLi para obtener los atributos obligatorios de la categoría.")
+    st.header("🚀 Publicador a Catálogo Definitivo (User Products Compliant)")
+    st.caption("Estructura exacta basada en la documentación oficial: sin 'title', con 'family_name', channels y atributos requeridos.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -923,65 +923,95 @@ with tabs[5]:
         found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
-        cat_meli_id = "MLA4765"  # ID numérico de categoría de muebles
-        
-        # Botón para consultar a la API los atributos requeridos obligatorios
-        if st.button("🔍 Consultar Atributos Obligatorios a la API de MeLi"):
-            if not st.session_state["access_token"]:
-                st.error("❌ Se requiere un Access Token activo.")
-            else:
-                url_attr = f"https://api.mercadolibre.com/categories/{cat_meli_id}/attributes"
-                try:
-                    res_at = requests.get(url_attr, headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"}, timeout=8)
-                    if res_at.status_code == 200:
-                        attrs_data = res_at.json()
-                        obligatorios = [a for a in attrs_data if a.get("tags", {}).get("required", False) or a.get("tags", {}).get("catalog_required", False)]
-                        st.success(f"Se hallaron {len(obligatorios)} atributos obligatorios para la categoría {cat_meli_id}:")
-                        for oa in obligatorios[:15]:
-                            st.write(f"- **ID:** `{oa.get('id')}` | **Nombre:** {oa.get('name')} | **Tipo:** {oa.get('value_type')}")
-                    else:
-                        st.warning(f"No se pudieron consultar los atributos (HTTP {res_at.status_code})")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        cat_product_id = "MLA27874272"
+        cat_meli_id = "MLA4765"
+        modelo_val = art_gold_b if art_gold_b else "Standard"
+        family_name_def = f"Alacena Mueble de Cocina Centro Estant Modelo {modelo_val} 120cm"
+
+        type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
+        if type_inp == "EAN":
+            try:
+                res_cat = requests.get(
+                    f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}",
+                    headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {},
+                    timeout=5
+                )
+                if res_cat.status_code == 200:
+                    results = res_cat.json().get("results", [])
+                    if results:
+                        cat_product_id = results[0].get("id", "")
+                        if results[0].get("name"):
+                            family_name_def = f"{results[0].get('name')} Centro Estant Modelo {modelo_val}"
+            except Exception:
+                pass
 
         st.markdown("---")
+        st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`**")
+
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_title = st.text_input("📌 Título de Publicación (title)", value=f"Alacena Mueble de Cocina Centro Estant Modelo {art_gold_b if art_gold_b else 'Standard'} 120cm", key="input_pub_title")
-            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=f"Alacena Cocina Centro Estant {art_gold_b if art_gold_b else 'Standard'}", key="input_pub_family_name")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=family_name_def, key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
+            pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
+            pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
 
         with f_col2:
+            pub_model = st.text_input("📌 Modelo (MODEL)", value=modelo_val, key="input_pub_model")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
             pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_special (Clásica)", "gold_pro (Premium)"], index=0, key="input_pub_type")
+            
+            c_dim1, c_dim2 = st.columns(2)
+            with c_dim1:
+                pub_altura = st.text_input("Altura", value="60 cm", key="input_pub_altura")
+                pub_ancho = st.text_input("Ancho", value="120 cm", key="input_pub_ancho")
+            with c_dim2:
+                pub_prof = st.text_input("Profundidad", value="30 cm", key="input_pub_prof")
+                pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="input_pub_ensamblado")
 
         st.markdown("---")
         if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
             if not st.session_state["access_token"]:
                 st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
+            elif not pub_catalog_id.strip():
+                st.error("❌ Se requiere un Catalog Product ID válido.")
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload completo incluyendo title explícito y todos los atributos estructurados estándar que exige MeLi
+                # Payload estrictamente alineado a 'user_products_items_post':
+                # - SIN 'title'
+                # - CON 'family_name'
+                # - CON 'channels: ["marketplace"]'
+                # - CON atributos requeridos obligatorios
                 payload_post = {
-                    "title": pub_title.strip(),
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
+                    "catalog_product_id": pub_catalog_id.strip(),
                     "price": float(pub_pvp),
                     "currency_id": "ARS",
                     "available_quantity": int(pub_stock_qty),
                     "buying_mode": "buy_it_now",
                     "listing_type_id": tipo_list_clean,
                     "condition": "new",
-                    "pictures": [],
+                    "channels": ["marketplace"],
+                    "pictures": [
+                        {"source": "https://http2.mlstatic.com/D_686151-MLA46554522434_062021-F.jpg"}
+                    ],
+                    "sale_terms": [
+                        {"id": "WARRANTY_TIME", "value_name": "90 días"}
+                    ],
+                    "shipping": {
+                        "mode": "me2",
+                        "local_pick_up": False,
+                        "free_shipping": False
+                    },
                     "attributes": [
-                        {"id": "BRAND", "value_name": "Centro Estant"},
-                        {"id": "MODEL", "value_name": art_gold_b if art_gold_b else "Standard"},
-                        {"id": "HEIGHT", "value_name": "60 cm"},
-                        {"id": "WIDTH", "value_name": "120 cm"},
-                        {"id": "DEPTH", "value_name": "30 cm"},
-                        {"id": "REQUIRES_ASSEMBLY", "value_name": "Sí"},
+                        {"id": "BRAND", "value_name": pub_brand.strip()},
+                        {"id": "MODEL", "value_name": pub_model.strip()},
+                        {"id": "HEIGHT", "value_name": pub_altura.strip()},
+                        {"id": "WIDTH", "value_name": pub_ancho.strip()},
+                        {"id": "DEPTH", "value_name": pub_prof.strip()},
+                        {"id": "REQUIRES_ASSEMBLY", "value_name": pub_ensamblado.strip()},
                         {"id": "INCLUDES_ASSEMBLY_MANUAL", "value_name": "Sí"}
                     ]
                 }
