@@ -253,7 +253,7 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     return None
 
 def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
-    """Busca en la matriz y devuelve costos de envío y bultos."""
+    """Función de búsqueda para costos y pesos logísticos."""
     matriz_df = cargar_matriz_articulos_oficial(pvp_referencia)
     if matriz_df is None:
         return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
@@ -290,10 +290,10 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
     return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
-    """Busca en la matriz y devuelve dimensiones (ancho, alto, prof)."""
+    """Función para dimensiones y peso en Tab 6."""
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
-        return "120 cm", "60 cm", "30 cm"
+        return "120 cm", "60 cm", "30 cm", "10.0 kg"
 
     q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
     q_raw = str(clave_busqueda).strip().lower()
@@ -317,9 +317,10 @@ def buscar_datos_en_matriz_completa(clave_busqueda: str):
                 ancho = f"{row.get('Ancho_cm', 120)} cm"
                 alto = f"{row.get('Alto_cm', 60)} cm"
                 prof = f"{row.get('Prof_cm', 30)} cm"
-                return ancho, alto, prof
+                peso = f"{row.get('Peso_Facturable_Kg', 10.0)} kg"
+                return ancho, alto, prof, peso
 
-    return "120 cm", "60 cm", "30 cm"
+    return "120 cm", "60 cm", "30 cm", "10.0 kg"
 
 def extraer_opciones_ean_lista_gold():
     if st.session_state["lista_gold_df"] is None:
@@ -621,7 +622,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v154.0 Complete Fix)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v156.0 Package Dimensions Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -964,7 +965,7 @@ with tabs[5]:
         if len(family_name_dinamico) > 60:
             family_name_dinamico = family_name_dinamico[:60].strip()
 
-        dim_ancho, dim_alto, dim_prof = buscar_datos_en_matriz_completa(query_builder)
+        dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
@@ -984,6 +985,40 @@ with tabs[5]:
         st.markdown("---")
         st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`** (Datos extraídos dinámicamente)")
 
+        # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE (LOGÍSTICA)
+        st.subheader("📦 Datos de Logística & Embalaje del Paquete")
+        p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+        with p_col1:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Ancho Paquete</div>
+                <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{dim_ancho}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with p_col2:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Alto Paquete</div>
+                <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{dim_alto}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with p_col3:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Profundidad Paquete</div>
+                <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{dim_prof}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with p_col4:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Peso Facturable Est.</div>
+                <div class="kpi-value" style="font-size: 20px; color: #16a34a;">{peso_facturable}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", value=family_name_dinamico, max_chars=60, key="input_pub_family_name")
@@ -1000,10 +1035,10 @@ with tabs[5]:
             
             c_dim1, c_dim2 = st.columns(2)
             with c_dim1:
-                pub_altura = st.text_input("Altura", value=dim_alto, key="input_pub_altura")
-                pub_ancho = st.text_input("Ancho", value=dim_ancho, key="input_pub_ancho")
+                pub_altura = st.text_input("Altura Producto", value=dim_alto, key="input_pub_altura")
+                pub_ancho = st.text_input("Ancho Producto", value=dim_ancho, key="input_pub_ancho")
             with c_dim2:
-                pub_prof = st.text_input("Profundidad", value=dim_prof, key="input_pub_prof")
+                pub_prof = st.text_input("Profundidad Producto", value=dim_prof, key="input_pub_prof")
                 pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="input_pub_ensamblado")
 
         st.markdown("---")
