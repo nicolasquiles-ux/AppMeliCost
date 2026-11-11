@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (ATTRIBUTES INJECTED)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FULL ATTRIBUTES INJECTED)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Attributes Injected)")
-    st.caption("Sumado al catálogo oficial con atributos obligatorios requeridos por la categoría.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Full Attributes Injected)")
+    st.caption("Sumado al catálogo oficial completando todos los atributos estructurados obligatorios.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -924,7 +924,7 @@ with tabs[5]:
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
         cat_meli_id = "MLA4765"  # ID numérico de categoría
-        nombre_familia_def = f"{desc_gold_b if desc_gold_b else 'Alacena Cocina'} {art_gold_b}".strip()
+        nombre_familia_def = f"Alacena Mueble de Cocina Centro Estant Modelo {art_gold_b if art_gold_b else 'Standard'} 120cm"
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
@@ -937,7 +937,7 @@ with tabs[5]:
                 if res_cat.status_code == 200:
                     results = res_cat.json().get("results", [])
                     if results and results[0].get("name"):
-                        nombre_familia_def = results[0].get("name")
+                        nombre_familia_def = f"{results[0].get('name')} Centro Estant"
             except Exception:
                 pass
 
@@ -946,14 +946,24 @@ with tabs[5]:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=nombre_familia_def[:60], key="input_pub_family_name")
+            pub_family_name = st.text_input("🏷️ Título / Familia (family_name)", value=nombre_familia_def, key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
-            pub_brand = st.text_input("🏢 Marca del Producto (BRAND)", value="Centro Estant", key="input_pub_brand")
+            pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
+            pub_model = st.text_input("📌 Modelo (MODEL)", value=art_gold_b if art_gold_b else "Standard", key="input_pub_model")
 
         with f_col2:
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
             pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_special (Clásica)", "gold_pro (Premium)"], index=0, key="input_pub_type")
+            
+            # Nuevos inputs para las dimensiones y armado requeridas por la API
+            c_dim1, c_dim2 = st.columns(2)
+            with c_dim1:
+                pub_altura = st.text_input("Altura", value="60 cm", key="input_pub_altura")
+                pub_ancho = st.text_input("Ancho", value="120 cm", key="input_pub_ancho")
+            with c_dim2:
+                pub_prof = st.text_input("Profundidad", value="30 cm", key="input_pub_prof")
+                pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="input_pub_ensamblado")
 
         st.markdown("---")
         if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
@@ -962,7 +972,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con attributes obligatorios incluidos para evitar el error de esquema
+                # Payload con todos los atributos obligatorios inyectados
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
@@ -974,7 +984,13 @@ with tabs[5]:
                     "condition": "new",
                     "pictures": [],
                     "attributes": [
-                        {"id": "BRAND", "value_name": pub_brand.strip()}
+                        {"id": "BRAND", "value_name": pub_brand.strip()},
+                        {"id": "MODEL", "value_name": pub_model.strip()},
+                        {"id": "HEIGHT", "value_name": pub_altura.strip()},
+                        {"id": "WIDTH", "value_name": pub_ancho.strip()},
+                        {"id": "DEPTH", "value_name": pub_prof.strip()},
+                        {"id": "REQUIRES_ASSEMBLY", "value_name": pub_ensamblado.strip()},
+                        {"id": "INCLUDES_ASSEMBLY_MANUAL", "value_name": "Sí"}
                     ]
                 }
 
