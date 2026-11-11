@@ -616,7 +616,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v158.0 Real-Time Dynamic Sync)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v159.0 Forced Dynamic State Sync)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -918,7 +918,7 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (DINÁMICO EN TIEMPO REAL)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FORZANDO SINCRONIZACIÓN DE ESTADO)
 # ------------------------------------------------------------------------------
 with tabs[5]:
     st.header("🚀 Publicador a Catálogo Definitivo (Dinámico por EAN)")
@@ -946,7 +946,7 @@ with tabs[5]:
         st.write("")
         btn_armar_ficha = st.button("⚡ CARGAR PRODUCTO", type="primary", use_container_width=True)
 
-    # OBTENCIÓN DINÁMICA DE DATOS SEGÚN EL CÓDIGO INGRESADO
+    # OBTENCIÓN DINÁMICA DE DATOS DESDE LOS ARCHIVOS
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
     pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
@@ -954,7 +954,7 @@ with tabs[5]:
     cat_meli_id = "MLA4765"
     
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
-    family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Biblioteca Estantería Centro Estant"
+    family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
 
     dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
@@ -979,7 +979,7 @@ with tabs[5]:
     if found_gold_b:
         st.success(f"🎯 **Datos Sincronizados:** `{desc_gold_b}` | Costo Base: **${costo_gold_b:,.2f}** | PVP Sugerido: **${pvp_sugerido_b:,.2f}**")
     else:
-        st.warning(f"⚠️ El código `{query_builder}` no se encontró en la Lista Gold. Verificá el EAN/SKU.")
+        st.warning(f"⚠️ El código `{query_builder}` no se encontró en la Lista Gold.")
 
     # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE (LOGÍSTICA)
     st.subheader("📦 Datos de Logística & Embalaje del Paquete")
@@ -1015,27 +1015,37 @@ with tabs[5]:
 
     st.markdown("---")
 
-    # FORMULARIO DE PUBLICACIÓN CON VALORES DINÁMICOS VINCULADOS
+    # FORZAMOS LA ACTUALIZACIÓN DEL SESSION_STATE ANTES DE RENDERIZAR LOS INPUTS
+    st.session_state["pub_family_name_dyn"] = family_name_dinamico
+    st.session_state["pub_model_dyn"] = modelo_dinamico
+    st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
+    st.session_state["pub_catalog_id_dyn"] = cat_product_id
+    st.session_state["pub_cat_id_dyn"] = cat_meli_id
+    st.session_state["pub_altura_dyn"] = dim_alto
+    st.session_state["pub_ancho_dyn"] = dim_ancho
+    st.session_state["pub_prof_dyn"] = dim_prof
+
+    # FORMULARIO DE PUBLICACIÓN 100% SINCRONIZADO
     f_col1, f_col2 = st.columns(2)
     with f_col1:
-        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", value=family_name_dinamico, max_chars=60, key="pub_family_name_dyn")
-        pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="pub_cat_id_dyn")
-        pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="pub_catalog_id_dyn")
+        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
+        pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", key="pub_cat_id_dyn")
+        pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="pub_brand_dyn")
         archivo_imagen_subido = st.file_uploader("🖼️ Cargar Imagen del Producto (JPG/PNG)", type=["jpg", "jpeg", "png"], key="uploader_img_pub")
 
     with f_col2:
-        pub_model = st.text_input("📌 Modelo (MODEL)", value=modelo_dinamico, key="pub_model_dyn")
-        pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=float(pvp_sugerido_b), step=500.0, key="pub_pvp_dyn")
+        pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
+        pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", step=500.0, key="pub_pvp_dyn")
         pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
         pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_special (Clásica)", "gold_pro (Premium)"], index=0, key="pub_type_dyn")
         
         c_dim1, c_dim2 = st.columns(2)
         with c_dim1:
-            pub_altura = st.text_input("Altura Producto", value=dim_alto, key="pub_altura_dyn")
-            pub_ancho = st.text_input("Ancho Producto", value=dim_ancho, key="pub_ancho_dyn")
+            pub_altura = st.text_input("Altura Producto", key="pub_altura_dyn")
+            pub_ancho = st.text_input("Ancho Producto", key="pub_ancho_dyn")
         with c_dim2:
-            pub_prof = st.text_input("Profundidad Producto", value=dim_prof, key="pub_prof_dyn")
+            pub_prof = st.text_input("Profundidad Producto", key="pub_prof_dyn")
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
     st.markdown("---")
