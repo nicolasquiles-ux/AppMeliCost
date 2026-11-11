@@ -616,7 +616,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v159.0 Forced Dynamic State Sync)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v160.0 Multi-Photo, Video & Description Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -918,11 +918,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FORZANDO SINCRONIZACIÓN DE ESTADO)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (MULTIFOTO, VIDEO Y DESCRIPCIÓN)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Dinámico por EAN)")
-    st.caption("Armado automático de atributos, dimensiones y precio desde la Lista Gold y Matriz Logística.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Dinámico con Fotos, Video y Descripción)")
+    st.caption("Armado automático e integral de atributos, hasta 10 fotos, video de YouTube y descripción para Mercado Libre.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -955,6 +955,9 @@ with tabs[5]:
     
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
+    
+    # Descripción inicial automática basada en el producto
+    descripcion_dinamica = f"Excelente {desc_gold_b if desc_gold_b else 'producto'} de alta calidad.\n\n- Modelo: {modelo_dinamico}\n- Estructura resistente y duradera.\n- Fácil armado con manual incluido.\n- Garantía de fábrica de 90 días."
 
     dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
@@ -972,6 +975,21 @@ with tabs[5]:
                     cat_product_id = results[0].get("id", "")
                     if not desc_gold_b and results[0].get("name"):
                         family_name_dinamico = results[0].get("name")[:60]
+        except Exception:
+            pass
+
+    # Si ingresó un ID o URL de otra publicación (MLA), intentamos traer su descripción real de la API de MeLi
+    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
+        try:
+            res_desc_api = requests.get(
+                f"https://api.mercadolibre.com/items/{clean_val}/description",
+                headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {},
+                timeout=5
+            )
+            if res_desc_api.status_code == 200:
+                texto_api = res_desc_api.json().get("plain_text", "")
+                if texto_api:
+                    descripcion_dinamica = texto_api
         except Exception:
             pass
 
@@ -1015,7 +1033,7 @@ with tabs[5]:
 
     st.markdown("---")
 
-    # FORZAMOS LA ACTUALIZACIÓN DEL SESSION_STATE ANTES DE RENDERIZAR LOS INPUTS
+    # FORZAMOS LA ACTUALIZACIÓN DEL SESSION_STATE PARA SINCRONIZAR LOS INPUTS
     st.session_state["pub_family_name_dyn"] = family_name_dinamico
     st.session_state["pub_model_dyn"] = modelo_dinamico
     st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
@@ -1024,15 +1042,28 @@ with tabs[5]:
     st.session_state["pub_altura_dyn"] = dim_alto
     st.session_state["pub_ancho_dyn"] = dim_ancho
     st.session_state["pub_prof_dyn"] = dim_prof
+    st.session_state["pub_desc_dyn"] = descripcion_dinamica
 
-    # FORMULARIO DE PUBLICACIÓN 100% SINCRONIZADO
+    # FORMULARIO DE PUBLICACIÓN 100% DINÁMICO (CON HASTA 10 FOTOS, VIDEO Y DESCRIPCIÓN)
     f_col1, f_col2 = st.columns(2)
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", key="pub_cat_id_dyn")
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="pub_brand_dyn")
-        archivo_imagen_subido = st.file_uploader("🖼️ Cargar Imagen del Producto (JPG/PNG)", type=["jpg", "jpeg", "png"], key="uploader_img_pub")
+        
+        # NUEVO: Selector de múltiples imágenes (hasta 10)
+        archivos_imagenes_subidos = st.file_uploader(
+            "🖼️ Cargar Fotos del Producto (Hasta 10 imágenes JPG/PNG)", 
+            type=["jpg", "jpeg", "png"], 
+            accept_multiple_files=True, 
+            key="uploader_imgs_pub_multi"
+        )
+        if archivos_imagenes_subidos:
+            st.info(f"📁 {min(len(archivos_imagenes_subidos), 10)} de 10 imágenes seleccionadas.")
+
+        # NUEVO: Campo para Video de YouTube
+        pub_video_id = st.text_input("🎬 ID de Video de YouTube (Opcional, ej: dQw4w9WgXcQ)", value="", key="pub_video_dyn")
 
     with f_col2:
         pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
@@ -1048,6 +1079,10 @@ with tabs[5]:
             pub_prof = st.text_input("Profundidad Producto", key="pub_prof_dyn")
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
+    # NUEVO: Área de texto para la descripción del producto
+    st.markdown("---")
+    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Sincronizada o Editable)", height=150, key="pub_desc_dyn")
+
     st.markdown("---")
     if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
         if not st.session_state["access_token"]:
@@ -1056,28 +1091,28 @@ with tabs[5]:
             st.error("❌ Se requiere un Catalog Product ID válido.")
         else:
             access_token_clean = st.session_state["access_token"].strip()
-            picture_id_obtenido = None
+            pictures_payload = []
 
-            if archivo_imagen_subido is not None:
-                with st.spinner("Subiendo imagen a los servidores de Mercado Libre..."):
-                    try:
-                        url_upload = "https://api.mercadolibre.com/pictures/items/upload"
-                        headers_img = {"Authorization": f"Bearer {access_token_clean}"}
-                        files_data = {"file": (archivo_imagen_subido.name, archivo_imagen_subido.getvalue(), archivo_imagen_subido.type)}
-                        
-                        res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
-                        if res_img.status_code in [200, 201]:
-                            img_resp_json = res_img.json()
-                            picture_id_obtenido = img_resp_json.get("id")
-                            st.success(f"✅ Imagen subida con éxito. Picture ID: **{picture_id_obtenido}**")
-                        else:
-                            st.warning(f"⚠️ No se pudo subir la imagen automáticamente (HTTP {res_img.status_code}). Usando respaldo.")
-                    except Exception as e:
-                        st.warning(f"⚠️ Error al subir la imagen: {e}")
+            # Subida iterativa de hasta 10 fotos a la API de MeLi
+            if archivos_imagenes_subidos:
+                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes a los servidores de Mercado Libre..."):
+                    for idx, img_file in enumerate(archivos_imagenes_subidos[:10]):
+                        try:
+                            url_upload = "https://api.mercadolibre.com/pictures/items/upload"
+                            headers_img = {"Authorization": f"Bearer {access_token_clean}"}
+                            files_data = {"file": (img_file.name, img_file.getvalue(), img_file.type)}
+                            
+                            res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
+                            if res_img.status_code in [200, 201]:
+                                img_resp_json = res_img.json()
+                                pic_id = img_resp_json.get("id")
+                                if pic_id:
+                                    pictures_payload.append({"id": pic_id})
+                        except Exception:
+                            pass
 
-            if picture_id_obtenido:
-                pictures_payload = [{"id": picture_id_obtenido}]
-            else:
+            # Si no subió ninguna o hubo error, colocamos una por defecto de respaldo
+            if not pictures_payload:
                 pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
 
             tipo_list_clean = pub_type.split()[0]
@@ -1113,6 +1148,10 @@ with tabs[5]:
                 ]
             }
 
+            # Si se indicó un ID de video de YouTube válido, lo agregamos al payload del producto
+            if pub_video_id.strip():
+                payload_post["video_id"] = pub_video_id.strip()
+
             headers_post = {
                 "Authorization": f"Bearer {access_token_clean}",
                 "Content-Type": "application/json"
@@ -1125,6 +1164,19 @@ with tabs[5]:
                         data_created = res_api.json()
                         item_id = data_created.get("id")
                         permalink = data_created.get("permalink")
+
+                        # Publicamos también la descripción oficial asociada al item creado
+                        if item_id and pub_descripcion.strip():
+                            try:
+                                requests.post(
+                                    f"https://api.mercadolibre.com/items/{item_id}/description",
+                                    json={"plain_text": pub_descripcion.strip()},
+                                    headers=headers_post,
+                                    timeout=8
+                                )
+                            except Exception:
+                                pass
+
                         st.success(f"🎉 ¡Sumado a catálogo exitoso! ID Item: **{item_id}**")
                         if permalink:
                             st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
