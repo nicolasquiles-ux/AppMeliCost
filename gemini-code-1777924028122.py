@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v145.0 Official User Products Compliant)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v148.0 Short Family Name Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (STRICT USER PRODUCTS)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (SHORT FAMILY NAME)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Strict User Products)")
-    st.caption("Estructura puramente limpia basada en la regla User Products: sin 'title', solo 'family_name'.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Short Family Name)")
+    st.caption("Estructura User Products con family_name menor a 60 caracteres y atributos detallados.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -927,7 +927,8 @@ with tabs[5]:
         cat_meli_id = "MLA4765"
         modelo_val = art_gold_b if art_gold_b else "Standard"
         
-        family_name_def = f"Alacena Mueble de Cocina Centro Estant Modelo {modelo_val} 120cm"
+        # Family name corto y genérico (menor a 60 caracteres) tal como exige MeLi
+        family_name_corto = "Alacena Cocina Centro Estant"
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
@@ -941,8 +942,6 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
-                        if results[0].get("name"):
-                            family_name_def = f"{results[0].get('name')} Centro Estant Modelo {modelo_val}"
             except Exception:
                 pass
 
@@ -951,7 +950,7 @@ with tabs[5]:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=family_name_def, key="input_pub_family_name")
+            pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", value=family_name_corto, max_chars=60, key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
@@ -979,11 +978,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload estricto cumpliendo la regla User Products:
-                # - SIN 'title' (eliminado por completo)
-                # - CON 'family_name'
-                # - CON 'channels: ["marketplace"]'
-                # - CON atributos requeridos obligatorios
+                # Payload optimizado cumpliendo la regla de longitud de family_name y sin 'title'
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
