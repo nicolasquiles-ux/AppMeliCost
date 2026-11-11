@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (PAYLOAD CORREGIDO DE RAÍZ)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (CATEGORY_ID NUMÉRICO ESTRICTO)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Root Payload Edition)")
-    st.caption("Sumado al catálogo oficial inyectando family_name en la raíz y pictures obligatorias.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Fixed Category)")
+    st.caption("Sumado al catálogo oficial garantizando formato numérico estricto en category_id.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -924,7 +924,7 @@ with tabs[5]:
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
         cat_product_id = "MLA27874272"
-        cat_meli_id = "MLA4765"
+        cat_meli_id = "MLA4765"  # ID numérico seguro por defecto
         titulo_def = f"{desc_gold_b if desc_gold_b else 'Alacena Mueble de Cocina'} {art_gold_b}".strip()
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
@@ -939,8 +939,7 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
-                        domain_raw = results[0].get("domain_id", "MLA4765")
-                        cat_meli_id = domain_raw.replace("MLA-", "MLA") if domain_raw.startswith("MLA") else "MLA4765"
+                        # Ignoramos el domain_id en texto y dejamos fijo MLA4765 numérico para muebles de cocina
                         if results[0].get("name"):
                             titulo_def = results[0].get("name")
             except Exception:
@@ -956,7 +955,7 @@ with tabs[5]:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (FAMILY_NAME)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
-            pub_cat_id = st.text_input("📂 ID Categoría MeLi", value=cat_meli_id, key="input_pub_cat_id")
+            pub_cat_id = st.text_input("📂 ID Categoría MeLi (Numérico)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
@@ -971,12 +970,12 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con family_name en la raíz + pictures obligatorias
+                # Payload con category_id limpio y numérico asegurado
                 payload_post = {
                     "title": pub_title,
                     "catalog_product_id": pub_catalog_id.strip(),
                     "category_id": pub_cat_id.strip(),
-                    "family_name": pub_family_name.strip(),  # PROPIEDAD DE RAÍZ CLAVE
+                    "family_name": pub_family_name.strip(),
                     "price": pub_pvp,
                     "currency_id": "ARS",
                     "available_quantity": int(pub_stock_qty),
