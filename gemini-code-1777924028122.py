@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (SHORT FAMILY NAME)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (PICTURES & SHIPPING FIXED)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Short Family Name)")
-    st.caption("Estructura User Products con family_name menor a 60 caracteres y atributos detallados.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Pictures & Shipping Fixed)")
+    st.caption("Estructura ajustada con imagen por URL directa (source) y configuración de envío limpia sin ME1.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -927,7 +927,6 @@ with tabs[5]:
         cat_meli_id = "MLA4765"
         modelo_val = art_gold_b if art_gold_b else "Standard"
         
-        # Family name corto y genérico (menor a 60 caracteres) tal como exige MeLi
         family_name_corto = "Alacena Cocina Centro Estant"
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
@@ -954,6 +953,7 @@ with tabs[5]:
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
+            pub_img_url = st.text_input("🖼️ URL Pública de Imagen (source)", value="https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg", key="input_pub_img_url")
 
         with f_col2:
             pub_model = st.text_input("📌 Modelo (MODEL)", value=modelo_val, key="input_pub_model")
@@ -978,7 +978,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload optimizado cumpliendo la regla de longitud de family_name y sin 'title'
+                # Payload corregido: pictures con source por URL pública y shipping sin forzar me1
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
@@ -991,7 +991,7 @@ with tabs[5]:
                     "condition": "new",
                     "channels": ["marketplace"],
                     "pictures": [
-                        {"source": "https://http2.mlstatic.com/D_686151-MLA46554522434_062021-F.jpg"}
+                        {"source": pub_img_url.strip()}
                     ],
                     "sale_terms": [
                         {"id": "WARRANTY_TIME", "value_name": "90 días"}
