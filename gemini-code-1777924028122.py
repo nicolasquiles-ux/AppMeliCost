@@ -253,7 +253,6 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     return None
 
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
-    """Retorna dimensiones (ancho, alto, prof) desde la matriz oficial."""
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
         return "120 cm", "60 cm", "30 cm"
@@ -355,7 +354,8 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
                 desc_val = str(matches.iloc[0][desc_cols[0]]) if desc_cols else ""
 
                 art_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["articul", "modelo", "codigo"])]
-                art_val = str(matches.iloc[0][art_cols[0]]) if art_val else ""
+                # Corrección segura para evitar UnboundLocalError
+                art_val = str(matches.iloc[0][art_cols[0]]) if art_cols and pd.notna(matches.iloc[0][art_cols[0]]) else ""
 
                 costo_parsed = limpiar_precio_moneda(matches.iloc[0][val_col])
                 return True, costo_parsed, desc_val, art_val
@@ -584,7 +584,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v151.0 Dynamic EAN Catalog Builder)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v152.0 Variable Scope Fixed Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -915,7 +915,6 @@ with tabs[5]:
         btn_armar_ficha = st.button("⚡ BUSCAR EN CATÁLOGO", type="primary", use_container_width=True)
 
     if query_builder:
-        # Búsqueda dinámica de costo, descripción y modelo exactos en la Lista Gold
         found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
@@ -923,16 +922,13 @@ with tabs[5]:
         cat_meli_id = "MLA4765"
         modelo_dinamico = art_gold_b if art_gold_b else "Standard"
         
-        # Generar family_name dinámico acotado a < 60 caracteres
         palabras_desc = desc_gold_b.split() if desc_gold_b else ["Alacena", "Cocina", "Centro", "Estant"]
         family_name_dinamico = " ".join(palabras_desc[:5]) if len(palabras_desc) >= 3 else "Alacena Cocina Centro Estant"
         if len(family_name_dinamico) > 60:
             family_name_dinamico = family_name_dinamico[:60].strip()
 
-        # Búsqueda dinámica de dimensiones en la Matriz Logística oficial según el EAN o SKU
         dim_ancho, dim_alto, dim_prof = buscar_datos_en_matriz_completa(query_builder)
 
-        # Búsqueda dinámica del ID de Catálogo en la API de MeLi
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
             try:
@@ -983,7 +979,6 @@ with tabs[5]:
                 access_token_clean = st.session_state["access_token"].strip()
                 picture_id_obtenido = None
 
-                # Subida automática de la imagen a MeLi
                 if archivo_imagen_subido is not None:
                     with st.spinner("Subiendo imagen a los servidores de Mercado Libre..."):
                         try:
@@ -1008,7 +1003,6 @@ with tabs[5]:
 
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con datos 100% dinámicos extraídos del EAN y SKU seleccionados
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
