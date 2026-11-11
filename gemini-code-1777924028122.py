@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v148.0 Short Family Name Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v150.0 Automatic Picture Uploader)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (PICTURES SOURCE PURE)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (AUTOMATIC PICTURE UPLOADER)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Pictures Source Pure)")
-    st.caption("Alta a catálogo utilizando URL directa de imagen por source y envío estándar sin ME1.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Automatic Picture Uploader)")
+    st.caption("Sube tu imagen a la API de MeLi en tiempo real y publica con ID de imagen válido.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -953,6 +953,9 @@ with tabs[5]:
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="input_pub_brand")
+            
+            # Subidor de imagen local para enviarla a la API de MeLi
+            archivo_imagen_subido = st.file_uploader("🖼️ Cargar Imagen del Producto (JPG/PNG)", type=["jpg", "jpeg", "png"], key="uploader_img_pub")
 
         with f_col2:
             pub_model = st.text_input("📌 Modelo (MODEL)", value=modelo_val, key="input_pub_model")
@@ -975,9 +978,36 @@ with tabs[5]:
             elif not pub_catalog_id.strip():
                 st.error("❌ Se requiere un Catalog Product ID válido.")
             else:
+                access_token_clean = st.session_state["access_token"].strip()
+                picture_id_obtenido = None
+
+                # Subida automática de la imagen a MeLi si el usuario adjuntó archivo
+                if archivo_imagen_subido is not None:
+                    with st.spinner("Subiendo imagen a los servidores de Mercado Libre..."):
+                        try:
+                            url_upload = "https://api.mercadolibre.com/pictures/items/upload"
+                            headers_img = {"Authorization": f"Bearer {access_token_clean}"}
+                            files_data = {"file": (archivo_imagen_subido.name, archivo_imagen_subido.getvalue(), archivo_imagen_subido.type)}
+                            
+                            res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
+                            if res_img.status_code in [200, 201]:
+                                img_resp_json = res_img.json()
+                                picture_id_obtenido = img_resp_json.get("id")
+                                st.success(f"✅ Imagen subida con éxito. Picture ID: **{picture_id_obtenido}**")
+                            else:
+                                st.warning(f"⚠️ No se pudo subir la imagen automáticamente (HTTP {res_img.status_code}). Intentando por URL directa.")
+                        except Exception as e:
+                            st.warning(f"⚠️ Error al subir la imagen: {e}")
+
+                # Configuración de pictures: si se subió con éxito usamos el ID, sino usamos un source público por respaldo
+                if picture_id_obtenido:
+                    pictures_payload = [{"id": picture_id_obtenido}]
+                else:
+                    pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
+
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload blindado con pictures usando source puro por URL estática pública y shipping sin forzar me1
+                # Payload oficial estructurado
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
@@ -989,11 +1019,7 @@ with tabs[5]:
                     "listing_type_id": tipo_list_clean,
                     "condition": "new",
                     "channels": ["marketplace"],
-                    "pictures": [
-                        {
-                            "source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"
-                        }
-                    ],
+                    "pictures": pictures_payload,
                     "sale_terms": [
                         {"id": "WARRANTY_TIME", "value_name": "90 días"}
                     ],
@@ -1014,7 +1040,7 @@ with tabs[5]:
                 }
 
                 headers_post = {
-                    "Authorization": f"Bearer {st.session_state['access_token'].strip()}",
+                    "Authorization": f"Bearer {access_token_clean}",
                     "Content-Type": "application/json"
                 }
 
