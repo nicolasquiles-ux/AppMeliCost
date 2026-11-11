@@ -88,9 +88,6 @@ CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
-# ------------------------------------------------------------------------------
-# PARÁMETROS FISCALES Y LOGÍSTICOS OFICIALES (24.5% Impuestos)
-# ------------------------------------------------------------------------------
 ALICUOTA_IVA = 0.21       # 21% IVA Real
 ALICUOTA_IIBB = 0.035     # 3.5% IIBB
 TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB  # 24.5% Total
@@ -154,7 +151,6 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
-# CAPTURA OAUTH NATIVA AL INICIAR LA APP
 query_params = st.query_params
 code_auth = query_params.get("code", None)
 
@@ -253,7 +249,6 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     return None
 
 def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
-    """Función de búsqueda para costos y pesos logísticos."""
     matriz_df = cargar_matriz_articulos_oficial(pvp_referencia)
     if matriz_df is None:
         return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
@@ -290,7 +285,6 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
     return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
-    """Función para dimensiones y peso en Tab 6."""
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
         return "120 cm", "60 cm", "30 cm", "10.0 kg"
@@ -622,7 +616,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v156.0 Package Dimensions Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v157.0 Fully Dynamic Publisher Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -953,17 +947,20 @@ with tabs[5]:
         btn_armar_ficha = st.button("⚡ BUSCAR EN CATÁLOGO", type="primary", use_container_width=True)
 
     if query_builder:
+        # BÚSQUEDA DINÁMICA REAL EN LISTA GOLD Y MATRIZ LOGÍSTICA
         found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
         cat_product_id = "MLA27874272"
         cat_meli_id = "MLA4765"
+        
+        # DATOS DINÁMICOS OBTENIDOS DEL ARCHIVO
         modelo_dinamico = art_gold_b if art_gold_b else "Standard"
         
-        palabras_desc = desc_gold_b.split() if desc_gold_b else ["Alacena", "Cocina", "Centro", "Estant"]
-        family_name_dinamico = " ".join(palabras_desc[:5]) if len(palabras_desc) >= 3 else "Alacena Cocina Centro Estant"
-        if len(family_name_dinamico) > 60:
-            family_name_dinamico = family_name_dinamico[:60].strip()
+        if desc_gold_b:
+            family_name_dinamico = desc_gold_b[:60].strip()
+        else:
+            family_name_dinamico = "Alacena Cocina Centro Estant"
 
         dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
@@ -979,11 +976,16 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
+                        if not desc_gold_b and results[0].get("name"):
+                            family_name_dinamico = results[0].get("name")[:60]
             except Exception:
                 pass
 
         st.markdown("---")
-        st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`** (Datos extraídos dinámicamente)")
+        if found_gold_b:
+            st.success(f"🎯 **Producto Encontrado en Lista Gold:** `{desc_gold_b}` (Costo: ${costo_gold_b:,.2f}) | Catálogo ID: **`{cat_product_id}`**")
+        else:
+            st.warning(f"⚠️ El código `{query_builder}` no se encontró en la Lista Gold. Usando valores genéricos.")
 
         # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE (LOGÍSTICA)
         st.subheader("📦 Datos de Logística & Embalaje del Paquete")
@@ -1019,6 +1021,7 @@ with tabs[5]:
 
         st.markdown("---")
 
+        # FORMULARIO DE PUBLICACIÓN CON DATOS 100% DINÁMICOS
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", value=family_name_dinamico, max_chars=60, key="input_pub_family_name")
