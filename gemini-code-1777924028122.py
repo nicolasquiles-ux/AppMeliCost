@@ -253,9 +253,10 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     return None
 
 def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
+    """Busca en la matriz y devuelve costos de envío y bultos."""
     matriz_df = cargar_matriz_articulos_oficial(pvp_referencia)
     if matriz_df is None:
-        return False, 0.0, 0.0, 0.0, 0.0, 1, ""
+        return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
     q_clean = re.sub(r'\D', '', str(clave_busqueda).strip())
     q_raw = str(clave_busqueda).strip().lower()
@@ -276,7 +277,7 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
             
             if not matches.empty:
                 row = matches.iloc[0]
-                peso_real_total = float(row.get('Peso embalado (Kg)', 0.0))
+                peso_real_total = float(row.get('Peso embalado (Kg)', 10.0))
                 cant_cajas = int(row.get('Cantidad Cajas', 1)) if pd.notna(row.get('Cantidad Cajas')) and int(row.get('Cantidad Cajas', 1)) > 0 else 1
                 
                 peso_unitario = peso_real_total / cant_cajas if cant_cajas > 0 else peso_real_total
@@ -284,11 +285,12 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
                 costo_env_total = tarifa_unit * cant_cajas
                 
                 desc = str(row.get('Descripcion', ''))
-                return True, costo_env_total, peso_unit, peso_real_total, tarifa_unit, cant_cajas, desc
+                return True, costo_env_total, peso_unitario, peso_real_total, tarifa_unit, cant_cajas, desc
 
-    return False, 0.0, 0.0, 0.0, 0.0, 1, ""
+    return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
+    """Busca en la matriz y devuelve dimensiones (ancho, alto, prof)."""
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
         return "120 cm", "60 cm", "30 cm"
@@ -619,7 +621,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v153.0 Function Name Fixed Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v154.0 Complete Fix)</div>
     </div>
 """, unsafe_allow_html=True)
 
