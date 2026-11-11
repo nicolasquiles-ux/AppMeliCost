@@ -586,7 +586,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v133.0 Root Payload Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v136.0 Clean Catalog Binding Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FORZADO NUMÉRICO)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (PAYLOAD LIMPIO ESTRICTO)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Forzado Numérico)")
-    st.caption("Sumado al catálogo oficial fijando category_id en formato numérico válido.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Clean Catalog Payload)")
+    st.caption("Sumado al catálogo oficial mediante payload minimalista estricto exigido por MeLi.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -924,7 +924,6 @@ with tabs[5]:
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
         cat_product_id = "MLA27874272"
-        titulo_def = f"{desc_gold_b if desc_gold_b else 'Alacena Mueble de Cocina'} {art_gold_b}".strip()
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
         if type_inp == "EAN":
@@ -938,8 +937,6 @@ with tabs[5]:
                     results = res_cat.json().get("results", [])
                     if results:
                         cat_product_id = results[0].get("id", "")
-                        if results[0].get("name"):
-                            titulo_def = results[0].get("name")
             except Exception:
                 pass
 
@@ -948,13 +945,9 @@ with tabs[5]:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            pub_title = st.text_input("📌 Título de la Publicación", value=titulo_def[:60], key="input_pub_title")
             pub_ean = st.text_input("🏷️ Código EAN / GTIN", value=clean_val if clean_val else query_builder, key="input_pub_ean")
-            pub_family_name = st.text_input("🏷️ Nombre de Familia (FAMILY_NAME)", value="Alacenas", key="input_pub_family_name")
 
         with f_col2:
-            # Mostramos el valor fijo numérico seguro
-            pub_cat_id = st.text_input("📂 ID Categoría MeLi (Fijo Numérico)", value="MLA4765", key="input_pub_cat_id_fixed")
             pub_catalog_id = st.text_input("🎯 Catalog Product ID", value=cat_product_id, key="input_pub_catalog_id")
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
             pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="input_pub_stock_qty")
@@ -969,21 +962,15 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload con categoría forzada estrictamente a "MLA4765" (numérica)
+                # Payload ultra limpio estricto para Catálogo (sin categoría, ni título, ni atributos extra)
                 payload_post = {
-                    "title": pub_title,
                     "catalog_product_id": pub_catalog_id.strip(),
-                    "category_id": "MLA4765",  # FORZADO DIRECTO EN CÓDIGO
-                    "family_name": pub_family_name.strip(),
                     "price": pub_pvp,
                     "currency_id": "ARS",
                     "available_quantity": int(pub_stock_qty),
                     "buying_mode": "buy_it_now",
                     "listing_type_id": tipo_list_clean,
                     "condition": "new",
-                    "pictures": [
-                        {"source": "https://http2.mlstatic.com/D_686151-MLA46554522434_062021-F.jpg"}
-                    ],
                     "sale_terms": [
                         {"id": "WARRANTY_TIME", "value_name": "90 días"}
                     ],
