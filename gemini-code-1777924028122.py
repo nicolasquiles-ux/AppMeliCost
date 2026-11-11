@@ -888,11 +888,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (PAYLOAD EXACTO SEGÚN ESQUEMA OFICIAL)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (ATTRIBUTES INJECTED)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Oficial Schema Payload)")
-    st.caption("Estructura exacta alineada a la documentación oficial de Mercado Libre.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Attributes Injected)")
+    st.caption("Sumado al catálogo oficial con atributos obligatorios requeridos por la categoría.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -923,8 +923,7 @@ with tabs[5]:
         found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
         pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
-        cat_product_id = "MLA27874272"
-        cat_meli_id = "MLA4765"  # ID numérico de categoría de muebles en ARS
+        cat_meli_id = "MLA4765"  # ID numérico de categoría
         nombre_familia_def = f"{desc_gold_b if desc_gold_b else 'Alacena Cocina'} {art_gold_b}".strip()
 
         type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
@@ -937,20 +936,19 @@ with tabs[5]:
                 )
                 if res_cat.status_code == 200:
                     results = res_cat.json().get("results", [])
-                    if results:
-                        cat_product_id = results[0].get("id", "")
-                        if results[0].get("name"):
-                            nombre_familia_def = results[0].get("name")
+                    if results and results[0].get("name"):
+                        nombre_familia_def = results[0].get("name")
             except Exception:
                 pass
 
         st.markdown("---")
-        st.success(f"🎯 **Catálogo Detectado:** Vinculando a Producto MeLi ID **`{cat_product_id}`**")
+        st.success(f"🎯 **Configuración Lista para Enviar**")
 
         f_col1, f_col2 = st.columns(2)
         with f_col1:
             pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name)", value=nombre_familia_def[:60], key="input_pub_family_name")
             pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", value=cat_meli_id, key="input_pub_cat_id")
+            pub_brand = st.text_input("🏢 Marca del Producto (BRAND)", value="Centro Estant", key="input_pub_brand")
 
         with f_col2:
             pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", value=pvp_sugerido_b, step=500.0, key="input_pub_pvp")
@@ -964,7 +962,7 @@ with tabs[5]:
             else:
                 tipo_list_clean = pub_type.split()[0]
                 
-                # Payload idéntico al ejemplo de la documentación oficial de Mercado Libre
+                # Payload con attributes obligatorios incluidos para evitar el error de esquema
                 payload_post = {
                     "family_name": pub_family_name.strip(),
                     "category_id": pub_cat_id.strip(),
@@ -975,7 +973,9 @@ with tabs[5]:
                     "listing_type_id": tipo_list_clean,
                     "condition": "new",
                     "pictures": [],
-                    "attributes": []
+                    "attributes": [
+                        {"id": "BRAND", "value_name": pub_brand.strip()}
+                    ]
                 }
 
                 headers_post = {
