@@ -663,7 +663,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v160.0 Stable Original + Category Name)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v167.0 Human-Readable Category Display)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -965,11 +965,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (VERSION 160.0 RESTAURADA + NOMBRE CATEGORÍA)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (HUMAN-READABLE CATEGORY)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extracción Original Estable)")
-    st.caption("Funciona exactamente igual que la versión original que extraía fotos, títulos y datos sin fallar.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total con Nombre Legible de Categoría)")
+    st.caption("Visualiza el nombre completo y oficial de la categoría antes de enviar para garantizar el éxito del alta.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1021,23 +1021,12 @@ with tabs[5]:
     exito_extraccion_externa = False
 
     if parsed_meli["tipo"] == "MELI_URL_OR_ID":
-        with st.spinner("Extrayendo datos de Mercado Libre..."):
+        with st.spinner("Extrayendo categoría, medidas, fotos, video y PVP desde Mercado Libre..."):
             headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
             
             c_id = parsed_meli["catalog_id"]
             i_id = parsed_meli["item_id"]
             pvp_buybox = None
-
-            if i_id and not c_id:
-                try:
-                    res_item_direct = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
-                    if res_item_direct.status_code == 200:
-                        it_data = res_item_direct.json()
-                        exito_extraccion_externa = True
-                        if it_data.get("catalog_product_id"):
-                            c_id = it_data.get("catalog_product_id")
-                except Exception:
-                    pass
 
             if c_id:
                 try:
@@ -1079,6 +1068,16 @@ with tabs[5]:
                                 dim_prof_val = vname
                             elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
                                 peso_facturable_val = vname
+                        
+                        if not i_id or i_id == c_id:
+                            res_p_items = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
+                            if res_p_items.status_code == 200:
+                                p_items_list = res_p_items.json().get("results", [])
+                                if p_items_list:
+                                    i_id = p_items_list[0].get("item_id", "")
+                                    if not pvp_buybox and p_items_list[0].get("price"):
+                                        pvp_sugerido_b = float(p_items_list[0]["price"])
+                                        etiqueta_precio_origen = "🏆 PVP Líder de Catálogo"
                 except Exception:
                     pass
 
@@ -1100,9 +1099,34 @@ with tabs[5]:
                         
                         if item_data.get("catalog_product_id"):
                             cat_product_id = item_data.get("catalog_product_id")
+                            try:
+                                res_prod_ref = requests.get(f"https://api.mercadolibre.com/products/{cat_product_id}", headers=headers_ext, timeout=5)
+                                if res_prod_ref.status_code == 200:
+                                    c_official = res_prod_ref.json().get("category_id")
+                                    if c_official:
+                                        cat_meli_id = c_official
+                            except Exception:
+                                pass
 
                         if item_data.get("video_id"):
                             video_id_extraido = str(item_data["video_id"]).strip()
+
+                        shipping_info = item_data.get("shipping", {})
+                        dimensions_str = shipping_info.get("dimensions")
+                        if dimensions_str and isinstance(dimensions_str, str):
+                            parts = dimensions_str.split(",")
+                            if len(parts) >= 1:
+                                box_dims = parts[0].split("x")
+                                if len(box_dims) == 3:
+                                    dim_alto_val = f"{box_dims[0]} cm"
+                                    dim_ancho_val = f"{box_dims[1]} cm"
+                                    dim_prof_val = f"{box_dims[2]} cm"
+                            if len(parts) >= 2:
+                                try:
+                                    g_weight = float(parts[1]) / 1000.0
+                                    peso_facturable_val = f"{g_weight:.1f} kg"
+                                except Exception:
+                                    pass
 
                         for pic in item_data.get("pictures", [])[:10]:
                             if len(urls_fotos_extraidas) >= 10:
@@ -1135,12 +1159,12 @@ with tabs[5]:
                 except Exception:
                     pass
 
-    # OBTENER EL NOMBRE LEGIBLE DE LA CATEGORÍA PARA VISUALIZACIÓN
+    # OBTENER EL NOMBRE LEGIBLE DE LA CATEGORÍA PARA MOSTRARLO EN PANTALLA
     nombre_categoria_legible = obtener_nombre_categoria_meli(cat_meli_id)
 
     st.markdown("---")
     if exito_extraccion_externa:
-        st.success(f"🌐 **Extracción Exitosa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | Fotos: **{len(urls_fotos_extraidas)}** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
+        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | 📁 **Categoría: {nombre_categoria_legible}** (`{cat_meli_id}`) | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
@@ -1202,6 +1226,7 @@ with tabs[5]:
     st.session_state["pub_model_dyn"] = modelo_dinamico
     st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
     st.session_state["pub_catalog_id_dyn"] = cat_product_id
+    st.session_state["pub_cat_id_dyn"] = cat_meli_id
     st.session_state["pub_altura_dyn"] = dim_alto_val
     st.session_state["pub_ancho_dyn"] = dim_ancho_val
     st.session_state["pub_prof_dyn"] = dim_prof_val
@@ -1212,9 +1237,9 @@ with tabs[5]:
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         
-        # VISUALIZACIÓN CLARA DEL NOMBRE DE LA CATEGORÍA Y CAMPO EDITABLE
-        st.markdown(f"📂 **Nombre Categoría Actual:** <span style='color: #0284c7; font-weight: 600;'>{nombre_categoria_legible}</span>", unsafe_allow_html=True)
-        pub_cat_id = st.text_input("ID Categoría MeLi (category_id - Editable)", value=cat_meli_id, key="pub_cat_id_dyn")
+        # VISUALIZACIÓN AMIGABLE: Mostramos el nombre legible de la categoría arriba del input del código
+        st.markdown(f"📂 **Categoría Oficial Detectada:** <span style='color: #0284c7; font-weight: 600;'>{nombre_categoria_legible}</span>", unsafe_allow_html=True)
+        pub_cat_id = st.text_input("ID Categoría MeLi (category_id interno)", key="pub_cat_id_dyn")
         
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
@@ -1255,8 +1280,6 @@ with tabs[5]:
             st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
         elif not pub_catalog_id.strip():
             st.error("❌ Se requiere un Catalog Product ID válido.")
-        elif not pub_cat_id.strip():
-            st.error("❌ Se requiere un ID de Categoría válido.")
         else:
             access_token_clean = st.session_state["access_token"].strip()
             pictures_payload = []
