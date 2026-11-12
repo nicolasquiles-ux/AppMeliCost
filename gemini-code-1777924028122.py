@@ -424,7 +424,6 @@ def extraer_ids_meli_avanzado(input_raw: str):
         if direct_mla:
             clean_mla = direct_mla.group(1).upper().replace("-", "")
             res["tipo"] = "MELI_URL_OR_ID"
-            # Lo guardamos en ambos por las dudas, la API resolverá cuál es
             res["item_id"] = clean_mla
             res["catalog_id"] = clean_mla
 
@@ -657,7 +656,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v162.0 Deep URL Catalog & Item Extractor)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v163.0 Full Media, BuyBox Winner & Catalog Extractor)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -959,11 +958,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (DEEP URL CATALOG & ITEM EXTRACTOR)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (FULL MEDIA, BUYBOX WINNER & EXTRACTOR)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Inteligente MLA)")
-    st.caption("Cargá un producto por EAN/SKU o pegá un link/código MLA externo para extraer título, catálogo, medidas y descripción.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total: Fotos, Video & PVP Ganador)")
+    st.caption("Pegá un link/código MLA externo o elegí de tu Lista Gold para clonar automáticamente fotos, video, descripción y el precio ganador de catálogo.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -990,6 +989,7 @@ with tabs[5]:
     # VARIABLES POR DEFECTO
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
     pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
+    etiqueta_precio_origen = "PVP Sugerido (Lista Gold)" if found_gold_b else "PVP Base"
 
     cat_product_id = "MLA27874272"
     cat_meli_id = "MLA4765"
@@ -997,6 +997,10 @@ with tabs[5]:
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
     descripcion_dinamica = f"Excelente producto de alta calidad.\n\n- Estructura resistente y duradera.\n- Garantía oficial de fábrica."
+    
+    # NUEVO: Listas y variables para Fotos y Video extraídos de la publicación
+    urls_fotos_extraidas = []
+    video_id_extraido = ""
 
     dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
@@ -1005,13 +1009,14 @@ with tabs[5]:
     exito_extraccion_externa = False
 
     if parsed_meli["tipo"] == "MELI_URL_OR_ID":
-        with st.spinner("Extrayendo ficha de catálogo y publicación externa en Mercado Libre..."):
+        with st.spinner("Extrayendo fotos, video, PVP ganador y ficha técnica desde Mercado Libre..."):
             headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
             
             c_id = parsed_meli["catalog_id"]
             i_id = parsed_meli["item_id"]
+            pvp_buybox = None
 
-            # 1. Consultar endpoint /products/{catalog_id} si tenemos ID de catálogo
+            # 1. Consultar endpoint /products/{catalog_id} (Ficha de catálogo + Buy Box Winner + Fotos oficiales)
             if c_id:
                 try:
                     res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
@@ -1020,35 +1025,53 @@ with tabs[5]:
                         exito_extraccion_externa = True
                         cat_product_id = c_id
                         family_name_dinamico = prod_data.get("name", family_name_dinamico)[:60]
-                        if prod_data.get("domain_id"):
-                            # Extraer atributos oficiales del catálogo
-                            for attr in prod_data.get("attributes", []):
-                                aid = attr.get("id")
-                                vname = attr.get("value_name")
-                                if aid == "BRAND" and vname:
-                                    marca_dinamica = vname
-                                elif aid == "MODEL" and vname:
-                                    modelo_dinamico = vname
-                                elif aid in ["HEIGHT", "PACKAGE_HEIGHT"] and vname:
-                                    dim_alto = vname
-                                elif aid in ["WIDTH", "PACKAGE_WIDTH"] and vname:
-                                    dim_ancho = vname
-                                elif aid in ["DEPTH", "LENGTH", "PACKAGE_LENGTH"] and vname:
-                                    dim_prof = vname
-                                elif aid == "PACKAGE_WEIGHT" and vname:
-                                    peso_facturable = vname
                         
-                        # Si no vino el item_id en la URL, buscamos la publicación ganadora del catálogo
+                        # Extraer PVP Ganador del Catálogo (buy_box_winner)
+                        bb_winner = prod_data.get("buy_box_winner")
+                        if isinstance(bb_winner, dict) and bb_winner.get("price"):
+                            pvp_buybox = float(bb_winner["price"])
+                            pvp_sugerido_b = pvp_buybox
+                            etiqueta_precio_origen = "🏆 PVP Ganador de Catálogo (BuyBox)"
+                            if bb_winner.get("item_id") and (not i_id or i_id == c_id):
+                                i_id = bb_winner["item_id"]
+
+                        # Extraer fotos oficiales del producto de catálogo
+                        for pic in prod_data.get("pictures", [])[:10]:
+                            pic_url = pic.get("secure_url") or pic.get("url")
+                            if pic_url and pic_url not in urls_fotos_extraidas:
+                                urls_fotos_extraidas.append(pic_url)
+
+                        # Extraer atributos técnicos oficiales
+                        for attr in prod_data.get("attributes", []):
+                            aid = attr.get("id")
+                            vname = attr.get("value_name")
+                            if aid == "BRAND" and vname:
+                                marca_dinamica = vname
+                            elif aid == "MODEL" and vname:
+                                modelo_dinamico = vname
+                            elif aid in ["HEIGHT", "PACKAGE_HEIGHT"] and vname:
+                                dim_alto = vname
+                            elif aid in ["WIDTH", "PACKAGE_WIDTH"] and vname:
+                                dim_ancho = vname
+                            elif aid in ["DEPTH", "LENGTH", "PACKAGE_LENGTH"] and vname:
+                                dim_prof = vname
+                            elif aid == "PACKAGE_WEIGHT" and vname:
+                                peso_facturable = vname
+                        
+                        # Si aún no hay item_id o buy_box_winner, buscamos el ítem activo líder
                         if not i_id or i_id == c_id:
                             res_p_items = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
                             if res_p_items.status_code == 200:
                                 p_items_list = res_p_items.json().get("results", [])
                                 if p_items_list:
                                     i_id = p_items_list[0].get("item_id", "")
+                                    if not pvp_buybox and p_items_list[0].get("price"):
+                                        pvp_sugerido_b = float(p_items_list[0]["price"])
+                                        etiqueta_precio_origen = "🏆 PVP Líder de Catálogo"
                 except Exception:
                     pass
 
-            # 2. Consultar endpoint /items/{item_id} para traer precio, categoría y descripción
+            # 2. Consultar endpoint /items/{item_id} para traer categoría, video, fotos del vendedor y descripción
             if i_id:
                 try:
                     res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
@@ -1058,10 +1081,27 @@ with tabs[5]:
                         if not family_name_dinamico or family_name_dinamico == "Artículo Centro Estant":
                             family_name_dinamico = item_data.get("title", family_name_dinamico)[:60]
                         cat_meli_id = item_data.get("category_id", cat_meli_id)
-                        pvp_sugerido_b = float(item_data.get("price", pvp_sugerido_b))
+                        
+                        # Si no obtuvimos precio del BuyBox, tomamos el precio del ítem
+                        if not pvp_buybox and item_data.get("price"):
+                            pvp_sugerido_b = float(item_data["price"])
+                            etiqueta_precio_origen = "💲 PVP Publicación Referencia"
+                        
                         if item_data.get("catalog_product_id"):
                             cat_product_id = item_data.get("catalog_product_id")
                         
+                        # Extraer Video ID de YouTube de la publicación
+                        if item_data.get("video_id"):
+                            video_id_extraido = str(item_data["video_id"]).strip()
+
+                        # Extraer fotos de la publicación si el catálogo no trajo o para completar hasta 10
+                        for pic in item_data.get("pictures", [])[:10]:
+                            if len(urls_fotos_extraidas) >= 10:
+                                break
+                            pic_url = pic.get("secure_url") or pic.get("url")
+                            if pic_url and pic_url not in urls_fotos_extraidas:
+                                urls_fotos_extraidas.append(pic_url)
+
                         for attr in item_data.get("attributes", []):
                             aid = attr.get("id")
                             vname = attr.get("value_name")
@@ -1099,12 +1139,16 @@ with tabs[5]:
                     cat_product_id = results[0].get("id", "")
                     if not desc_gold_b and results[0].get("name"):
                         family_name_dinamico = results[0].get("name")[:60]
+                    for pic in results[0].get("pictures", [])[:10]:
+                        pic_url = pic.get("secure_url") or pic.get("url")
+                        if pic_url:
+                            urls_fotos_extraidas.append(pic_url)
         except Exception:
             pass
 
     st.markdown("---")
     if exito_extraccion_externa:
-        st.success(f"🌐 **Datos Extraídos desde Mercado Libre:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | Ref. PVP: **${pvp_sugerido_b:,.2f}**")
+        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}** | 📸 **{len(urls_fotos_extraidas)} fotos** | 🎬 Video: **{video_id_extraido if video_id_extraido else 'Sin video'}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
@@ -1142,6 +1186,25 @@ with tabs[5]:
         </div>
         """, unsafe_allow_html=True)
 
+    # VISTA PREVIA DE FOTOS Y VIDEO EXTRAÍDOS DE LA PUBLICACIÓN
+    if urls_fotos_extraidas or video_id_extraido:
+        st.markdown("---")
+        st.subheader("🖼️ Multimedia Clonada de la Publicación")
+        if urls_fotos_extraidas:
+            st.caption(f"Se extrajeron {len(urls_fotos_extraidas)} imágenes en alta resolución. Se usarán automáticamente salvo que subas archivos propios abajo.")
+            cols_imgs = st.columns(min(len(urls_fotos_extraidas), 5))
+            for idx_img, img_u in enumerate(urls_fotos_extraidas[:5]):
+                with cols_imgs[idx_img]:
+                    st.image(img_u, caption=f"Foto {idx_img+1}", use_container_width=True)
+            if len(urls_fotos_extraidas) > 5:
+                cols_imgs2 = st.columns(min(len(urls_fotos_extraidas) - 5, 5))
+                for idx_img, img_u in enumerate(urls_fotos_extraidas[5:10]):
+                    with cols_imgs2[idx_img]:
+                        st.image(img_u, caption=f"Foto {idx_img+6}", use_container_width=True)
+        
+        if video_id_extraido:
+            st.info(f"🎬 **Video de YouTube detectado y vinculado:** `https://www.youtube.com/watch?v={video_id_extraido}`")
+
     st.markdown("---")
 
     # FORZAR ACTUALIZACIÓN DE ESTADO EN TIEMPO REAL
@@ -1155,6 +1218,7 @@ with tabs[5]:
     st.session_state["pub_ancho_dyn"] = dim_ancho
     st.session_state["pub_prof_dyn"] = dim_prof
     st.session_state["pub_desc_dyn"] = descripcion_dinamica
+    st.session_state["pub_video_dyn"] = video_id_extraido
 
     # FORMULARIO DE PUBLICACIÓN
     f_col1, f_col2 = st.columns(2)
@@ -1165,19 +1229,21 @@ with tabs[5]:
         pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
         
         archivos_imagenes_subidos = st.file_uploader(
-            "🖼️ Cargar Fotos del Producto (Hasta 10 imágenes JPG/PNG)", 
+            "🖼️ Reemplazar/Subir Fotos Propias (Opcional, hasta 10 JPG/PNG)", 
             type=["jpg", "jpeg", "png"], 
             accept_multiple_files=True, 
             key="uploader_imgs_pub_multi"
         )
         if archivos_imagenes_subidos:
-            st.info(f"📁 {min(len(archivos_imagenes_subidos), 10)} de 10 imágenes seleccionadas.")
+            st.info(f"📁 Usando tus {min(len(archivos_imagenes_subidos), 10)} imágenes subidas manualmente.")
+        elif urls_fotos_extraidas:
+            st.success(f"✅ Se enviarán las {len(urls_fotos_extraidas)} fotos clonadas de la publicación.")
 
-        pub_video_id = st.text_input("🎬 ID de YouTube (Opcional, ej: dQw4w9WgXcQ)", value="", key="pub_video_dyn")
+        pub_video_id = st.text_input("🎬 ID de YouTube (Clonado o Editable)", key="pub_video_dyn")
 
     with f_col2:
         pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
-        pub_pvp = st.number_input("💲 Precio de Venta ($ ARS)", step=500.0, key="pub_pvp_dyn")
+        pub_pvp = st.number_input(f"💲 Precio de Venta ($ ARS) — [{etiqueta_precio_origen}]", step=500.0, key="pub_pvp_dyn")
         pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
         pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_special (Clásica)", "gold_pro (Premium)"], index=0, key="pub_type_dyn")
         
@@ -1190,7 +1256,7 @@ with tabs[5]:
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
     st.markdown("---")
-    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Extraída o Editable)", height=150, key="pub_desc_dyn")
+    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Clonada o Editable)", height=150, key="pub_desc_dyn")
 
     st.markdown("---")
     if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
@@ -1202,8 +1268,9 @@ with tabs[5]:
             access_token_clean = st.session_state["access_token"].strip()
             pictures_payload = []
 
+            # Prioridad 1: Si el usuario subió fotos manuales, las sube a MeLi
             if archivos_imagenes_subidos:
-                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes a Mercado Libre..."):
+                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes propias a Mercado Libre..."):
                     for img_file in archivos_imagenes_subidos[:10]:
                         try:
                             url_upload = "https://api.mercadolibre.com/pictures/items/upload"
@@ -1218,6 +1285,11 @@ with tabs[5]:
                         except Exception:
                             pass
 
+            # Prioridad 2: Si no subió fotos manuales, usa las fotos clonadas de la publicación externa
+            if not pictures_payload and urls_fotos_extraidas:
+                pictures_payload = [{"source": u} for u in urls_fotos_extraidas[:10]]
+
+            # Respaldo final si no hay ninguna foto
             if not pictures_payload:
                 pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
 
