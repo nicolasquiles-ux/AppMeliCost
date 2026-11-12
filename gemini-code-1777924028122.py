@@ -5,6 +5,7 @@ import re
 import os
 import json
 import numpy as np
+from urllib.parse import unquote
 
 st.set_page_config(
     page_title="NQ Sales Intelligence Matrix Pro",
@@ -394,18 +395,58 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
 
     return False, 0.0, "", ""
 
-def extraer_id_catalogo_o_ean_input(input_raw: str):
-    raw = input_raw.strip()
-    if "mercadolibre.com" in raw and "/p/MLA" in raw:
-        match = re.search(r'/p/(MLA\d+)', raw)
-        if match:
-            return "CATALOG_ID", match.group(1)
-    if raw.upper().startswith("MLA"):
-        return "CATALOG_ID", raw.upper()
+def extraer_ids_meli_avanzado(input_raw: str):
+    """
+    Analiza una URL, código MLA o EAN y devuelve un diccionario con:
+    - tipo: 'MELI_URL_OR_ID', 'EAN', o 'TEXT'
+    - catalog_id: ID de producto de catálogo (/p/MLA...) si existe
+    - item_id: ID de publicación de vendedor (MLA...) si existe
+    - ean: código numérico si es EAN
+    """
+    raw = unquote(input_raw.strip())
+    res = {"tipo": "TEXT", "catalog_id": "", "item_id": "", "ean": "", "raw": raw}
+
+    # 1. Buscar catalog_product_id (/p/MLA123456)
+    cat_match = re.search(r'/p/(MLA\d+)', raw, re.IGNORECASE)
+    if cat_match:
+        res["catalog_id"] = cat_match.group(1).upper()
+        res["tipo"] = "MELI_URL_OR_ID"
+
+    # 2. Buscar item_id en parámetros o en URL directa (item_id=MLA..., wid=MLA..., o MLA-123456)
+    item_match = re.search(r'(?:item_id=|wid=|/MLA-?)(\d+)', raw, re.IGNORECASE)
+    if item_match:
+        res["item_id"] = f"MLA{item_match.group(1)}"
+        res["tipo"] = "MELI_URL_OR_ID"
+
+    # 3. Si el usuario pegó directamente un código MLA suelto (ej: MLA3343768358 o MLA65326966)
+    if not res["catalog_id"] and not res["item_id"]:
+        direct_mla = re.match(r'^(MLA-?\d+)$', raw, re.IGNORECASE)
+        if direct_mla:
+            clean_mla = direct_mla.group(1).upper().replace("-", "")
+            res["tipo"] = "MELI_URL_OR_ID"
+            # Lo guardamos en ambos por las dudas, la API resolverá cuál es
+            res["item_id"] = clean_mla
+            res["catalog_id"] = clean_mla
+
+    if res["tipo"] == "MELI_URL_OR_ID":
+        return res
+
+    # 4. Si es numérico puro, es EAN
     clean_digits = re.sub(r'\D', '', raw)
     if clean_digits:
-        return "EAN", clean_digits
-    return "TEXT", raw
+        res["tipo"] = "EAN"
+        res["ean"] = clean_digits
+        return res
+
+    return res
+
+def extraer_id_catalogo_o_ean_input(input_raw: str):
+    parsed = extraer_ids_meli_avanzado(input_raw)
+    if parsed["tipo"] == "MELI_URL_OR_ID":
+        return "CATALOG_ID", parsed["catalog_id"] or parsed["item_id"]
+    elif parsed["tipo"] == "EAN":
+        return "EAN", parsed["ean"]
+    return "TEXT", parsed["raw"]
 
 def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
     if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
@@ -616,7 +657,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v161.0 External MLA Extractor Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v162.0 Deep URL Catalog & Item Extractor)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -918,11 +959,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (EXTRACTOR EXTERNO MLA)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (DEEP URL CATALOG & ITEM EXTRACTOR)
 # ------------------------------------------------------------------------------
 with tabs[5]:
     st.header("🚀 Publicador a Catálogo Definitivo (Extractor Inteligente MLA)")
-    st.caption("Cargá un producto por EAN/SKU o pegá un código/URL MLA externo para extraer todos sus datos automáticamente.")
+    st.caption("Cargá un producto por EAN/SKU o pegá un link/código MLA externo para extraer título, catálogo, medidas y descripción.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -941,7 +982,7 @@ with tabs[5]:
 
     c_b1, c_b2 = st.columns([3, 1])
     with c_b1:
-        query_builder = st.text_input("Código EAN / SKU o ID/URL MLA Externo para Extraer Datos", key="q_builder")
+        query_builder = st.text_input("Código EAN / SKU o Link/ID MLA Externo para Extraer Datos", key="q_builder")
     with c_b2:
         st.write("")
         btn_armar_ficha = st.button("⚡ EXTRAER Y CARGAR", type="primary", use_container_width=True)
@@ -952,53 +993,100 @@ with tabs[5]:
 
     cat_product_id = "MLA27874272"
     cat_meli_id = "MLA4765"
+    marca_dinamica = "Centro Estant"
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
     descripcion_dinamica = f"Excelente producto de alta calidad.\n\n- Estructura resistente y duradera.\n- Garantía oficial de fábrica."
 
     dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
-    # EXTRACCIÓN INTELIGENTE DESDE UN MLA EXTERNO O CATÁLOGO
-    type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
-    
-    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
-        with st.spinner(f"Extrayendo datos en vivo desde la publicación externa {clean_val}..."):
-            try:
-                headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
-                res_item = requests.get(f"https://api.mercadolibre.com/items/{clean_val}", headers=headers_ext, timeout=8)
-                if res_item.status_code == 200:
-                    item_data = res_item.json()
-                    family_name_dinamico = item_data.get("title", family_name_dinamico)[:60]
-                    cat_meli_id = item_data.get("category_id", cat_meli_id)
-                    pvp_sugerido_b = float(item_data.get("price", pvp_sugerido_b))
-                    
-                    # Extraer atributos de dimensiones y modelo
-                    for attr in item_data.get("attributes", []):
-                        attr_id = attr.get("id")
-                        val_name = attr.get("value_name")
-                        if attr_id == "MODEL":
-                            modelo_dinamico = val_name
-                        elif attr_id == "HEIGHT":
-                            dim_alto = val_name
-                        elif attr_id == "WIDTH":
-                            dim_ancho = val_name
-                        elif attr_id == "DEPTH":
-                            dim_prof = val_name
+    # EXTRACCIÓN INTELIGENTE DESDE URL COMPLETA O CÓDIGO MLA EXTERNO
+    parsed_meli = extraer_ids_meli_avanzado(query_builder)
+    exito_extraccion_externa = False
 
-                    # Buscar catalog_product_id si lo tuviera asociado
-                    if item_data.get("catalog_product_id"):
-                        cat_product_id = item_data.get("catalog_product_id")
+    if parsed_meli["tipo"] == "MELI_URL_OR_ID":
+        with st.spinner("Extrayendo ficha de catálogo y publicación externa en Mercado Libre..."):
+            headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
+            
+            c_id = parsed_meli["catalog_id"]
+            i_id = parsed_meli["item_id"]
 
-                # Extraer descripción real de la publicación externa
-                res_desc = requests.get(f"https://api.mercadolibre.com/items/{clean_val}/description", headers=headers_ext, timeout=8)
-                if res_desc.status_code == 200:
-                    txt_desc = res_desc.json().get("plain_text", "")
-                    if txt_desc:
-                        descripcion_dinamica = txt_desc
-            except Exception as e:
-                st.warning(f"No se pudo extraer totalmente el MLA externo: {e}")
+            # 1. Consultar endpoint /products/{catalog_id} si tenemos ID de catálogo
+            if c_id:
+                try:
+                    res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
+                    if res_prod.status_code == 200:
+                        prod_data = res_prod.json()
+                        exito_extraccion_externa = True
+                        cat_product_id = c_id
+                        family_name_dinamico = prod_data.get("name", family_name_dinamico)[:60]
+                        if prod_data.get("domain_id"):
+                            # Extraer atributos oficiales del catálogo
+                            for attr in prod_data.get("attributes", []):
+                                aid = attr.get("id")
+                                vname = attr.get("value_name")
+                                if aid == "BRAND" and vname:
+                                    marca_dinamica = vname
+                                elif aid == "MODEL" and vname:
+                                    modelo_dinamico = vname
+                                elif aid in ["HEIGHT", "PACKAGE_HEIGHT"] and vname:
+                                    dim_alto = vname
+                                elif aid in ["WIDTH", "PACKAGE_WIDTH"] and vname:
+                                    dim_ancho = vname
+                                elif aid in ["DEPTH", "LENGTH", "PACKAGE_LENGTH"] and vname:
+                                    dim_prof = vname
+                                elif aid == "PACKAGE_WEIGHT" and vname:
+                                    peso_facturable = vname
+                        
+                        # Si no vino el item_id en la URL, buscamos la publicación ganadora del catálogo
+                        if not i_id or i_id == c_id:
+                            res_p_items = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
+                            if res_p_items.status_code == 200:
+                                p_items_list = res_p_items.json().get("results", [])
+                                if p_items_list:
+                                    i_id = p_items_list[0].get("item_id", "")
+                except Exception:
+                    pass
 
-    elif type_inp == "EAN":
+            # 2. Consultar endpoint /items/{item_id} para traer precio, categoría y descripción
+            if i_id:
+                try:
+                    res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
+                    if res_item.status_code == 200:
+                        item_data = res_item.json()
+                        exito_extraccion_externa = True
+                        if not family_name_dinamico or family_name_dinamico == "Artículo Centro Estant":
+                            family_name_dinamico = item_data.get("title", family_name_dinamico)[:60]
+                        cat_meli_id = item_data.get("category_id", cat_meli_id)
+                        pvp_sugerido_b = float(item_data.get("price", pvp_sugerido_b))
+                        if item_data.get("catalog_product_id"):
+                            cat_product_id = item_data.get("catalog_product_id")
+                        
+                        for attr in item_data.get("attributes", []):
+                            aid = attr.get("id")
+                            vname = attr.get("value_name")
+                            if aid == "BRAND" and vname:
+                                marca_dinamica = vname
+                            elif aid == "MODEL" and vname:
+                                modelo_dinamico = vname
+                            elif aid == "HEIGHT" and vname:
+                                dim_alto = vname
+                            elif aid == "WIDTH" and vname:
+                                dim_ancho = vname
+                            elif aid == "DEPTH" and vname:
+                                dim_prof = vname
+
+                    # Traer texto plano de la descripción
+                    res_desc = requests.get(f"https://api.mercadolibre.com/items/{i_id}/description", headers=headers_ext, timeout=8)
+                    if res_desc.status_code == 200:
+                        txt_desc = res_desc.json().get("plain_text", "")
+                        if txt_desc:
+                            descripcion_dinamica = txt_desc
+                except Exception:
+                    pass
+
+    elif parsed_meli["tipo"] == "EAN":
+        clean_val = parsed_meli["ean"]
         try:
             res_cat = requests.get(
                 f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}",
@@ -1015,12 +1103,12 @@ with tabs[5]:
             pass
 
     st.markdown("---")
-    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
-        st.success(f"🌐 **Datos extraídos con éxito del MLA Externo:** `{family_name_dinamico}` | Precio: **${pvp_sugerido_b:,.2f}**")
+    if exito_extraccion_externa:
+        st.success(f"🌐 **Datos Extraídos desde Mercado Libre:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | Ref. PVP: **${pvp_sugerido_b:,.2f}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
-        st.warning(f"⚠️ Código ingresado en modo manual o libre.")
+        st.warning(f"⚠️ Código ingresado en modo manual o sin coincidencia directa.")
 
     # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE
     st.subheader("📦 Datos de Logística & Embalaje del Paquete")
@@ -1058,6 +1146,7 @@ with tabs[5]:
 
     # FORZAR ACTUALIZACIÓN DE ESTADO EN TIEMPO REAL
     st.session_state["pub_family_name_dyn"] = family_name_dinamico
+    st.session_state["pub_brand_dyn"] = marca_dinamica
     st.session_state["pub_model_dyn"] = modelo_dinamico
     st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
     st.session_state["pub_catalog_id_dyn"] = cat_product_id
@@ -1073,7 +1162,7 @@ with tabs[5]:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id)", key="pub_cat_id_dyn")
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
-        pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="pub_brand_dyn")
+        pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
         
         archivos_imagenes_subidos = st.file_uploader(
             "🖼️ Cargar Fotos del Producto (Hasta 10 imágenes JPG/PNG)", 
@@ -1198,5 +1287,7 @@ with tabs[5]:
                     else:
                         err_resp = res_api.json() if res_api.content else {}
                         st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
+                        if "cause" in err_resp:
+                            st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
             except Exception as e:
                 st.error(f"Error de conexión: {e}")
