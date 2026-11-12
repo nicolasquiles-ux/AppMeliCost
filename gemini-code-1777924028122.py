@@ -15,47 +15,68 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# ESTÉTICA PROFESIONAL Y MODERNA DE ALTO IMPACTO (UI / UX EXECUTIVE)
+# ESTÉTICA EJECUTIVA DE ALTO IMPACTO - ESTILO NQ ARGENTINA (UI / UX EXECUTIVE)
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .header-box {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        color: #ffffff;
-        padding: 24px 32px;
-        border-radius: 16px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+    .main { background-color: #f1f5f9; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    
+    /* Header Principal Ejecutivo */
+    .nq-header-container {
+        background: #ffffff;
+        padding: 20px 28px;
+        border-radius: 14px;
+        margin-bottom: 20px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
-    .header-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin: 0; color: #38bdf8; }
-    .header-subtitle { font-size: 14px; color: #94a3b8; margin-top: 4px; }
+    .nq-brand-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.5px; }
+    .nq-brand-subtitle { font-size: 12px; color: #64748b; margin-top: 2px; font-weight: 500; }
+    
+    /* Tarjetas de Métricas Superiores tipo Dashboard */
+    .nq-metric-box {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 14px 22px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        text-align: right;
+    }
+    .nq-metric-val { font-size: 24px; font-weight: 900; color: #0f172a; margin: 0; }
+    .nq-metric-lbl { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Tarjetas KPI estándar */
     .kpi-card {
         background: #ffffff;
-        padding: 20px;
-        border-radius: 14px;
+        padding: 18px;
+        border-radius: 12px;
         border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     }
-    .kpi-label { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 26px; font-weight: 800; color: #0f172a; margin: 6px 0; }
+    .kpi-label { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi-value { font-size: 24px; font-weight: 800; color: #0f172a; margin: 4px 0; }
+
+    /* Alertas y tarjetas financieras */
     .card-viable {
         background: #f0fdf4;
         color: #166534;
-        padding: 20px;
+        padding: 18px;
         border-radius: 12px;
         border: 1px solid #bbf7d0;
-        box-shadow: 0 4px 10px rgba(22, 101, 52, 0.05);
-        font-size: 15px;
+        font-size: 14px;
+        font-weight: 600;
     }
     .card-noviable {
         background: #fef2f2;
         color: #991b1b;
-        padding: 20px;
+        padding: 18px;
         border-radius: 12px;
         border: 1px solid #fecaca;
-        box-shadow: 0 4px 10px rgba(153, 27, 27, 0.05);
-        font-size: 15px;
+        font-size: 14px;
+        font-weight: 600;
     }
     .warning-stock {
         background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
@@ -63,8 +84,7 @@ st.markdown("""
         padding: 16px 20px;
         border-radius: 12px;
         border-left: 6px solid #f97316;
-        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.08);
-        font-size: 15px;
+        font-size: 14px;
     }
     .ai-bubble {
         background: #f0fdf4;
@@ -72,15 +92,15 @@ st.markdown("""
         border-radius: 14px;
         border-left: 6px solid #22c55e;
         border: 1px solid #dcfce7;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
     }
     .badge-missing {
         background-color: #fee2e2;
         color: #991b1b;
-        padding: 12px 16px;
-        border-radius: 10px;
+        padding: 10px 14px;
+        border-radius: 8px;
         font-weight: 700;
         border: 1px solid #fca5a5;
+        font-size: 13px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -174,7 +194,6 @@ if code_auth and not st.session_state["access_token"]:
 
 @st.cache_data(ttl=3600)
 def obtener_nombre_categoria_meli(category_id: str) -> str:
-    """Consulta la API de MeLi para obtener la ruta completa y legible de la categoría."""
     if not category_id or not str(category_id).startswith("MLA"):
         return category_id
     try:
@@ -192,7 +211,6 @@ def obtener_nombre_categoria_meli(category_id: str) -> str:
 
 @st.cache_data(ttl=1800)
 def predecir_categorias_meli(titulo_producto: str) -> list:
-    """Usa el predictor oficial de Mercado Libre para sugerir las categorías correctas."""
     if not titulo_producto or len(titulo_producto.strip()) < 3:
         return []
     sugerencias = []
@@ -637,7 +655,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     return target_catalog_id, product_title, items_procesados
 
 def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
-    """Extrae de forma unificada todos los datos de Catálogo, Ítem, Fotos, Medidas y Precio."""
     headers_ext = get_meli_headers(access_token)
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
     
@@ -687,7 +704,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         pvp_buybox = None
         errores_http = []
 
-        # 1. Intentar consultar como Catálogo (/products/{id})
         if c_id:
             try:
                 res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
@@ -732,7 +748,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                         elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
                             res_data["peso"] = vname
 
-                    # Si no tenemos item_id ganador todavía, buscamos en /products/{c_id}/items
                     if not i_id or i_id == c_id:
                         res_pi = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
                         if res_pi.status_code == 200:
@@ -747,7 +762,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # 2. Consultar el ítem asociado (/items/{id}) para extraer fotos extra, medidas de caja y descripción
         if i_id:
             try:
                 res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
@@ -849,7 +863,6 @@ with st.sidebar:
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
-    
     st.subheader("📁 Centro Unificado de Cargas")
     
     with st.expander("📄 1. Lista Gold (Costos)", expanded=True):
@@ -869,12 +882,29 @@ with st.sidebar:
                 st.error(f"Error al leer matriz: {e}")
 
 # ------------------------------------------------------------------------------
-# HEADER PRINCIPAL DE ALTO IMPACTO VISUAL
+# HEADER PRINCIPAL ESTILO EJECUTIVO NQ ARGENTINA (INSPIRADO EN EL LAYOUT ELEGIDO)
 # ------------------------------------------------------------------------------
 st.markdown("""
-    <div class="header-box">
-        <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v170.0 Direct Catalog & Item Extractor)</div>
+    <div class="nq-header-container">
+        <div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
+                <div>
+                    <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
+                    <div class="nq-brand-subtitle">Data last updated: 26 May, 2026 (v171.0 Executive UI)</div>
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 20px; align-items: center;">
+            <div class="nq-metric-box">
+                <div class="nq-metric-lbl">Muebles para el Hogar</div>
+                <div class="nq-metric-val">$47.093.358.901</div>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 16px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Catálogo</div>
+                <div style="font-size: 14px; font-weight: 800; color: #0284c7;">51,43%</div>
+            </div>
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -1204,7 +1234,6 @@ with tabs[5]:
         st.write("")
         btn_armar_ficha = st.button("⚡ EXTRAER Y CARGAR", type="primary", use_container_width=True)
 
-    # Extraer datos y sincronizar el estado sólo cuando cambia la búsqueda o se presiona el botón
     clave_actual = f"{query_builder.strip()}_{st.session_state['access_token'][:10]}"
     if btn_armar_ficha or st.session_state.get("ultima_clave_extraida") != clave_actual:
         with st.spinner("Extrayendo datos e imágenes desde Mercado Libre..."):
@@ -1212,7 +1241,6 @@ with tabs[5]:
             st.session_state["datos_ficha_cache"] = datos_extraidos
             st.session_state["ultima_clave_extraida"] = clave_actual
             
-            # Cargar valores limpios en los widgets del formulario
             st.session_state["pub_family_name_dyn"] = datos_extraidos["family_name"]
             st.session_state["pub_cat_id_dyn"] = datos_extraidos["cat_meli_id"]
             st.session_state["pub_catalog_id_dyn"] = datos_extraidos["cat_product_id"]
@@ -1294,7 +1322,6 @@ with tabs[5]:
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         
-        # VISUALIZACIÓN CLARA DEL NOMBRE DE LA CATEGORÍA + SELECTOR DE SUGERENCIAS
         cat_actual_code = st.session_state.get("pub_cat_id_dyn", "MLA4765").strip()
         nombre_cat_actual = obtener_nombre_categoria_meli(cat_actual_code)
         st.markdown(f"📂 **Categoría Actual:** <span style='color: #0284c7; font-weight: 700;'>{nombre_cat_actual}</span>", unsafe_allow_html=True)
