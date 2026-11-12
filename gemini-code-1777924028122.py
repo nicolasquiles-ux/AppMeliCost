@@ -182,6 +182,25 @@ def obtener_nombre_categoria_meli(category_id: str) -> str:
         pass
     return category_id
 
+@st.cache_data(ttl=1800)
+def predecir_categorias_meli(titulo_producto: str) -> list:
+    """Usa el predictor oficial de Mercado Libre para sugerir las categorías correctas."""
+    if not titulo_producto or len(titulo_producto.strip()) < 3:
+        return []
+    sugerencias = []
+    try:
+        url_pred = f"https://api.mercadolibre.com/sites/MLA/domain_discovery/search?limit=6&q={requests.utils.quote(titulo_producto.strip())}"
+        res = requests.get(url_pred, timeout=6)
+        if res.status_code == 200:
+            for entry in res.json():
+                cat_id = entry.get("category_id")
+                if cat_id and cat_id not in [s[0] for s in sugerencias]:
+                    ruta = obtener_nombre_categoria_meli(cat_id)
+                    sugerencias.append((cat_id, ruta))
+    except Exception:
+        pass
+    return sugerencias
+
 def procesar_archivo_lista_gold(file):
     try:
         if file.name.endswith('.csv'):
@@ -663,7 +682,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v167.0 Human-Readable Category Display)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v168.0 Interactive Category Dropdown & Predictor)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -965,11 +984,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (HUMAN-READABLE CATEGORY)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (INTERACTIVE CATEGORY DROPDOWN)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total con Nombre Legible de Categoría)")
-    st.caption("Visualiza el nombre completo y oficial de la categoría antes de enviar para garantizar el éxito del alta.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Selector Desplegable de Categoría)")
+    st.caption("Elegí fácilmente la categoría correcta desde el desplegable sugerido por Mercado Libre o ingresá un ID manual.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -999,7 +1018,7 @@ with tabs[5]:
     etiqueta_precio_origen = "PVP Sugerido (Lista Gold)" if found_gold_b else "PVP Base"
 
     cat_product_id = "MLA27874272"
-    cat_meli_id = "MLA4765"
+    cat_meli_id = ""
     marca_dinamica = "Centro Estant"
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
@@ -1159,12 +1178,46 @@ with tabs[5]:
                 except Exception:
                     pass
 
-    # OBTENER EL NOMBRE LEGIBLE DE LA CATEGORÍA PARA MOSTRARLO EN PANTALLA
-    nombre_categoria_legible = obtener_nombre_categoria_meli(cat_meli_id)
+    # ARMAR LISTA DESPLEGABLE DE CATEGORÍAS (PREDICTOR + EXTRAÍDA + FRECUENTES + MANUAL)
+    sugerencias_pred = predecir_categorias_meli(family_name_dinamico)
+    opciones_categorias_dict = {}  # {etiqueta_legible: category_id}
+
+    # 1. Priorizar sugerencias del predictor oficial de MeLi según el título del producto
+    for cid, ruta in sugerencias_pred:
+        etiqueta = f"{ruta} ({cid})"
+        opciones_categorias_dict[etiqueta] = cid
+
+    # 2. Agregar la categoría que vino en la API si no estaba ya en el predictor
+    if cat_meli_id and cat_meli_id not in opciones_categorias_dict.values():
+        ruta_api = obtener_nombre_categoria_meli(cat_meli_id)
+        opciones_categorias_dict[f"{ruta_api} ({cat_meli_id}) [Detectada en API]"] = cat_meli_id
+
+    # 3. Agregar categorías frecuentes de hogar/muebles de respaldo
+    categorias_frecuentes = [
+        ("MLA4765", "Hogar, Muebles y Jardín > Muebles para el Hogar > Alacenas"),
+        ("MLA3872", "Hogar, Muebles y Jardín > Muebles para el Hogar > Bajo Mesadas"),
+        ("MLA1592", "Hogar, Muebles y Jardín > Muebles para el Hogar > Placards y Roperos"),
+        ("MLA436380", "Hogar, Muebles y Jardín > Muebles para el Hogar > Bibliotecas y Estanterías"),
+        ("MLA436283", "Hogar, Muebles y Jardín > Muebles para el Hogar > Escritorios"),
+        ("MLA436381", "Hogar, Muebles y Jardín > Muebles para el Hogar > Racks y Mesas para TV"),
+        ("MLA436246", "Hogar, Muebles y Jardín > Muebles para el Hogar > Cómodas y Cajoneras"),
+        ("MLA436280", "Hogar, Muebles y Jardín > Muebles para el Hogar > Mesas de Luz"),
+        ("MLA436304", "Hogar, Muebles y Jardín > Muebles para el Hogar > Zapateros y Botineros"),
+    ]
+    for cid_f, ruta_f in categorias_frecuentes:
+        if cid_f not in opciones_categorias_dict.values():
+            opciones_categorias_dict[f"{ruta_f} ({cid_f})"] = cid_f
+
+    # 4. Opción para escribir código manual
+    opciones_categorias_dict["✏️ Ingresar otro ID de categoría manualmente..."] = "MANUAL"
+
+    lista_etiquetas_cat = list(opciones_categorias_dict.keys())
+    categoria_inicial_label = lista_etiquetas_cat[0]
+    nombre_categoria_legible = categoria_inicial_label
 
     st.markdown("---")
     if exito_extraccion_externa:
-        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | 📁 **Categoría: {nombre_categoria_legible}** (`{cat_meli_id}`) | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
+        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
@@ -1226,7 +1279,6 @@ with tabs[5]:
     st.session_state["pub_model_dyn"] = modelo_dinamico
     st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
     st.session_state["pub_catalog_id_dyn"] = cat_product_id
-    st.session_state["pub_cat_id_dyn"] = cat_meli_id
     st.session_state["pub_altura_dyn"] = dim_alto_val
     st.session_state["pub_ancho_dyn"] = dim_ancho_val
     st.session_state["pub_prof_dyn"] = dim_prof_val
@@ -1237,9 +1289,20 @@ with tabs[5]:
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         
-        # VISUALIZACIÓN AMIGABLE: Mostramos el nombre legible de la categoría arriba del input del código
-        st.markdown(f"📂 **Categoría Oficial Detectada:** <span style='color: #0284c7; font-weight: 600;'>{nombre_categoria_legible}</span>", unsafe_allow_html=True)
-        pub_cat_id = st.text_input("ID Categoría MeLi (category_id interno)", key="pub_cat_id_dyn")
+        # DESPLEGABLE INTERACTIVO DE CATEGORÍAS CON NOMBRE COMPLETO
+        cat_seleccionada_label = st.selectbox(
+            "📂 Categoría de Mercado Libre (Sugeridas por Predictor Oficial y Catálogo)",
+            options=lista_etiquetas_cat,
+            index=0,
+            key="pub_cat_select_dyn"
+        )
+        cat_id_elegida = opciones_categorias_dict[cat_seleccionada_label]
+        if cat_id_elegida == "MANUAL":
+            pub_cat_id = st.text_input("Ingresá el ID de Categoría MeLi (ej: MLA4765)", value=cat_meli_id or "MLA4765", key="pub_cat_manual_input")
+            ruta_manual_verif = obtener_nombre_categoria_meli(pub_cat_id.strip())
+            st.caption(f"📁 Ruta verificada: **{ruta_manual_verif}**")
+        else:
+            pub_cat_id = cat_id_elegida
         
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
@@ -1280,6 +1343,8 @@ with tabs[5]:
             st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
         elif not pub_catalog_id.strip():
             st.error("❌ Se requiere un Catalog Product ID válido.")
+        elif not pub_cat_id.strip():
+            st.error("❌ Se requiere seleccionar o ingresar una Categoría válida.")
         else:
             access_token_clean = st.session_state["access_token"].strip()
             pictures_payload = []
