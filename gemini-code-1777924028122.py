@@ -616,7 +616,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v160.0 Multi-Photo, Video & Description Edition)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v161.0 External MLA Extractor Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -918,11 +918,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (MULTIFOTO, VIDEO Y DESCRIPCIÓN)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (EXTRACTOR EXTERNO MLA)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Dinámico con Fotos, Video y Descripción)")
-    st.caption("Armado automático e integral de atributos, hasta 10 fotos, video de YouTube y descripción para Mercado Libre.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Inteligente MLA)")
+    st.caption("Cargá un producto por EAN/SKU o pegá un código/URL MLA externo para extraer todos sus datos automáticamente.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -941,28 +941,64 @@ with tabs[5]:
 
     c_b1, c_b2 = st.columns([3, 1])
     with c_b1:
-        query_builder = st.text_input("Código EAN / SKU / MLA para Sumar a Catálogo", key="q_builder")
+        query_builder = st.text_input("Código EAN / SKU o ID/URL MLA Externo para Extraer Datos", key="q_builder")
     with c_b2:
         st.write("")
-        btn_armar_ficha = st.button("⚡ CARGAR PRODUCTO", type="primary", use_container_width=True)
+        btn_armar_ficha = st.button("⚡ EXTRAER Y CARGAR", type="primary", use_container_width=True)
 
-    # OBTENCIÓN DINÁMICA DE DATOS DESDE LOS ARCHIVOS
+    # VARIABLES POR DEFECTO
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
     pvp_sugerido_b = round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0
 
     cat_product_id = "MLA27874272"
     cat_meli_id = "MLA4765"
-    
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
-    
-    # Descripción inicial automática basada en el producto
-    descripcion_dinamica = f"Excelente {desc_gold_b if desc_gold_b else 'producto'} de alta calidad.\n\n- Modelo: {modelo_dinamico}\n- Estructura resistente y duradera.\n- Fácil armado con manual incluido.\n- Garantía de fábrica de 90 días."
+    descripcion_dinamica = f"Excelente producto de alta calidad.\n\n- Estructura resistente y duradera.\n- Garantía oficial de fábrica."
 
     dim_ancho, dim_alto, dim_prof, peso_facturable = buscar_datos_en_matriz_completa(query_builder)
 
+    # EXTRACCIÓN INTELIGENTE DESDE UN MLA EXTERNO O CATÁLOGO
     type_inp, clean_val = extraer_id_catalogo_o_ean_input(query_builder)
-    if type_inp == "EAN":
+    
+    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
+        with st.spinner(f"Extrayendo datos en vivo desde la publicación externa {clean_val}..."):
+            try:
+                headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
+                res_item = requests.get(f"https://api.mercadolibre.com/items/{clean_val}", headers=headers_ext, timeout=8)
+                if res_item.status_code == 200:
+                    item_data = res_item.json()
+                    family_name_dinamico = item_data.get("title", family_name_dinamico)[:60]
+                    cat_meli_id = item_data.get("category_id", cat_meli_id)
+                    pvp_sugerido_b = float(item_data.get("price", pvp_sugerido_b))
+                    
+                    # Extraer atributos de dimensiones y modelo
+                    for attr in item_data.get("attributes", []):
+                        attr_id = attr.get("id")
+                        val_name = attr.get("value_name")
+                        if attr_id == "MODEL":
+                            modelo_dinamico = val_name
+                        elif attr_id == "HEIGHT":
+                            dim_alto = val_name
+                        elif attr_id == "WIDTH":
+                            dim_ancho = val_name
+                        elif attr_id == "DEPTH":
+                            dim_prof = val_name
+
+                    # Buscar catalog_product_id si lo tuviera asociado
+                    if item_data.get("catalog_product_id"):
+                        cat_product_id = item_data.get("catalog_product_id")
+
+                # Extraer descripción real de la publicación externa
+                res_desc = requests.get(f"https://api.mercadolibre.com/items/{clean_val}/description", headers=headers_ext, timeout=8)
+                if res_desc.status_code == 200:
+                    txt_desc = res_desc.json().get("plain_text", "")
+                    if txt_desc:
+                        descripcion_dinamica = txt_desc
+            except Exception as e:
+                st.warning(f"No se pudo extraer totalmente el MLA externo: {e}")
+
+    elif type_inp == "EAN":
         try:
             res_cat = requests.get(
                 f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}",
@@ -978,28 +1014,15 @@ with tabs[5]:
         except Exception:
             pass
 
-    # Si ingresó un ID o URL de otra publicación (MLA), intentamos traer su descripción real de la API de MeLi
-    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
-        try:
-            res_desc_api = requests.get(
-                f"https://api.mercadolibre.com/items/{clean_val}/description",
-                headers={"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {},
-                timeout=5
-            )
-            if res_desc_api.status_code == 200:
-                texto_api = res_desc_api.json().get("plain_text", "")
-                if texto_api:
-                    descripcion_dinamica = texto_api
-        except Exception:
-            pass
-
     st.markdown("---")
-    if found_gold_b:
-        st.success(f"🎯 **Datos Sincronizados:** `{desc_gold_b}` | Costo Base: **${costo_gold_b:,.2f}** | PVP Sugerido: **${pvp_sugerido_b:,.2f}**")
+    if type_inp == "CATALOG_ID" and clean_val.startswith("MLA"):
+        st.success(f"🌐 **Datos extraídos con éxito del MLA Externo:** `{family_name_dinamico}` | Precio: **${pvp_sugerido_b:,.2f}**")
+    elif found_gold_b:
+        st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
-        st.warning(f"⚠️ El código `{query_builder}` no se encontró en la Lista Gold.")
+        st.warning(f"⚠️ Código ingresado en modo manual o libre.")
 
-    # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE (LOGÍSTICA)
+    # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE
     st.subheader("📦 Datos de Logística & Embalaje del Paquete")
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
     with p_col1:
@@ -1033,7 +1056,7 @@ with tabs[5]:
 
     st.markdown("---")
 
-    # FORZAMOS LA ACTUALIZACIÓN DEL SESSION_STATE PARA SINCRONIZAR LOS INPUTS
+    # FORZAR ACTUALIZACIÓN DE ESTADO EN TIEMPO REAL
     st.session_state["pub_family_name_dyn"] = family_name_dinamico
     st.session_state["pub_model_dyn"] = modelo_dinamico
     st.session_state["pub_pvp_dyn"] = float(pvp_sugerido_b)
@@ -1044,7 +1067,7 @@ with tabs[5]:
     st.session_state["pub_prof_dyn"] = dim_prof
     st.session_state["pub_desc_dyn"] = descripcion_dinamica
 
-    # FORMULARIO DE PUBLICACIÓN 100% DINÁMICO (CON HASTA 10 FOTOS, VIDEO Y DESCRIPCIÓN)
+    # FORMULARIO DE PUBLICACIÓN
     f_col1, f_col2 = st.columns(2)
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
@@ -1052,7 +1075,6 @@ with tabs[5]:
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", value="Centro Estant", key="pub_brand_dyn")
         
-        # NUEVO: Selector de múltiples imágenes (hasta 10)
         archivos_imagenes_subidos = st.file_uploader(
             "🖼️ Cargar Fotos del Producto (Hasta 10 imágenes JPG/PNG)", 
             type=["jpg", "jpeg", "png"], 
@@ -1062,8 +1084,7 @@ with tabs[5]:
         if archivos_imagenes_subidos:
             st.info(f"📁 {min(len(archivos_imagenes_subidos), 10)} de 10 imágenes seleccionadas.")
 
-        # NUEVO: Campo para Video de YouTube
-        pub_video_id = st.text_input("🎬 ID de Video de YouTube (Opcional, ej: dQw4w9WgXcQ)", value="", key="pub_video_dyn")
+        pub_video_id = st.text_input("🎬 ID de YouTube (Opcional, ej: dQw4w9WgXcQ)", value="", key="pub_video_dyn")
 
     with f_col2:
         pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
@@ -1079,9 +1100,8 @@ with tabs[5]:
             pub_prof = st.text_input("Profundidad Producto", key="pub_prof_dyn")
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
-    # NUEVO: Área de texto para la descripción del producto
     st.markdown("---")
-    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Sincronizada o Editable)", height=150, key="pub_desc_dyn")
+    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Extraída o Editable)", height=150, key="pub_desc_dyn")
 
     st.markdown("---")
     if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
@@ -1093,10 +1113,9 @@ with tabs[5]:
             access_token_clean = st.session_state["access_token"].strip()
             pictures_payload = []
 
-            # Subida iterativa de hasta 10 fotos a la API de MeLi
             if archivos_imagenes_subidos:
-                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes a los servidores de Mercado Libre..."):
-                    for idx, img_file in enumerate(archivos_imagenes_subidos[:10]):
+                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes a Mercado Libre..."):
+                    for img_file in archivos_imagenes_subidos[:10]:
                         try:
                             url_upload = "https://api.mercadolibre.com/pictures/items/upload"
                             headers_img = {"Authorization": f"Bearer {access_token_clean}"}
@@ -1104,14 +1123,12 @@ with tabs[5]:
                             
                             res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
                             if res_img.status_code in [200, 201]:
-                                img_resp_json = res_img.json()
-                                pic_id = img_resp_json.get("id")
+                                pic_id = res_img.json().get("id")
                                 if pic_id:
                                     pictures_payload.append({"id": pic_id})
                         except Exception:
                             pass
 
-            # Si no subió ninguna o hubo error, colocamos una por defecto de respaldo
             if not pictures_payload:
                 pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
 
@@ -1148,7 +1165,6 @@ with tabs[5]:
                 ]
             }
 
-            # Si se indicó un ID de video de YouTube válido, lo agregamos al payload del producto
             if pub_video_id.strip():
                 payload_post["video_id"] = pub_video_id.strip()
 
@@ -1165,7 +1181,6 @@ with tabs[5]:
                         item_id = data_created.get("id")
                         permalink = data_created.get("permalink")
 
-                        # Publicamos también la descripción oficial asociada al item creado
                         if item_id and pub_descripcion.strip():
                             try:
                                 requests.post(
@@ -1183,7 +1198,5 @@ with tabs[5]:
                     else:
                         err_resp = res_api.json() if res_api.content else {}
                         st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
-                        if "cause" in err_resp:
-                            st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
             except Exception as e:
                 st.error(f"Error de conexión: {e}")
