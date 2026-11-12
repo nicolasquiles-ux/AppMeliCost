@@ -645,7 +645,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v164.0 Package Dimensions API Extractor)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v165.0 Fixed Syntax Edition)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -996,12 +996,10 @@ with tabs[5]:
     dim_prof_val = "30 cm"
     peso_facturable_val = "10.0 kg"
 
-    # Intentar buscar primero en la Matriz local por si existe el EAN/SKU
     found_mat_b, _, _, _, _, _, desc_mat_b = buscar_datos_en_matriz(query_builder)
     if found_mat_b:
         dim_ancho_val, dim_alto_val, dim_prof_val, peso_facturable_val = buscar_datos_en_matriz_completa(query_builder)
 
-    # EXTRACCIÓN INTELIGENTE DESDE URL COMPLETA O CÓDIGO MLA EXTERNO (INCLUYENDO DIMENSIONES DE PAQUETE)
     parsed_meli = extraer_ids_meli_avanzado(query_builder)
     exito_extraccion_externa = False
 
@@ -1013,7 +1011,6 @@ with tabs[5]:
             i_id = parsed_meli["item_id"]
             pvp_buybox = None
 
-            # 1. Consultar /products/{catalog_id}
             if c_id:
                 try:
                     res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
@@ -1036,7 +1033,6 @@ with tabs[5]:
                             if pic_url and pic_url not in urls_fotos_extraidas:
                                 urls_fotos_extraidas.append(pic_url)
 
-                        # Extraer dimensiones de paquete oficiales del catálogo
                         for attr in prod_data.get("attributes", []):
                             aid = attr.get("id")
                             vname = attr.get("value_name")
@@ -1065,7 +1061,6 @@ with tabs[5]:
                 except Exception:
                     pass
 
-            # 2. Consultar /items/{item_id} (Dimensiones de envío en el shipping / package, atributos y video)
             if i_id:
                 try:
                     res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
@@ -1086,11 +1081,9 @@ with tabs[5]:
                         if item_data.get("video_id"):
                             video_id_extraido = str(item_data["video_id"]).strip()
 
-                        # Extraer dimensiones directamente del objeto shipping de Mercado Envíos si existe
                         shipping_info = item_data.get("shipping", {})
                         dimensions_str = shipping_info.get("dimensions")
                         if dimensions_str and isinstance(dimensions_str, str):
-                            # Formato típico de MeLi shipping dimensions: "HxWxL,W" (ej: "10x20x30,1500" o similar)
                             parts = dimensions_str.split(",")
                             if len(parts) >= 1:
                                 box_dims = parts[0].split("x")
@@ -1144,7 +1137,6 @@ with tabs[5]:
     else:
         st.warning(f"⚠️ Código ingresado en modo manual o sin coincidencia directa.")
 
-    # BLOQUE DE VISUALIZACIÓN DE MEDIDAS Y PESO DEL PAQUETE EXTRAÍDAS
     st.subheader("📦 Datos de Logística & Embalaje de la Caja (API MeLi)")
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
     with p_col1:
@@ -1176,7 +1168,6 @@ with tabs[5]:
         </div>
         """, unsafe_allow_html=True)
 
-    # VISTA PREVIA DE FOTOS Y VIDEO EXTRAÍDOS
     if urls_fotos_extraidas or video_id_extraido:
         st.markdown("---")
         st.subheader("🖼️ Multimedia Clonada de la Publicación")
@@ -1197,7 +1188,6 @@ with tabs[5]:
 
     st.markdown("---")
 
-    # FORZAR ACTUALIZACIÓN DE ESTADO EN TIEMPO REAL
     st.session_state["pub_family_name_dyn"] = family_name_dinamico
     st.session_state["pub_brand_dyn"] = marca_dinamica
     st.session_state["pub_model_dyn"] = modelo_dinamico
@@ -1210,7 +1200,6 @@ with tabs[5]:
     st.session_state["pub_desc_dyn"] = descripcion_dinamica
     st.session_state["pub_video_dyn"] = video_id_extraido
 
-    # FORMULARIO DE PUBLICACIÓN
     f_col1, f_col2 = st.columns(2)
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
@@ -1348,5 +1337,5 @@ with tabs[5]:
                         st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
                         if "cause" in err_resp:
                             st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
-                    except Exception as e:
+            except Exception as e:
                 st.error(f"Error de conexión: {e}")
