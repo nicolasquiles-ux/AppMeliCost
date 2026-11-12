@@ -682,7 +682,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v168.0 Interactive Category Dropdown & Predictor)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v169.0 Robust External MLA Extraction & Category Dropdown)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -984,11 +984,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (INTERACTIVE CATEGORY DROPDOWN)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (ROBUST EXTRACTION + CATEGORY DROPDOWN)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Selector Desplegable de Categoría)")
-    st.caption("Elegí fácilmente la categoría correcta desde el desplegable sugerido por Mercado Libre o ingresá un ID manual.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total por MLA/Catálogo + Selector de Categoría)")
+    st.caption("Extrae automáticamente fotos, títulos, medidas y PVP de cualquier link o ID MLA, permitiéndote cambiar la categoría fácilmente.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1018,7 +1018,7 @@ with tabs[5]:
     etiqueta_precio_origen = "PVP Sugerido (Lista Gold)" if found_gold_b else "PVP Base"
 
     cat_product_id = "MLA27874272"
-    cat_meli_id = ""
+    cat_meli_id = "MLA4765"
     marca_dinamica = "Centro Estant"
     modelo_dinamico = art_gold_b if art_gold_b else "Standard"
     family_name_dinamico = desc_gold_b[:60].strip() if desc_gold_b else "Artículo Centro Estant"
@@ -1040,12 +1040,24 @@ with tabs[5]:
     exito_extraccion_externa = False
 
     if parsed_meli["tipo"] == "MELI_URL_OR_ID":
-        with st.spinner("Extrayendo categoría, medidas, fotos, video y PVP desde Mercado Libre..."):
+        with st.spinner("Extrayendo datos, categoría, fotos, video y PVP desde Mercado Libre..."):
             headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
             
             c_id = parsed_meli["catalog_id"]
             i_id = parsed_meli["item_id"]
             pvp_buybox = None
+
+            # 1. Si ingresó un ID de ítem directamente (ej. MLA3343768358), lo consultamos primero para asegurar fotos e info
+            if i_id and not c_id:
+                try:
+                    res_item_direct = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
+                    if res_item_direct.status_code == 200:
+                        it_data = res_item_direct.json()
+                        exito_extraccion_externa = True
+                        if it_data.get("catalog_product_id"):
+                            c_id = it_data.get("catalog_product_id")
+                except Exception:
+                    pass
 
             if c_id:
                 try:
@@ -1116,7 +1128,7 @@ with tabs[5]:
                             pvp_sugerido_b = float(item_data["price"])
                             etiqueta_precio_origen = "💲 PVP Publicación Referencia"
                         
-                        if item_data.get("catalog_product_id"):
+                        if item_data.get("catalog_product_id") and cat_product_id == "MLA27874272":
                             cat_product_id = item_data.get("catalog_product_id")
                             try:
                                 res_prod_ref = requests.get(f"https://api.mercadolibre.com/products/{cat_product_id}", headers=headers_ext, timeout=5)
@@ -1180,19 +1192,16 @@ with tabs[5]:
 
     # ARMAR LISTA DESPLEGABLE DE CATEGORÍAS (PREDICTOR + EXTRAÍDA + FRECUENTES + MANUAL)
     sugerencias_pred = predecir_categorias_meli(family_name_dinamico)
-    opciones_categorias_dict = {}  # {etiqueta_legible: category_id}
+    opciones_categorias_dict = {}
 
-    # 1. Priorizar sugerencias del predictor oficial de MeLi según el título del producto
     for cid, ruta in sugerencias_pred:
         etiqueta = f"{ruta} ({cid})"
         opciones_categorias_dict[etiqueta] = cid
 
-    # 2. Agregar la categoría que vino en la API si no estaba ya en el predictor
     if cat_meli_id and cat_meli_id not in opciones_categorias_dict.values():
         ruta_api = obtener_nombre_categoria_meli(cat_meli_id)
         opciones_categorias_dict[f"{ruta_api} ({cat_meli_id}) [Detectada en API]"] = cat_meli_id
 
-    # 3. Agregar categorías frecuentes de hogar/muebles de respaldo
     categorias_frecuentes = [
         ("MLA4765", "Hogar, Muebles y Jardín > Muebles para el Hogar > Alacenas"),
         ("MLA3872", "Hogar, Muebles y Jardín > Muebles para el Hogar > Bajo Mesadas"),
@@ -1208,16 +1217,12 @@ with tabs[5]:
         if cid_f not in opciones_categorias_dict.values():
             opciones_categorias_dict[f"{ruta_f} ({cid_f})"] = cid_f
 
-    # 4. Opción para escribir código manual
     opciones_categorias_dict["✏️ Ingresar otro ID de categoría manualmente..."] = "MANUAL"
-
     lista_etiquetas_cat = list(opciones_categorias_dict.keys())
-    categoria_inicial_label = lista_etiquetas_cat[0]
-    nombre_categoria_legible = categoria_inicial_label
 
     st.markdown("---")
     if exito_extraccion_externa:
-        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
+        st.success(f"🌐 **Extracción Exitosa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | Fotos: **{len(urls_fotos_extraidas)}** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
