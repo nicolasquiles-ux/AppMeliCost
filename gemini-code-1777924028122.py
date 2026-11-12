@@ -164,6 +164,24 @@ if code_auth and not st.session_state["access_token"]:
             st.query_params.clear()
             st.rerun()
 
+@st.cache_data(ttl=3600)
+def obtener_nombre_categoria_meli(category_id: str) -> str:
+    """Consulta la API de MeLi para obtener la ruta completa y legible de la categoría."""
+    if not category_id or not str(category_id).startswith("MLA"):
+        return category_id
+    try:
+        res = requests.get(f"https://api.mercadolibre.com/categories/{category_id}", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            path_from_root = data.get("path_from_root", [])
+            nombres = [cat.get("name", "") for cat in path_from_root if cat.get("name")]
+            if nombres:
+                return " > ".join(nombres)
+            return data.get("name", category_id)
+    except Exception:
+        pass
+    return category_id
+
 def procesar_archivo_lista_gold(file):
     try:
         if file.name.endswith('.csv'):
@@ -645,7 +663,7 @@ with st.sidebar:
 st.markdown("""
     <div class="header-box">
         <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v166.0 Catalog Category Validator)</div>
+        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v167.0 Human-Readable Category Display)</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -947,11 +965,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (SECURE CATALOG CATEGORY VALIDATOR)
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO (HUMAN-READABLE CATEGORY)
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total con Validador de Categoría de Catálogo)")
-    st.caption("Valida y corrige automáticamente la categoría oficial de catálogo para evitar rechazos o anulaciones de publicaciones.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total con Nombre Legible de Categoría)")
+    st.caption("Visualiza el nombre completo y oficial de la categoría antes de enviar para garantizar el éxito del alta.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1003,7 +1021,7 @@ with tabs[5]:
     exito_extraccion_externa = False
 
     if parsed_meli["tipo"] == "MELI_URL_OR_ID":
-        with st.spinner("Extrayendo categoría de catálogo, medidas, fotos, video y PVP desde Mercado Libre..."):
+        with st.spinner("Extrayendo categoría, medidas, fotos, video y PVP desde Mercado Libre..."):
             headers_ext = {"Authorization": f"Bearer {st.session_state['access_token'].strip()}"} if st.session_state["access_token"] else {}
             
             c_id = parsed_meli["catalog_id"]
@@ -1019,7 +1037,6 @@ with tabs[5]:
                         cat_product_id = c_id
                         family_name_dinamico = prod_data.get("name", family_name_dinamico)[:60]
                         
-                        # EXTRACCIÓN CRÍTICA DE CATEGORÍA OFICIAL DE CATÁLOGO
                         if prod_data.get("category_id"):
                             cat_meli_id = prod_data.get("category_id")
 
@@ -1073,7 +1090,6 @@ with tabs[5]:
                         if not family_name_dinamico or family_name_dinamico == "Artículo Centro Estant":
                             family_name_dinamico = item_data.get("title", family_name_dinamico)[:60]
                         
-                        # Priorizamos la categoría oficial del ítem de referencia si está disponible
                         if item_data.get("category_id"):
                             cat_meli_id = item_data.get("category_id")
                         
@@ -1083,7 +1099,6 @@ with tabs[5]:
                         
                         if item_data.get("catalog_product_id"):
                             cat_product_id = item_data.get("catalog_product_id")
-                            # Refrescar categoría si el catálogo tiene una específica
                             try:
                                 res_prod_ref = requests.get(f"https://api.mercadolibre.com/products/{cat_product_id}", headers=headers_ext, timeout=5)
                                 if res_prod_ref.status_code == 200:
@@ -1144,9 +1159,12 @@ with tabs[5]:
                 except Exception:
                     pass
 
+    # OBTENER EL NOMBRE LEGIBLE DE LA CATEGORÍA PARA MOSTRARLO EN PANTALLA
+    nombre_categoria_legible = obtener_nombre_categoria_meli(cat_meli_id)
+
     st.markdown("---")
     if exito_extraccion_externa:
-        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | Categoría Oficial: **`{cat_meli_id}`** | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
+        st.success(f"🌐 **Extracción Completa:** `{family_name_dinamico}` | Catálogo: **`{cat_product_id}`** | 📁 **Categoría: {nombre_categoria_legible}** (`{cat_meli_id}`) | **{etiqueta_precio_origen}: ${pvp_sugerido_b:,.2f}**")
     elif found_gold_b:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{desc_gold_b}` | Costo: **${costo_gold_b:,.2f}**")
     else:
@@ -1218,7 +1236,11 @@ with tabs[5]:
     f_col1, f_col2 = st.columns(2)
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
-        pub_cat_id = st.text_input("📂 ID Categoría MeLi (category_id - Validado con Catálogo)", key="pub_cat_id_dyn")
+        
+        # VISUALIZACIÓN AMIGABLE: Mostramos el nombre legible de la categoría arriba del input del código
+        st.markdown(f"📂 **Categoría Oficial Detectada:** <span style='color: #0284c7; font-weight: 600;'>{nombre_categoria_legible}</span>", unsafe_allow_html=True)
+        pub_cat_id = st.text_input("ID Categoría MeLi (category_id interno)", key="pub_cat_id_dyn")
+        
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
         
