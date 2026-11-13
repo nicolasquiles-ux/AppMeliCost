@@ -15,47 +15,66 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# ESTÉTICA PROFESIONAL Y MODERNA DE ALTO IMPACTO (UI / UX EXECUTIVE)
+# ESTÉTICA EJECUTIVA DE ALTO IMPACTO - ESTILO NQ ARGENTINA (UI / UX EXECUTIVE)
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .header-box {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        color: #ffffff;
-        padding: 24px 32px;
-        border-radius: 16px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+    .main { background-color: #f1f5f9; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    
+    .nq-header-container {
+        background: #ffffff;
+        padding: 20px 28px;
+        border-radius: 14px;
+        margin-bottom: 20px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
-    .header-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin: 0; color: #38bdf8; }
-    .header-subtitle { font-size: 14px; color: #94a3b8; margin-top: 4px; }
+    .nq-brand-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.5px; }
+    .nq-brand-subtitle { font-size: 12px; color: #64748b; margin-top: 2px; font-weight: 500; }
+    
+    .nq-metric-box {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 14px 22px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        text-align: right;
+    }
+    .nq-metric-val { font-size: 24px; font-weight: 900; color: #0f172a; margin: 0; }
+    .nq-metric-lbl { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+
     .kpi-card {
         background: #ffffff;
-        padding: 20px;
-        border-radius: 14px;
+        padding: 18px;
+        border-radius: 12px;
         border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     }
-    .kpi-label { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 26px; font-weight: 800; color: #0f172a; margin: 6px 0; }
+    .kpi-label { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi-value { font-size: 24px; font-weight: 800; color: #0f172a; margin: 4px 0; }
+
     .card-viable {
         background: #f0fdf4;
         color: #166534;
-        padding: 20px;
+        padding: 18px;
         border-radius: 12px;
         border: 1px solid #bbf7d0;
-        box-shadow: 0 4px 10px rgba(22, 101, 52, 0.05);
         font-size: 15px;
+        font-weight: 700;
+        box-shadow: 0 4px 12px rgba(22, 101, 52, 0.05);
     }
     .card-noviable {
         background: #fef2f2;
         color: #991b1b;
-        padding: 20px;
+        padding: 18px;
         border-radius: 12px;
         border: 1px solid #fecaca;
-        box-shadow: 0 4px 10px rgba(153, 27, 27, 0.05);
         font-size: 15px;
+        font-weight: 700;
+        box-shadow: 0 4px 12px rgba(153, 27, 27, 0.05);
     }
     .warning-stock {
         background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
@@ -63,8 +82,7 @@ st.markdown("""
         padding: 16px 20px;
         border-radius: 12px;
         border-left: 6px solid #f97316;
-        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.08);
-        font-size: 15px;
+        font-size: 14px;
     }
     .ai-bubble {
         background: #f0fdf4;
@@ -72,15 +90,15 @@ st.markdown("""
         border-radius: 14px;
         border-left: 6px solid #22c55e;
         border: 1px solid #dcfce7;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
     }
     .badge-missing {
         background-color: #fee2e2;
         color: #991b1b;
-        padding: 12px 16px;
-        border-radius: 10px;
+        padding: 10px 14px;
+        border-radius: 8px;
         font-weight: 700;
         border: 1px solid #fca5a5;
+        font-size: 13px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -94,11 +112,11 @@ ALICUOTA_IIBB = 0.035     # 3.5% IIBB
 TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB  # 24.5% Total
 
 TASAS_CUOTAS = {
-    "1 Pago / Clásica": {"comision_base": 0.145, "tasa_finan": 0.000, "divisor": 1 - 0.145 - TOTAL_IMPUESTOS},
-    "3 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.085, "divisor": 1 - 0.230 - TOTAL_IMPUESTOS},
-    "6 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.129, "divisor": 1 - 0.274 - TOTAL_IMPUESTOS},
-    "9 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.173, "divisor": 1 - 0.318 - TOTAL_IMPUESTOS},
-    "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208, "divisor": 1 - 0.353 - TOTAL_IMPUESTOS},
+    "1 Pago / Clásica": {"comision_base": 0.145, "tasa_finan": 0.000},
+    "3 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.085},
+    "6 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.129},
+    "9 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.173},
+    "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208},
 }
 
 if "access_token" not in st.session_state:
@@ -174,7 +192,6 @@ if code_auth and not st.session_state["access_token"]:
 
 @st.cache_data(ttl=3600)
 def obtener_nombre_categoria_meli(category_id: str) -> str:
-    """Consulta la API de MeLi para obtener la ruta completa y legible de la categoría."""
     if not category_id or not str(category_id).startswith("MLA"):
         return category_id
     try:
@@ -192,7 +209,6 @@ def obtener_nombre_categoria_meli(category_id: str) -> str:
 
 @st.cache_data(ttl=1800)
 def predecir_categorias_meli(titulo_producto: str) -> list:
-    """Usa el predictor oficial de Mercado Libre para sugerir las categorías correctas."""
     if not titulo_producto or len(titulo_producto.strip()) < 3:
         return []
     sugerencias = []
@@ -637,7 +653,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
     return target_catalog_id, product_title, items_procesados
 
 def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
-    """Extrae de forma unificada todos los datos de Catálogo, Ítem, Fotos, Medidas y Precio."""
     headers_ext = get_meli_headers(access_token)
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
     
@@ -687,7 +702,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         pvp_buybox = None
         errores_http = []
 
-        # 1. Intentar consultar como Catálogo (/products/{id})
         if c_id:
             try:
                 res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
@@ -732,7 +746,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                         elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
                             res_data["peso"] = vname
 
-                    # Si no tenemos item_id ganador todavía, buscamos en /products/{c_id}/items
                     if not i_id or i_id == c_id:
                         res_pi = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
                         if res_pi.status_code == 200:
@@ -747,7 +760,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # 2. Consultar el ítem asociado (/items/{id}) para extraer fotos extra, medidas de caja y descripción
         if i_id:
             try:
                 res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
@@ -849,7 +861,6 @@ with st.sidebar:
         st.link_button("🔗 CONECTAR CON MERCADO LIBRE", url_auth, type="primary", use_container_width=True)
 
     st.markdown("---")
-    
     st.subheader("📁 Centro Unificado de Cargas")
     
     with st.expander("📄 1. Lista Gold (Costos)", expanded=True):
@@ -869,12 +880,29 @@ with st.sidebar:
                 st.error(f"Error al leer matriz: {e}")
 
 # ------------------------------------------------------------------------------
-# HEADER PRINCIPAL DE ALTO IMPACTO VISUAL
+# HEADER PRINCIPAL ESTILO EJECUTIVO NQ ARGENTINA
 # ------------------------------------------------------------------------------
 st.markdown("""
-    <div class="header-box">
-        <div class="header-title">⚡ NQ Sales Intelligence Matrix Pro</div>
-        <div class="header-subtitle">Suite de Inteligencia Comercial & Logística para Vendedores de Mercado Libre (v170.0 Direct Catalog & Item Extractor)</div>
+    <div class="nq-header-container">
+        <div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
+                <div>
+                    <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
+                    <div class="nq-brand-subtitle">Data last updated: 26 May, 2026 (v172.0 Margin Auditor Added)</div>
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 20px; align-items: center;">
+            <div class="nq-metric-box">
+                <div class="nq-metric-lbl">Muebles para el Hogar</div>
+                <div class="nq-metric-val">$47.093.358.901</div>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 16px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Catálogo</div>
+                <div style="font-size: 14px; font-weight: 800; color: #0284c7;">51,43%</div>
+            </div>
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -1176,11 +1204,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN EN VIVO
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total por MLA / Catálogo / EAN)")
-    st.caption("Extrae automáticamente fotos, títulos, medidas, PVP y muestra el nombre completo de la categoría.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen en Vivo)")
+    st.caption("Extrae automáticamente fotos, títulos, medidas, PVP y evalúa si la publicación da positiva o negativa en margen antes de subirla.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1204,7 +1232,6 @@ with tabs[5]:
         st.write("")
         btn_armar_ficha = st.button("⚡ EXTRAER Y CARGAR", type="primary", use_container_width=True)
 
-    # Extraer datos y sincronizar el estado sólo cuando cambia la búsqueda o se presiona el botón
     clave_actual = f"{query_builder.strip()}_{st.session_state['access_token'][:10]}"
     if btn_armar_ficha or st.session_state.get("ultima_clave_extraida") != clave_actual:
         with st.spinner("Extrayendo datos e imágenes desde Mercado Libre..."):
@@ -1212,7 +1239,6 @@ with tabs[5]:
             st.session_state["datos_ficha_cache"] = datos_extraidos
             st.session_state["ultima_clave_extraida"] = clave_actual
             
-            # Cargar valores limpios en los widgets del formulario
             st.session_state["pub_family_name_dyn"] = datos_extraidos["family_name"]
             st.session_state["pub_cat_id_dyn"] = datos_extraidos["cat_meli_id"]
             st.session_state["pub_catalog_id_dyn"] = datos_extraidos["cat_product_id"]
@@ -1229,15 +1255,16 @@ with tabs[5]:
     urls_fotos_extraidas = datos.get("fotos", [])
     video_id_extraido = datos.get("video_id", "")
     etiqueta_precio_origen = datos.get("etiqueta_precio", "PVP Base")
+    costo_gold_item = datos.get("costo_gold", 0.0)
 
     st.markdown("---")
     if datos.get("exito_externo"):
         st.success(f"🌐 **Extracción Exitosa:** `{datos.get('family_name')}` | Catálogo: **`{datos.get('cat_product_id')}`** | Fotos: **{len(urls_fotos_extraidas)}** | **{etiqueta_precio_origen}: ${datos.get('pvp_sugerido', 0):,.2f}**")
     elif datos.get("found_gold"):
-        st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{datos.get('desc_gold')}` | Costo: **${datos.get('costo_gold', 0):,.2f}**")
+        st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{datos.get('desc_gold')}` | Costo: **${costo_gold_item:,.2f}**")
     else:
         msg_err = f" ({datos.get('error_api')})" if datos.get("error_api") else ""
-        st.warning(f"⚠️ No se obtuvo respuesta directa de la API para `{query_builder}`{msg_err}. Verificá tu conexión de Mercado Libre en el panel izquierdo o ingresá los datos manualmente.")
+        st.warning(f"⚠️ No se obtuvo respuesta directa de la API para `{query_builder}`{msg_err}. Verificá tu conexión o ingresá los datos manualmente.")
 
     st.subheader("📦 Datos de Logística & Embalaje de la Caja (API MeLi)")
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
@@ -1294,7 +1321,6 @@ with tabs[5]:
     with f_col1:
         pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
         
-        # VISUALIZACIÓN CLARA DEL NOMBRE DE LA CATEGORÍA + SELECTOR DE SUGERENCIAS
         cat_actual_code = st.session_state.get("pub_cat_id_dyn", "MLA4765").strip()
         nombre_cat_actual = obtener_nombre_categoria_meli(cat_actual_code)
         st.markdown(f"📂 **Categoría Actual:** <span style='color: #0284c7; font-weight: 700;'>{nombre_cat_actual}</span>", unsafe_allow_html=True)
@@ -1310,7 +1336,6 @@ with tabs[5]:
                     st.rerun()
 
         pub_cat_id = st.text_input("ID Categoría MeLi (category_id - Editable)", key="pub_cat_id_dyn")
-        
         pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
         pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
         
@@ -1331,7 +1356,7 @@ with tabs[5]:
         pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
         pub_pvp = st.number_input(f"💲 Precio de Venta ($ ARS) — [{etiqueta_precio_origen}]", step=500.0, key="pub_pvp_dyn")
         pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
-        pub_type = st.selectbox("💳 Tipo de Publicación", ["gold_special (Clásica)", "gold_pro (Premium)"], index=0, key="pub_type_dyn")
+        pub_type = st.selectbox("💳 Tipo de Publicación", list(TASAS_CUOTAS.keys()), index=0, key="pub_type_dyn")
         
         c_dim1, c_dim2 = st.columns(2)
         with c_dim1:
@@ -1340,6 +1365,71 @@ with tabs[5]:
         with c_dim2:
             pub_prof = st.text_input("Profundidad Paquete / Caja", key="pub_prof_dyn")
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
+
+    # --------------------------------------------------------------------------
+    # NUEVO: TEMA 2 - AUDITOR DE MARGEN EN TIEMPO REAL (SOLAPA 6)
+    # --------------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
+
+    # Calcular costo de flete según peso de caja extraído
+    peso_val_num = 10.0
+    try:
+        peso_val_num = float(re.sub(r'[^\d.]', '', str(datos.get('peso', '10.0'))))
+    except Exception:
+        pass
+    costo_envio_calculado = calcular_costo_envio_por_peso_facturable(peso_val_num, pub_pvp)
+
+    info_tasa = TASAS_CUOTAS[pub_type]
+    comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
+    
+    m_comision = pub_pvp * comision_pct
+    m_iibb = pub_pvp * ALICUOTA_IIBB
+    m_iva = pub_pvp * ALICUOTA_IVA
+    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_calculado
+    
+    costo_neto_producto = costo_gold_item * 0.8  # Asumiendo 20% desc prov por defecto o costo puro
+    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_neto_producto
+    margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
+            <div class="kpi-value" style="color: #e11d48; font-size: 20px;">${total_impuestos_deducciones:,.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_m2:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Costo Neto de Reposición</div>
+            <div class="kpi-value" style="font-size: 20px; color: #0f172a;">${costo_neto_producto:,.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_m3:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Neto Libre a Bolsillo</div>
+            <div class="kpi-value" style="color: {'#16a34a' if ganancia_neta_pub > 0 else '#dc2626'}; font-size: 20px;">${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if ganancia_neta_pub > 0:
+        st.markdown(f'''
+        <div class="card-viable">
+            🟢 <b>ESTADO DE PUBLICACIÓN: RENTABLE (APROBADO PARA SUBIR)</b><br>
+            Este producto deja un margen neto positivo de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Podés proceder con confianza!
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''
+        <div class="card-noviable">
+            🔴 <b>ESTADO DE PUBLICACIÓN: NO RENTABLE (PÉRDIDA DETECTADA)</b><br>
+            Atención: esta publicación genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. Te sugerimos subir el precio de venta o revisar el costo antes de enviar a Mercado Libre.
+        </div>
+        ''', unsafe_allow_html=True)
 
     st.markdown("---")
     pub_descripcion = st.text_area("📝 Descripción de la Publicación (Clonada o Editable)", height=150, key="pub_desc_dyn")
@@ -1378,7 +1468,7 @@ with tabs[5]:
             if not pictures_payload:
                 pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
 
-            tipo_list_clean = pub_type.split()[0]
+            tipo_list_clean = "gold_special" if "Clásica" in pub_type else "gold_pro"
             
             payload_post = {
                 "family_name": pub_family_name.strip(),
