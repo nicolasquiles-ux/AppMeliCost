@@ -285,6 +285,50 @@ def calcular_costo_envio_por_peso_facturable(peso_facturable: float, pvp: float 
 
     return float(costos[col_idx])
 
+def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
+    """Convierte strings de dimensiones ('120 cm', '600 mm', '1.2 m') a centímetros."""
+    if not val_str:
+        return default_cm
+    s = str(val_str).lower().strip()
+    m = re.search(r'(\d+(?:[.,]\d+)?)', s)
+    if not m:
+        return default_cm
+    num = float(m.group(1).replace(',', '.'))
+    if 'mm' in s:
+        return num / 10.0
+    if re.search(r'\bm\b', s) and 'cm' not in s and 'mm' not in s:
+        return num * 100.0
+    return num
+
+def parsear_valor_kg(val_str: str, default_kg: float = 0.0) -> float:
+    """Convierte strings de peso ('10.5 kg', '8500 g') a kilogramos."""
+    if not val_str:
+        return default_kg
+    s = str(val_str).lower().strip()
+    m = re.search(r'(\d+(?:[.,]\d+)?)', s)
+    if not m:
+        return default_kg
+    num = float(m.group(1).replace(',', '.'))
+    if 'g' in s and 'kg' not in s:
+        return num / 1000.0
+    return num
+
+def calcular_flete_desde_embalaje(alto_str: str, ancho_str: str, prof_str: str, peso_str: str, pvp: float) -> tuple:
+    """Calcula el costo de envío oficial usando el mayor entre peso real y peso volumétrico (cm3 / 4000)."""
+    alto_cm = parsear_valor_cm(alto_str, 0.0)
+    ancho_cm = parsear_valor_cm(ancho_str, 0.0)
+    prof_cm = parsear_valor_cm(prof_str, 0.0)
+    peso_real_kg = parsear_valor_kg(peso_str, 0.0)
+
+    peso_vol_kg = round((alto_cm * ancho_cm * prof_cm) / 4000.0, 2) if (alto_cm > 0 and ancho_cm > 0 and prof_cm > 0) else 0.0
+    peso_facturable = max(peso_real_kg, peso_vol_kg)
+    
+    if peso_facturable <= 0:
+        return 0.0, 0.0, 0.0, False
+
+    costo_env = calcular_costo_envio_por_peso_facturable(peso_facturable, pvp)
+    return costo_env, peso_facturable, peso_vol_kg, True
+
 def procesar_matriz_articulos_df(df, pvp_referencia: float = 208000.0):
     try:
         df['Ancho_cm'] = df['Ancho caja (mm)'] / 10
@@ -334,15 +378,15 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
             
             if not matches.empty:
                 row = matches.iloc[0]
-                peso_real_total = float(row.get('Peso embalado (Kg)', 10.0))
+                peso_fact_total = float(row.get('Peso_Facturable_Kg', row.get('Peso embalado (Kg)', 10.0)))
                 cant_cajas = int(row.get('Cantidad Cajas', 1)) if pd.notna(row.get('Cantidad Cajas')) and int(row.get('Cantidad Cajas', 1)) > 0 else 1
                 
-                peso_unitario = peso_real_total / cant_cajas if cant_cajas > 0 else peso_real_total
+                peso_unitario = peso_fact_total / cant_cajas if cant_cajas > 0 else peso_fact_total
                 tarifa_unit = calcular_costo_envio_por_peso_facturable(peso_unitario, pvp_referencia)
                 costo_env_total = tarifa_unit * cant_cajas
                 
                 desc = str(row.get('Descripcion', ''))
-                return True, costo_env_total, peso_unitario, peso_real_total, tarifa_unit, cant_cajas, desc
+                return True, costo_env_total, peso_unitario, peso_fact_total, tarifa_unit, cant_cajas, desc
 
     return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
@@ -672,17 +716,23 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         "descripcion": "Excelente producto de alta calidad.\n\n- Estructura resistente y duradera.\n- Garantía oficial de fábrica.",
         "fotos": [],
         "video_id": "",
-        "ancho": "120 cm",
-        "alto": "60 cm",
-        "prof": "30 cm",
-        "peso": "10.0 kg",
-        "costo_envio_matriz": 39090.0
+        "ancho": "",
+        "alto": "",
+        "prof": "",
+        "peso": "",
+        "tiene_datos_embalaje": False,
+        "origen_embalaje": "",
+        "found_matriz": False,
+        "cant_cajas_matriz": 1
     }
 
-    found_mat_b, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_builder, res_data["pvp_sugerido"])
+    found_mat_b, costo_env_m, _, _, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, res_data["pvp_sugerido"])
     if found_mat_b:
         res_data["ancho"], res_data["alto"], res_data["prof"], res_data["peso"] = buscar_datos_en_matriz_completa(query_builder)
-        res_data["costo_envio_matriz"] = costo_env_m
+        res_data["found_matriz"] = True
+        res_data["cant_cajas_matriz"] = cant_cajas_m
+        res_data["tiene_datos_embalaje"] = True
+        res_data["origen_embalaje"] = f"Matriz Logística ({cant_cajas_m} bulto/s)"
 
     parsed_meli = extraer_ids_meli_avanzado(query_builder)
     
@@ -739,14 +789,15 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                             res_data["marca"] = vname
                         elif aid == "MODEL" and vname:
                             res_data["modelo"] = vname
-                        elif aid in ["PACKAGE_HEIGHT", "HEIGHT"] and vname:
-                            res_data["alto"] = vname
-                        elif aid in ["PACKAGE_WIDTH", "WIDTH"] and vname:
-                            res_data["ancho"] = vname
-                        elif aid in ["PACKAGE_LENGTH", "PACKAGE_DEPTH", "DEPTH", "LENGTH"] and vname:
-                            res_data["prof"] = vname
-                        elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
-                            res_data["peso"] = vname
+                        elif not found_mat_b:
+                            if aid in ["PACKAGE_HEIGHT", "HEIGHT"] and vname:
+                                res_data["alto"] = vname
+                            elif aid in ["PACKAGE_WIDTH", "WIDTH"] and vname:
+                                res_data["ancho"] = vname
+                            elif aid in ["PACKAGE_LENGTH", "PACKAGE_DEPTH", "DEPTH", "LENGTH"] and vname:
+                                res_data["prof"] = vname
+                            elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
+                                res_data["peso"] = vname
 
                     if not i_id or i_id == c_id:
                         res_pi = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
@@ -780,22 +831,23 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                     if item_data.get("video_id"):
                         res_data["video_id"] = str(item_data["video_id"]).strip()
 
-                    shipping_info = item_data.get("shipping", {})
-                    dimensions_str = shipping_info.get("dimensions")
-                    if dimensions_str and isinstance(dimensions_str, str):
-                        parts = dimensions_str.split(",")
-                        if len(parts) >= 1:
-                            box_dims = parts[0].split("x")
-                            if len(box_dims) == 3:
-                                res_data["alto"] = f"{box_dims[0]} cm"
-                                res_data["ancho"] = f"{box_dims[1]} cm"
-                                res_data["prof"] = f"{box_dims[2]} cm"
-                        if len(parts) >= 2:
-                            try:
-                                g_weight = float(parts[1]) / 1000.0
-                                res_data["peso"] = f"{g_weight:.1f} kg"
-                            except Exception:
-                                pass
+                    if not found_mat_b:
+                        shipping_info = item_data.get("shipping", {})
+                        dimensions_str = shipping_info.get("dimensions")
+                        if dimensions_str and isinstance(dimensions_str, str):
+                            parts = dimensions_str.split(",")
+                            if len(parts) >= 1:
+                                box_dims = parts[0].split("x")
+                                if len(box_dims) == 3:
+                                    res_data["alto"] = f"{box_dims[0]} cm"
+                                    res_data["ancho"] = f"{box_dims[1]} cm"
+                                    res_data["prof"] = f"{box_dims[2]} cm"
+                            if len(parts) >= 2:
+                                try:
+                                    g_weight = float(parts[1]) / 1000.0
+                                    res_data["peso"] = f"{g_weight:.1f} kg"
+                                except Exception:
+                                    pass
 
                     for pic in item_data.get("pictures", [])[:10]:
                         if len(res_data["fotos"]) >= 10:
@@ -811,14 +863,15 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                             res_data["marca"] = vname
                         elif aid == "MODEL" and vname:
                             res_data["modelo"] = vname
-                        elif aid in ["PACKAGE_HEIGHT", "HEIGHT"] and vname:
-                            res_data["alto"] = vname
-                        elif aid in ["PACKAGE_WIDTH", "WIDTH"] and vname:
-                            res_data["ancho"] = vname
-                        elif aid in ["PACKAGE_LENGTH", "PACKAGE_DEPTH", "DEPTH", "LENGTH"] and vname:
-                            res_data["prof"] = vname
-                        elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
-                            res_data["peso"] = vname
+                        elif not found_mat_b:
+                            if aid in ["PACKAGE_HEIGHT", "HEIGHT"] and vname:
+                                res_data["alto"] = vname
+                            elif aid in ["PACKAGE_WIDTH", "WIDTH"] and vname:
+                                res_data["ancho"] = vname
+                            elif aid in ["PACKAGE_LENGTH", "PACKAGE_DEPTH", "DEPTH", "LENGTH"] and vname:
+                                res_data["prof"] = vname
+                            elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
+                                res_data["peso"] = vname
 
                     res_desc = requests.get(f"https://api.mercadolibre.com/items/{i_id}/description", headers=headers_ext, timeout=8)
                     if res_desc.status_code == 200:
@@ -833,13 +886,17 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if not res_data["exito_externo"] and errores_http:
             res_data["error_api"] = " | ".join(errores_http)
 
-    # Recalcular flete estimado en base al peso obtenido
-    try:
-        p_num = float(re.sub(r'[^\d.]', '', str(res_data["peso"])))
-        if not found_mat_b:
-            res_data["costo_envio_matriz"] = calcular_costo_envio_por_peso_facturable(p_num, res_data["pvp_sugerido"])
-    except Exception:
-        pass
+    # Verificar si se obtuvieron datos reales de embalaje desde API MeLi o Matriz
+    if not found_mat_b:
+        _, p_fact_chk, _, ok_emb = calcular_flete_desde_embalaje(
+            res_data["alto"], res_data["ancho"], res_data["prof"], res_data["peso"], res_data["pvp_sugerido"]
+        )
+        if ok_emb:
+            res_data["tiene_datos_embalaje"] = True
+            res_data["origen_embalaje"] = f"API Mercado Libre ({p_fact_chk:.1f} kg facturables)"
+        else:
+            res_data["tiene_datos_embalaje"] = False
+            res_data["origen_embalaje"] = "Sin datos de embalaje en API/Matriz"
 
     return res_data
 
@@ -899,7 +956,7 @@ st.markdown("""
                 <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
                 <div>
                     <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 26 May, 2026 (v173.0 Cost-Editable Margin Auditor)</div>
+                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v174.0 Auto-Freight & Margin Auditor)</div>
                 </div>
             </div>
         </div>
@@ -1214,11 +1271,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN CON COSTO EDITABLE
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN CON FLETE AUTOMÁTICO
 # ------------------------------------------------------------------------------
 with tabs[5]:
     st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen)")
-    st.caption("Extrae automáticamente fotos, títulos, medidas, PVP e ingresá tu costo para verificar rentabilidad antes de publicar.")
+    st.caption("El envío se calcula automáticamente desde los datos del embalaje. Solo ingresá el costo del producto para verificar rentabilidad.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1258,12 +1315,12 @@ with tabs[5]:
             st.session_state["pub_altura_dyn"] = datos_extraidos["alto"]
             st.session_state["pub_ancho_dyn"] = datos_extraidos["ancho"]
             st.session_state["pub_prof_dyn"] = datos_extraidos["prof"]
+            st.session_state["pub_peso_dyn"] = datos_extraidos["peso"]
             st.session_state["pub_desc_dyn"] = datos_extraidos["descripcion"]
             st.session_state["pub_video_dyn"] = datos_extraidos["video_id"]
             
-            # Precargar costo base y flete en los inputs editables de auditoría
+            # Precargar costo base si está en Lista Gold (si no, queda en 0 para ingreso manual)
             st.session_state["pub_costo_base_input"] = float(datos_extraidos["costo_gold"]) if datos_extraidos["found_gold"] else 0.0
-            st.session_state["pub_costo_envio_input"] = float(datos_extraidos["costo_envio_matriz"])
 
     datos = st.session_state.get("datos_ficha_cache", {})
     urls_fotos_extraidas = datos.get("fotos", [])
@@ -1279,34 +1336,34 @@ with tabs[5]:
         msg_err = f" ({datos.get('error_api')})" if datos.get("error_api") else ""
         st.warning(f"⚠️ No se obtuvo respuesta directa de la API para `{query_builder}`{msg_err}. Verificá tu conexión o ingresá los datos manualmente.")
 
-    st.subheader("📦 Datos de Logística & Embalaje de la Caja (API MeLi)")
+    st.subheader("📦 Datos de Logística & Embalaje de la Caja (API MeLi / Matriz)")
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
     with p_col1:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">Ancho de Caja</div>
-            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{datos.get('ancho', '120 cm')}</div>
+            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{st.session_state.get('pub_ancho_dyn') or 'Sin dato'}</div>
         </div>
         """, unsafe_allow_html=True)
     with p_col2:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">Alto de Caja</div>
-            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{datos.get('alto', '60 cm')}</div>
+            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{st.session_state.get('pub_altura_dyn') or 'Sin dato'}</div>
         </div>
         """, unsafe_allow_html=True)
     with p_col3:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">Profundidad Caja</div>
-            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{datos.get('prof', '30 cm')}</div>
+            <div class="kpi-value" style="font-size: 20px; color: #0284c7;">{st.session_state.get('pub_prof_dyn') or 'Sin dato'}</div>
         </div>
         """, unsafe_allow_html=True)
     with p_col4:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">Peso Embalado</div>
-            <div class="kpi-value" style="font-size: 20px; color: #16a34a;">{datos.get('peso', '10.0 kg')}</div>
+            <div class="kpi-value" style="font-size: 20px; color: #16a34a;">{st.session_state.get('pub_peso_dyn') or 'Sin dato'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1377,39 +1434,38 @@ with tabs[5]:
             pub_ancho = st.text_input("Ancho Paquete / Caja", key="pub_ancho_dyn")
         with c_dim2:
             pub_prof = st.text_input("Profundidad Paquete / Caja", key="pub_prof_dyn")
-            pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
+            pub_peso_embalado = st.text_input("Peso Paquete / Caja", key="pub_peso_dyn")
+            
+        pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
     # --------------------------------------------------------------------------
-    # AUDITOR DE MARGEN EN TIEMPO REAL CON COSTO EDITABLE (SOLAPA 6)
+    # AUDITOR DE MARGEN EN TIEMPO REAL (FLETE AUTOMÁTICO + ÚNICO DATO MANUAL: COSTO)
     # --------------------------------------------------------------------------
     st.markdown("---")
-    st.subheader("💡 Auditoría de Margen en Vivo (Ingresá tu Costo para Evaluar)")
+    st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
 
-    c_aud1, c_aud2, c_aud3 = st.columns(3)
-    with c_aud1:
-        costo_base_ingresado = st.number_input(
-            "🏷️ Costo Base del Artículo ($ ARS)", 
-            min_value=0.0, 
-            step=500.0, 
-            key="pub_costo_base_input",
-            help="Ingresá el costo de lista o de fábrica de este producto."
+    # 1. Cálculo automático del costo de envío desde los datos del embalaje
+    if datos.get("found_matriz"):
+        _, costo_envio_auto, peso_unit_m, peso_tot_m, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, pub_pvp)
+        tiene_embalaje = True
+        detalle_flete_txt = f"Calculado desde Matriz Logística ({cant_cajas_m} bulto/s · {peso_tot_m:.1f} kg facturables)"
+    else:
+        costo_envio_auto, peso_fact_calc, peso_vol_calc, tiene_embalaje = calcular_flete_desde_embalaje(
+            pub_altura, pub_ancho, pub_prof, pub_peso_embalado, pub_pvp
         )
-    with c_aud2:
-        desc_prov_pub = st.number_input(
-            "📉 Descuento Proveedor (%)", 
-            min_value=0.0, 
-            max_value=100.0, 
-            value=20.0 if datos.get("found_gold") else 0.0, 
-            step=0.5,
-            key="pub_desc_prov_input"
-        )
-    with c_aud3:
-        costo_envio_ingresado = st.number_input(
-            "🚚 Costo de Envío / Flete ($ ARS)", 
-            min_value=0.0, 
-            step=500.0, 
-            key="pub_costo_envio_input"
-        )
+        if tiene_embalaje:
+            detalle_flete_txt = f"Calculado desde embalaje API ({peso_fact_calc:.1f} kg facturables · Vol: {peso_vol_calc:.1f} kg)"
+        else:
+            detalle_flete_txt = "Sin datos de embalaje en API/Matriz (Flete = $0)"
+
+    # 2. Único dato manual requerido: Costo del Producto
+    costo_producto_manual = st.number_input(
+        "🏷️ Costo del Producto ($ ARS) — [Único dato manual para evaluar rentabilidad]", 
+        min_value=0.0, 
+        step=500.0, 
+        key="pub_costo_base_input",
+        help="Ingresá tu costo neto del artículo. El envío, comisiones e impuestos se calculan automáticamente."
+    )
 
     info_tasa = TASAS_CUOTAS[pub_type]
     comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
@@ -1417,25 +1473,26 @@ with tabs[5]:
     m_comision = pub_pvp * comision_pct
     m_iibb = pub_pvp * ALICUOTA_IIBB
     m_iva = pub_pvp * ALICUOTA_IVA
-    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_ingresado
+    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_auto
     
-    costo_neto_producto = costo_base_ingresado * (1.0 - (desc_prov_pub / 100.0))
-    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_neto_producto
+    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_producto_manual
     margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
 
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
-            <div class="kpi-value" style="color: #e11d48; font-size: 20px;">${total_impuestos_deducciones:,.2f}</div>
+            <div class="kpi-label">Envío Calculado (Embalaje)</div>
+            <div class="kpi-value" style="color: #0284c7; font-size: 20px;">${costo_envio_auto:,.2f}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{detalle_flete_txt}</div>
         </div>
         """, unsafe_allow_html=True)
     with col_m2:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-label">Costo Efectivo del Producto</div>
-            <div class="kpi-value" style="font-size: 20px; color: #0f172a;">${costo_neto_producto:,.2f}</div>
+            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
+            <div class="kpi-value" style="color: #e11d48; font-size: 20px;">${total_impuestos_deducciones:,.2f}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Comis. {comision_pct*100:.1f}% + Impuestos 24.5% + Envío</div>
         </div>
         """, unsafe_allow_html=True)
     with col_m3:
@@ -1443,24 +1500,25 @@ with tabs[5]:
         <div class="kpi-card">
             <div class="kpi-label">Neto Libre a Bolsillo</div>
             <div class="kpi-value" style="color: {'#16a34a' if ganancia_neta_pub > 0 else '#dc2626'}; font-size: 20px;">${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">PVP ${pub_pvp:,.0f} - Deducciones - Costo</div>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if costo_base_ingresado <= 0:
-        st.info("ℹ️ **Ingresá el Costo Base del Artículo** arriba para calcular la rentabilidad real de esta publicación.")
+    if costo_producto_manual <= 0:
+        st.info("ℹ️ **Ingresá el Costo del Producto ($ ARS)** arriba para verificar al instante si la publicación da positiva o negativa en margen.")
     elif ganancia_neta_pub > 0:
         st.markdown(f'''
         <div class="card-viable">
-            🟢 <b>ESTADO DE PUBLICACIÓN: RENTABLE (APROBADO PARA SUBIR)</b><br>
-            Este producto deja un margen neto positivo de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Podés proceder con confianza!
+            🟢 <b>PUBLICACIÓN POSITIVA EN MARGEN (RENTABLE):</b><br>
+            Deja una ganancia neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Aprobada para subir!
         </div>
         ''', unsafe_allow_html=True)
     else:
         st.markdown(f'''
         <div class="card-noviable">
-            🔴 <b>ESTADO DE PUBLICACIÓN: NO RENTABLE (PÉRDIDA DETECTADA)</b><br>
-            Atención: esta publicación genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. Te sugerimos subir el precio de venta o revisar el costo antes de enviar a Mercado Libre.
+            🔴 <b>PUBLICACIÓN NEGATIVA EN MARGEN (PÉRDIDA):</b><br>
+            Genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. No conviene publicarla a este precio/costo.
         </div>
         ''', unsafe_allow_html=True)
 
