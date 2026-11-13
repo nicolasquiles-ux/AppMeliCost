@@ -501,20 +501,17 @@ def extraer_ids_meli_avanzado(input_raw: str):
     raw = unquote(input_raw.strip())
     res = {"tipo": "TEXT", "catalog_id": "", "item_id": "", "alt_item_id": "", "ean": "", "raw": raw}
 
-    # 1. URL de catálogo (/p/MLA12345 o /p/MLAU12345)
     cat_match = re.search(r'/p/(MLA[A-Z]?\d+)', raw, re.IGNORECASE)
     if cat_match:
         res["catalog_id"] = cat_match.group(1).upper()
         res["tipo"] = "MELI_URL_OR_ID"
 
-    # 2. URL de publicación o parámetro item_id / wid (/MLA-12345, /MLAU12345, item_id=MLAU12345)
     item_match = re.search(r'(?:item_id=|wid=|/)(MLA-?[A-Z]?\d+)', raw, re.IGNORECASE)
     if item_match:
         clean_it = item_match.group(1).upper().replace("-", "")
         res["item_id"] = clean_it
         res["tipo"] = "MELI_URL_OR_ID"
 
-    # 3. Código ingresado directamente (ej. MLA65326966, MLA-65326966, MLAU3281483229)
     if not res["catalog_id"] and not res["item_id"]:
         direct_mla = re.match(r'^(MLA-?[A-Z]?\d+)$', raw, re.IGNORECASE)
         if direct_mla:
@@ -523,7 +520,6 @@ def extraer_ids_meli_avanzado(input_raw: str):
             res["item_id"] = clean_mla
             res["catalog_id"] = clean_mla
 
-    # Si el ID tiene letra intermedia (como MLAU3281483229), guardar también la versión numérica pura (MLA3281483229) como fallback
     for key_id in ["item_id", "catalog_id"]:
         val_id = res[key_id]
         if val_id and re.match(r'^MLA[A-Z]\d+$', val_id):
@@ -705,6 +701,67 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
 
     return target_catalog_id, product_title, items_procesados
 
+def extraer_web_fallback_catalogo(catalog_id: str, res_data: dict):
+    """Fallback público de página de catálogo cuando la API devuelve HTTP 403."""
+    if not catalog_id:
+        return False
+    url_web = f"https://www.mercadolibre.com.ar/p/{catalog_id}"
+    headers_web = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "es-AR,es;q=0.9"
+    }
+    try:
+        r = requests.get(url_web, headers=headers_web, timeout=10)
+        if r.status_code == 200 and len(r.text) > 1000:
+            html = r.text
+            encontrado = False
+            # Extraer título
+            m_title = re.search(r'<meta property="og:title" content="([^"]+)"', html)
+            if not m_title:
+                m_title = re.search(r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>([^<]+)</h1>', html)
+            if m_title:
+                tit = m_title.group(1).replace(" | MercadoLibre", "").strip()
+                if tit and "Mercado Libre" not in tit:
+                    res_data["family_name"] = tit[:60]
+                    encontrado = True
+
+            # Extraer imagen principal y galería
+            for m_img in re.findall(r'https://http2\.mlstatic\.com/D_NQ_NP_[^"\'\s>]+\.(?:jpg|webp|png)', html):
+                clean_img = m_img.replace("-O.webp", "-O.jpg").replace("-F.webp", "-O.jpg")
+                if clean_img not in res_data["fotos"] and len(res_data["fotos"]) < 10:
+                    res_data["fotos"].append(clean_img)
+
+            # Extraer precio desde JSON-LD o meta tags
+            m_price = re.search(r'"price"\s*:\s*(\d+(?:\.\d+)?)', html)
+            if m_price:
+                p_val = float(m_price.group(1))
+                if p_val > 100:
+                    res_data["pvp_sugerido"] = p_val
+                    res_data["etiqueta_precio"] = "🏆 PVP Catálogo Público"
+                    encontrado = True
+
+            # Extraer marca y modelo desde JSON-LD
+            m_brand = re.search(r'"brand"\s*:\s*\{\s*"@type"\s*:\s*"Brand"\s*,\s*"name"\s*:\s*"([^"]+)"', html)
+            if m_brand:
+                res_data["marca"] = m_brand.group(1).strip()
+
+            # Extraer category_id si figura en el HTML
+            m_cat = re.search(r'"category_id"\s*:\s*"(MLA\d+)"', html)
+            if m_cat:
+                res_data["cat_meli_id"] = m_cat.group(1)
+
+            # Extraer un item_id activo de esa página de catálogo (ej. MLA1456789012)
+            m_item = re.search(r'"item_id"\s*:\s*"(MLA\d+)"', html)
+            if m_item:
+                return m_item.group(1)
+
+            if encontrado:
+                res_data["exito_externo"] = True
+                res_data["cat_product_id"] = catalog_id
+    except Exception:
+        pass
+    return None
+
 def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
     headers_ext = get_meli_headers(access_token)
     found_gold_b, costo_gold_b, desc_gold_b, art_gold_b = buscar_costo_y_titulo_en_lista_gold(query_builder)
@@ -826,7 +883,39 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # 2. Probar endpoints de Ítem (/items/{id}) con todos los candidatos (ej. MLAU3281483229 y MLA3281483229)
+        # 2. Si /products/ dio HTTP 403/404, buscar publicaciones activas del catálogo vía /sites/MLA/search?catalog_product_id=
+        if not resolved_item_id and parsed_meli["catalog_id"]:
+            cat_q = parsed_meli["catalog_id"]
+            try:
+                res_search_cat = requests.get(
+                    f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={cat_q}",
+                    headers=headers_ext,
+                    timeout=8
+                )
+                if res_search_cat.status_code == 200:
+                    s_results = res_search_cat.json().get("results", [])
+                    if s_results:
+                        first_hit = s_results[0]
+                        resolved_item_id = first_hit.get("id", "")
+                        res_data["exito_externo"] = True
+                        res_data["cat_product_id"] = cat_q
+                        if first_hit.get("title"):
+                            res_data["family_name"] = first_hit["title"][:60]
+                        if first_hit.get("category_id"):
+                            res_data["cat_meli_id"] = first_hit["category_id"]
+                        if first_hit.get("price"):
+                            res_data["pvp_sugerido"] = float(first_hit["price"])
+                            res_data["etiqueta_precio"] = "🏆 PVP Catálogo (Search API)"
+            except Exception:
+                pass
+
+        # 3. Si aún no se resolvió ningún item_id (por bloqueo 403 sin token), extraer desde la web pública /p/{catalog_id}
+        if not resolved_item_id and parsed_meli["catalog_id"]:
+            web_item_id = extraer_web_fallback_catalogo(parsed_meli["catalog_id"], res_data)
+            if web_item_id:
+                resolved_item_id = web_item_id
+
+        # 4. Probar endpoints de Ítem (/items/{id}) con el item_id resuelto y candidatos
         if resolved_item_id and resolved_item_id not in i_candidates:
             i_candidates.insert(0, resolved_item_id)
 
@@ -845,6 +934,8 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                         res_data["etiqueta_precio"] = "💲 PVP Publicación Referencia"
                     if item_data.get("catalog_product_id"):
                         res_data["cat_product_id"] = item_data["catalog_product_id"]
+                    elif parsed_meli["catalog_id"]:
+                        res_data["cat_product_id"] = parsed_meli["catalog_id"]
                     if item_data.get("video_id"):
                         res_data["video_id"] = str(item_data["video_id"]).strip()
 
@@ -904,7 +995,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if not res_data["exito_externo"] and errores_http:
             res_data["error_api"] = " | ".join(errores_http)
 
-    # Verificar si se obtuvieron datos reales de embalaje desde API MeLi o Matriz
     if not found_mat_b:
         _, p_fact_chk, _, ok_emb = calcular_flete_desde_embalaje(
             res_data["alto"], res_data["ancho"], res_data["prof"], res_data["peso"], res_data["pvp_sugerido"]
@@ -974,7 +1064,7 @@ st.markdown("""
                 <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
                 <div>
                     <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v175.0 MLAU Support & Auto-Freight)</div>
+                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v176.0 Catalog Search & Public Fallback)</div>
                 </div>
             </div>
         </div>
