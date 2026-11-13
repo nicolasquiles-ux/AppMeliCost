@@ -286,7 +286,6 @@ def calcular_costo_envio_por_peso_facturable(peso_facturable: float, pvp: float 
     return float(costos[col_idx])
 
 def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
-    """Convierte strings de dimensiones ('120 cm', '600 mm', '1.2 m') a centímetros."""
     if not val_str:
         return default_cm
     s = str(val_str).lower().strip()
@@ -301,7 +300,6 @@ def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
     return num
 
 def parsear_valor_kg(val_str: str, default_kg: float = 0.0) -> float:
-    """Convierte strings de peso ('10.5 kg', '8500 g') a kilogramos."""
     if not val_str:
         return default_kg
     s = str(val_str).lower().strip()
@@ -314,7 +312,6 @@ def parsear_valor_kg(val_str: str, default_kg: float = 0.0) -> float:
     return num
 
 def calcular_flete_desde_embalaje(alto_str: str, ancho_str: str, prof_str: str, peso_str: str, pvp: float) -> tuple:
-    """Calcula el costo de envío oficial usando el mayor entre peso real y peso volumétrico (cm3 / 4000)."""
     alto_cm = parsear_valor_cm(alto_str, 0.0)
     ancho_cm = parsear_valor_cm(ancho_str, 0.0)
     prof_cm = parsear_valor_cm(prof_str, 0.0)
@@ -502,25 +499,37 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
 
 def extraer_ids_meli_avanzado(input_raw: str):
     raw = unquote(input_raw.strip())
-    res = {"tipo": "TEXT", "catalog_id": "", "item_id": "", "ean": "", "raw": raw}
+    res = {"tipo": "TEXT", "catalog_id": "", "item_id": "", "alt_item_id": "", "ean": "", "raw": raw}
 
-    cat_match = re.search(r'/p/(MLA\d+)', raw, re.IGNORECASE)
+    # 1. URL de catálogo (/p/MLA12345 o /p/MLAU12345)
+    cat_match = re.search(r'/p/(MLA[A-Z]?\d+)', raw, re.IGNORECASE)
     if cat_match:
         res["catalog_id"] = cat_match.group(1).upper()
         res["tipo"] = "MELI_URL_OR_ID"
 
-    item_match = re.search(r'(?:item_id=|wid=|/MLA-?)(\d+)', raw, re.IGNORECASE)
+    # 2. URL de publicación o parámetro item_id / wid (/MLA-12345, /MLAU12345, item_id=MLAU12345)
+    item_match = re.search(r'(?:item_id=|wid=|/)(MLA-?[A-Z]?\d+)', raw, re.IGNORECASE)
     if item_match:
-        res["item_id"] = f"MLA{item_match.group(1)}"
+        clean_it = item_match.group(1).upper().replace("-", "")
+        res["item_id"] = clean_it
         res["tipo"] = "MELI_URL_OR_ID"
 
+    # 3. Código ingresado directamente (ej. MLA65326966, MLA-65326966, MLAU3281483229)
     if not res["catalog_id"] and not res["item_id"]:
-        direct_mla = re.match(r'^(MLA-?\d+)$', raw, re.IGNORECASE)
+        direct_mla = re.match(r'^(MLA-?[A-Z]?\d+)$', raw, re.IGNORECASE)
         if direct_mla:
             clean_mla = direct_mla.group(1).upper().replace("-", "")
             res["tipo"] = "MELI_URL_OR_ID"
             res["item_id"] = clean_mla
             res["catalog_id"] = clean_mla
+
+    # Si el ID tiene letra intermedia (como MLAU3281483229), guardar también la versión numérica pura (MLA3281483229) como fallback
+    for key_id in ["item_id", "catalog_id"]:
+        val_id = res[key_id]
+        if val_id and re.match(r'^MLA[A-Z]\d+$', val_id):
+            num_only = re.sub(r'^MLA[A-Z]', 'MLA', val_id)
+            if not res["alt_item_id"]:
+                res["alt_item_id"] = num_only
 
     if res["tipo"] == "MELI_URL_OR_ID":
         return res
@@ -749,12 +758,16 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             pass
 
     if parsed_meli["tipo"] == "MELI_URL_OR_ID":
-        c_id = parsed_meli["catalog_id"]
-        i_id = parsed_meli["item_id"]
+        c_candidates = [x for x in [parsed_meli["catalog_id"], parsed_meli["alt_item_id"]] if x]
+        i_candidates = [x for x in [parsed_meli["item_id"], parsed_meli["alt_item_id"]] if x]
         pvp_buybox = None
         errores_http = []
+        resolved_item_id = ""
 
-        if c_id:
+        # 1. Probar endpoints de Catálogo (/products/{id})
+        for c_id in c_candidates:
+            if res_data["exito_externo"]:
+                break
             try:
                 res_prod = requests.get(f"https://api.mercadolibre.com/products/{c_id}", headers=headers_ext, timeout=8)
                 if res_prod.status_code == 200:
@@ -775,7 +788,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                             res_data["pvp_sugerido"] = pvp_buybox
                             res_data["etiqueta_precio"] = "🏆 PVP Ganador de Catálogo (BuyBox)"
                         if bb_winner.get("item_id"):
-                            i_id = bb_winner["item_id"]
+                            resolved_item_id = bb_winner["item_id"]
 
                     for pic in prod_data.get("pictures", [])[:10]:
                         pic_url = pic.get("secure_url") or pic.get("url")
@@ -799,12 +812,12 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                             elif aid in ["PACKAGE_WEIGHT", "WEIGHT"] and vname:
                                 res_data["peso"] = vname
 
-                    if not i_id or i_id == c_id:
+                    if not resolved_item_id:
                         res_pi = requests.get(f"https://api.mercadolibre.com/products/{c_id}/items", headers=headers_ext, timeout=6)
                         if res_pi.status_code == 200:
                             pi_list = res_pi.json().get("results", [])
                             if pi_list:
-                                i_id = pi_list[0].get("item_id", "")
+                                resolved_item_id = pi_list[0].get("item_id", "")
                                 if not pvp_buybox and pi_list[0].get("price"):
                                     res_data["pvp_sugerido"] = float(pi_list[0]["price"])
                                     res_data["etiqueta_precio"] = "🏆 PVP Líder de Catálogo"
@@ -813,7 +826,11 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        if i_id:
+        # 2. Probar endpoints de Ítem (/items/{id}) con todos los candidatos (ej. MLAU3281483229 y MLA3281483229)
+        if resolved_item_id and resolved_item_id not in i_candidates:
+            i_candidates.insert(0, resolved_item_id)
+
+        for i_id in i_candidates:
             try:
                 res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
                 if res_item.status_code == 200:
@@ -878,6 +895,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                         txt_desc = res_desc.json().get("plain_text", "")
                         if txt_desc:
                             res_data["descripcion"] = txt_desc
+                    break
                 else:
                     errores_http.append(f"/items/{i_id} -> HTTP {res_item.status_code}")
             except Exception as e:
@@ -956,7 +974,7 @@ st.markdown("""
                 <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
                 <div>
                     <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v174.0 Auto-Freight & Margin Auditor)</div>
+                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v175.0 MLAU Support & Auto-Freight)</div>
                 </div>
             </div>
         </div>
@@ -1294,7 +1312,7 @@ with tabs[5]:
 
     c_b1, c_b2 = st.columns([3, 1])
     with c_b1:
-        query_builder = st.text_input("Código EAN / SKU o Link/ID MLA Externo para Extraer Datos", key="q_builder")
+        query_builder = st.text_input("Código EAN / SKU o Link/ID MLA / MLAU Externo para Extraer Datos", key="q_builder")
     with c_b2:
         st.write("")
         btn_armar_ficha = st.button("⚡ EXTRAER Y CARGAR", type="primary", use_container_width=True)
@@ -1319,7 +1337,6 @@ with tabs[5]:
             st.session_state["pub_desc_dyn"] = datos_extraidos["descripcion"]
             st.session_state["pub_video_dyn"] = datos_extraidos["video_id"]
             
-            # Precargar costo base si está en Lista Gold (si no, queda en 0 para ingreso manual)
             st.session_state["pub_costo_base_input"] = float(datos_extraidos["costo_gold"]) if datos_extraidos["found_gold"] else 0.0
 
     datos = st.session_state.get("datos_ficha_cache", {})
@@ -1444,7 +1461,6 @@ with tabs[5]:
     st.markdown("---")
     st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
 
-    # 1. Cálculo automático del costo de envío desde los datos del embalaje
     if datos.get("found_matriz"):
         _, costo_envio_auto, peso_unit_m, peso_tot_m, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, pub_pvp)
         tiene_embalaje = True
@@ -1458,7 +1474,6 @@ with tabs[5]:
         else:
             detalle_flete_txt = "Sin datos de embalaje en API/Matriz (Flete = $0)"
 
-    # 2. Único dato manual requerido: Costo del Producto
     costo_producto_manual = st.number_input(
         "🏷️ Costo del Producto ($ ARS) — [Único dato manual para evaluar rentabilidad]", 
         min_value=0.0, 
