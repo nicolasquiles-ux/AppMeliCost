@@ -675,12 +675,14 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         "ancho": "120 cm",
         "alto": "60 cm",
         "prof": "30 cm",
-        "peso": "10.0 kg"
+        "peso": "10.0 kg",
+        "costo_envio_matriz": 39090.0
     }
 
-    found_mat_b, _, _, _, _, _, _ = buscar_datos_en_matriz(query_builder)
+    found_mat_b, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_builder, res_data["pvp_sugerido"])
     if found_mat_b:
         res_data["ancho"], res_data["alto"], res_data["prof"], res_data["peso"] = buscar_datos_en_matriz_completa(query_builder)
+        res_data["costo_envio_matriz"] = costo_env_m
 
     parsed_meli = extraer_ids_meli_avanzado(query_builder)
     
@@ -831,6 +833,14 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if not res_data["exito_externo"] and errores_http:
             res_data["error_api"] = " | ".join(errores_http)
 
+    # Recalcular flete estimado en base al peso obtenido
+    try:
+        p_num = float(re.sub(r'[^\d.]', '', str(res_data["peso"])))
+        if not found_mat_b:
+            res_data["costo_envio_matriz"] = calcular_costo_envio_por_peso_facturable(p_num, res_data["pvp_sugerido"])
+    except Exception:
+        pass
+
     return res_data
 
 # ------------------------------------------------------------------------------
@@ -889,7 +899,7 @@ st.markdown("""
                 <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
                 <div>
                     <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 26 May, 2026 (v172.0 Margin Auditor Added)</div>
+                    <div class="nq-brand-subtitle">Data last updated: 26 May, 2026 (v173.0 Cost-Editable Margin Auditor)</div>
                 </div>
             </div>
         </div>
@@ -1204,11 +1214,11 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN EN VIVO
+# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN CON COSTO EDITABLE
 # ------------------------------------------------------------------------------
 with tabs[5]:
-    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen en Vivo)")
-    st.caption("Extrae automáticamente fotos, títulos, medidas, PVP y evalúa si la publicación da positiva o negativa en margen antes de subirla.")
+    st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen)")
+    st.caption("Extrae automáticamente fotos, títulos, medidas, PVP e ingresá tu costo para verificar rentabilidad antes de publicar.")
 
     opciones_ean_gold_pub = extraer_opciones_ean_lista_gold()
 
@@ -1250,18 +1260,21 @@ with tabs[5]:
             st.session_state["pub_prof_dyn"] = datos_extraidos["prof"]
             st.session_state["pub_desc_dyn"] = datos_extraidos["descripcion"]
             st.session_state["pub_video_dyn"] = datos_extraidos["video_id"]
+            
+            # Precargar costo base y flete en los inputs editables de auditoría
+            st.session_state["pub_costo_base_input"] = float(datos_extraidos["costo_gold"]) if datos_extraidos["found_gold"] else 0.0
+            st.session_state["pub_costo_envio_input"] = float(datos_extraidos["costo_envio_matriz"])
 
     datos = st.session_state.get("datos_ficha_cache", {})
     urls_fotos_extraidas = datos.get("fotos", [])
     video_id_extraido = datos.get("video_id", "")
     etiqueta_precio_origen = datos.get("etiqueta_precio", "PVP Base")
-    costo_gold_item = datos.get("costo_gold", 0.0)
 
     st.markdown("---")
     if datos.get("exito_externo"):
         st.success(f"🌐 **Extracción Exitosa:** `{datos.get('family_name')}` | Catálogo: **`{datos.get('cat_product_id')}`** | Fotos: **{len(urls_fotos_extraidas)}** | **{etiqueta_precio_origen}: ${datos.get('pvp_sugerido', 0):,.2f}**")
     elif datos.get("found_gold"):
-        st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{datos.get('desc_gold')}` | Costo: **${costo_gold_item:,.2f}**")
+        st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{datos.get('desc_gold')}` | Costo: **${datos.get('costo_gold', 0):,.2f}**")
     else:
         msg_err = f" ({datos.get('error_api')})" if datos.get("error_api") else ""
         st.warning(f"⚠️ No se obtuvo respuesta directa de la API para `{query_builder}`{msg_err}. Verificá tu conexión o ingresá los datos manualmente.")
@@ -1367,18 +1380,36 @@ with tabs[5]:
             pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
     # --------------------------------------------------------------------------
-    # NUEVO: TEMA 2 - AUDITOR DE MARGEN EN TIEMPO REAL (SOLAPA 6)
+    # AUDITOR DE MARGEN EN TIEMPO REAL CON COSTO EDITABLE (SOLAPA 6)
     # --------------------------------------------------------------------------
     st.markdown("---")
-    st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
+    st.subheader("💡 Auditoría de Margen en Vivo (Ingresá tu Costo para Evaluar)")
 
-    # Calcular costo de flete según peso de caja extraído
-    peso_val_num = 10.0
-    try:
-        peso_val_num = float(re.sub(r'[^\d.]', '', str(datos.get('peso', '10.0'))))
-    except Exception:
-        pass
-    costo_envio_calculado = calcular_costo_envio_por_peso_facturable(peso_val_num, pub_pvp)
+    c_aud1, c_aud2, c_aud3 = st.columns(3)
+    with c_aud1:
+        costo_base_ingresado = st.number_input(
+            "🏷️ Costo Base del Artículo ($ ARS)", 
+            min_value=0.0, 
+            step=500.0, 
+            key="pub_costo_base_input",
+            help="Ingresá el costo de lista o de fábrica de este producto."
+        )
+    with c_aud2:
+        desc_prov_pub = st.number_input(
+            "📉 Descuento Proveedor (%)", 
+            min_value=0.0, 
+            max_value=100.0, 
+            value=20.0 if datos.get("found_gold") else 0.0, 
+            step=0.5,
+            key="pub_desc_prov_input"
+        )
+    with c_aud3:
+        costo_envio_ingresado = st.number_input(
+            "🚚 Costo de Envío / Flete ($ ARS)", 
+            min_value=0.0, 
+            step=500.0, 
+            key="pub_costo_envio_input"
+        )
 
     info_tasa = TASAS_CUOTAS[pub_type]
     comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
@@ -1386,9 +1417,9 @@ with tabs[5]:
     m_comision = pub_pvp * comision_pct
     m_iibb = pub_pvp * ALICUOTA_IIBB
     m_iva = pub_pvp * ALICUOTA_IVA
-    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_calculado
+    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_ingresado
     
-    costo_neto_producto = costo_gold_item * 0.8  # Asumiendo 20% desc prov por defecto o costo puro
+    costo_neto_producto = costo_base_ingresado * (1.0 - (desc_prov_pub / 100.0))
     ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_neto_producto
     margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
 
@@ -1403,7 +1434,7 @@ with tabs[5]:
     with col_m2:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-label">Costo Neto de Reposición</div>
+            <div class="kpi-label">Costo Efectivo del Producto</div>
             <div class="kpi-value" style="font-size: 20px; color: #0f172a;">${costo_neto_producto:,.2f}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1416,7 +1447,9 @@ with tabs[5]:
         """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if ganancia_neta_pub > 0:
+    if costo_base_ingresado <= 0:
+        st.info("ℹ️ **Ingresá el Costo Base del Artículo** arriba para calcular la rentabilidad real de esta publicación.")
+    elif ganancia_neta_pub > 0:
         st.markdown(f'''
         <div class="card-viable">
             🟢 <b>ESTADO DE PUBLICACIÓN: RENTABLE (APROBADO PARA SUBIR)</b><br>
