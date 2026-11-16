@@ -23,9 +23,9 @@ st.markdown("""
     
     .meli-hero-banner {
         background: linear-gradient(135deg, #1b2056 0%, #2d3277 55%, #1e3a8a 100%);
-        padding: 24px 32px;
+        padding: 22px 30px;
         border-radius: 16px;
-        margin-bottom: 22px;
+        margin-bottom: 18px;
         border-bottom: 4px solid #ffe600;
         box-shadow: 0 10px 25px -5px rgba(27, 32, 86, 0.25);
         display: flex;
@@ -45,20 +45,20 @@ st.markdown("""
     .meli-logo-badge {
         background: #ffe600;
         color: #1b2056;
-        width: 54px;
-        height: 54px;
+        width: 52px;
+        height: 52px;
         border-radius: 14px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 900;
-        font-size: 21px;
+        font-size: 20px;
         letter-spacing: -0.8px;
         box-shadow: 0 4px 12px rgba(255, 230, 0, 0.35);
         flex-shrink: 0;
     }
     .meli-hero-title {
-        font-size: 24px;
+        font-size: 23px;
         font-weight: 800;
         color: #ffffff;
         margin: 0;
@@ -104,6 +104,34 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 6px;
+    }
+
+    /* ESTILOS DE BOTONES DE NAVEGACIÓN VISUALES */
+    div[data-testid="stHorizontalBlock"] .nav-btn-wrap button {
+        border-radius: 12px !important;
+        padding: 12px 10px !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05) !important;
+    }
+    div[data-testid="stHorizontalBlock"] .nav-btn-active button {
+        background: linear-gradient(135deg, #1b2056 0%, #2d3277 100%) !important;
+        color: #ffffff !important;
+        border: 1px solid #1b2056 !important;
+        border-bottom: 3px solid #ffe600 !important;
+        box-shadow: 0 6px 14px rgba(27, 32, 86, 0.22) !important;
+    }
+    div[data-testid="stHorizontalBlock"] .nav-btn-inactive button {
+        background: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    div[data-testid="stHorizontalBlock"] .nav-btn-inactive button:hover {
+        background: #eff6ff !important;
+        border-color: #3483fa !important;
+        color: #1b2056 !important;
+        transform: translateY(-1px);
     }
 
     .kpi-card {
@@ -193,6 +221,8 @@ if "search_query_mon" not in st.session_state:
     st.session_state["search_query_mon"] = "7798009181204"
 if "q_builder" not in st.session_state:
     st.session_state["q_builder"] = "MLA65326966"
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = 0
 
 def get_meli_headers(token: str = ""):
     headers = {
@@ -1191,19 +1221,37 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-tabs = st.tabs([
-    "1. 🧮 Simulación de Costos & Auditoría Neta",
-    "2. ⚡ Monitor & Control de Precios (Anti-Pérdida)",
-    "3. 📊 Monitor de Mercado & Alerta de Quiebre",
-    "4. 📦 Matriz de Artículos & Costos Logísticos",
-    "5. 🤖 Asistente IA (Preguntas & Reclamos)",
-    "6. 🚀 Publicador a Catálogo Definitivo"
-])
+# ------------------------------------------------------------------------------
+# NAVEGACIÓN VISUAL POR BOTONES (PILLS ESTILO MERCADO LIBRE)
+# ------------------------------------------------------------------------------
+MENU_ITEMS = [
+    ("🧮", "Costos & Margen"),
+    ("⚡", "Control Precios"),
+    ("📊", "Mercado & Stock"),
+    ("📦", "Matriz Logística"),
+    ("🤖", "Asistente IA"),
+    ("🚀", "Publicador")
+]
+
+nav_cols = st.columns(len(MENU_ITEMS), gap="small")
+for idx, (icono, titulo_corto) in enumerate(MENU_ITEMS):
+    with nav_cols[idx]:
+        es_activo = (st.session_state["active_tab"] == idx)
+        clase_btn = "nav-btn-wrap nav-btn-active" if es_activo else "nav-btn-wrap nav-btn-inactive"
+        st.markdown(f'<div class="{clase_btn}">', unsafe_allow_html=True)
+        if st.button(f"{icono} {titulo_corto}", key=f"nav_btn_{idx}", use_container_width=True):
+            st.session_state["active_tab"] = idx
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown("<hr style='margin: 10px 0 22px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
+
+tab_activa = st.session_state["active_tab"]
 
 # ------------------------------------------------------------------------------
-# TAB 1: SIMULACIÓN DE COSTOS & AUDITORÍA NETA
+# SECCIÓN 0: SIMULACIÓN DE COSTOS & AUDITORÍA NETA
 # ------------------------------------------------------------------------------
-with tabs[0]:
+if tab_activa == 0:
     st.header("🧮 Simulación de Costos & Auditoría Neta Real")
     st.caption("Cálculo preciso de rentabilidad libre a bolsillo descontando comisiones, IIBB, IVA (24.5%) y flete por bulto.")
 
@@ -1313,9 +1361,9 @@ with tabs[0]:
             st.markdown(f'<div class="card-noviable">🔴 <b>ALERTA ROJA (PÉRDIDA):</b> Esta publicación genera una pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 2: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
+# SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
 # ------------------------------------------------------------------------------
-with tabs[1]:
+elif tab_activa == 1:
     st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
     st.caption("Monitoreo de la competencia en tiempo real con alertas de margen protegido para evitar vender por debajo del costo.")
 
@@ -1384,9 +1432,9 @@ with tabs[1]:
             st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
 
 # ------------------------------------------------------------------------------
-# TAB 3: MONITOR DE MERCADO & ALERTA DE QUIEBRE DE STOCK
+# SECCIÓN 2: MONITOR DE MERCADO & ALERTA DE QUIEBRE DE STOCK
 # ------------------------------------------------------------------------------
-with tabs[2]:
+elif tab_activa == 2:
     st.header("📊 Monitor de Mercado & Alerta de Quiebre de Stock")
     st.caption("Detección de oportunidades comerciales monitoreando publicaciones activas con stock crítico (≤ 2 unidades).")
 
@@ -1464,9 +1512,9 @@ with tabs[2]:
             st.warning("No se encontraron publicaciones activas para el término ingresado.")
 
 # ------------------------------------------------------------------------------
-# TAB 4: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
+# SECCIÓN 3: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
 # ------------------------------------------------------------------------------
-with tabs[3]:
+elif tab_activa == 3:
     st.header("📦 Matriz de Artículos & Costos Logísticos Oficiales")
     st.caption("Visualización y auditoría de dimensiones, bultos y fletes por peso volumétrico.")
 
@@ -1478,9 +1526,9 @@ with tabs[3]:
         st.info("ℹ️ No hay matriz personalizada cargada. Podés cargar tu archivo Excel desde el 'Centro Unificado de Cargas' en el panel lateral.")
 
 # ------------------------------------------------------------------------------
-# TAB 5: ASISTENTE IA (PREGUNTAS & RECLAMOS)
+# SECCIÓN 4: ASISTENTE IA (PREGUNTAS & RECLAMOS)
 # ------------------------------------------------------------------------------
-with tabs[4]:
+elif tab_activa == 4:
     st.header("🤖 Asistente IA para Gestión de Preguntas & Reclamos")
     st.caption("Generación automática de respuestas optimizadas para posventa y atención al cliente.")
 
@@ -1496,9 +1544,9 @@ with tabs[4]:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# TAB 6: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN CON FLETE AUTOMÁTICO
+# SECCIÓN 5: PUBLICADOR A CATÁLOGO DEFINITIVO + AUDITOR DE MARGEN CON FLETE AUTOMÁTICO
 # ------------------------------------------------------------------------------
-with tabs[5]:
+elif tab_activa == 5:
     st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen)")
     st.caption("El envío se calcula automáticamente desde los datos del embalaje. Solo ingresá el costo del producto para verificar rentabilidad.")
 
