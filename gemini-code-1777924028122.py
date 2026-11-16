@@ -478,9 +478,9 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
                 .str[0]
                 .str.replace(r'\D', '', regex=True)
             )
-            matches = df[series_clean == q_clean] if q_clean else pd.DataFrame()
+            matches = df[series_clean == q_clean] if (q_clean and len(q_clean) >= 6) else pd.DataFrame()
             if matches.empty and q_raw:
-                matches = df[df[col].astype(str).str.lower().str.contains(q_raw, na=False)]
+                matches = df[df[col].astype(str).str.lower().str.contains(q_raw, na=False, regex=False)]
 
             if not matches.empty:
                 cost_cols = [c for c in df.columns if any(k in str(c).lower() for k in ["costo", "precio", "lista", "valor"])]
@@ -530,11 +530,13 @@ def extraer_ids_meli_avanzado(input_raw: str):
     if res["tipo"] == "MELI_URL_OR_ID":
         return res
 
-    clean_digits = re.sub(r'\D', '', raw)
-    if clean_digits:
-        res["tipo"] = "EAN"
-        res["ean"] = clean_digits
-        return res
+    # Solo es EAN si el texto es puramente numérico (evita confundir SKUs como SC1260NP con EAN)
+    if re.fullmatch(r'[\d\s\-\.]+', raw):
+        clean_digits = re.sub(r'\D', '', raw)
+        if len(clean_digits) >= 8:
+            res["tipo"] = "EAN"
+            res["ean"] = clean_digits
+            return res
 
     return res
 
@@ -576,14 +578,15 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     return f"Vendedor #{seller_id}"
 
 @st.cache_data(ttl=900)
-def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
+def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
     headers = get_meli_headers(access_token)
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
     
     catalog_id = clean_val if type_input == "CATALOG_ID" else ""
-    product_title = ""
+    product_title = titulo_gold.strip() if titulo_gold else ""
     raw_items = []
 
+    # 1. Si es EAN, buscar primero por product_identifier
     if type_input == "EAN":
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
         try:
@@ -592,38 +595,69 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
                 p_results = res_p.json().get("results", [])
                 if p_results:
                     catalog_id = p_results[0].get("id", "")
-                    product_title = p_results[0].get("name", "")
+                    product_title = p_results[0].get("name", product_title)
         except Exception:
             pass
 
-    target_catalog_id = catalog_id if catalog_id else "MLA27874272"
-    
-    url_prod_items = f"https://api.mercadolibre.com/products/{target_catalog_id}/items"
-    try:
-        res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
-        if res_pi.status_code == 200:
-            raw_items = res_pi.json().get("results", [])
-    except Exception:
-        pass
+    # 2. Si aún no hay catalog_id pero tenemos descripción/código de Lista Gold o texto, buscar en catálogo por texto
+    if not catalog_id:
+        q_cat_text = " ".join(filter(None, [titulo_gold.strip(), articulo_gold.strip()])).strip()
+        if not q_cat_text and type_input == "TEXT":
+            q_cat_text = clean_val
+        if q_cat_text:
+            try:
+                url_p_q = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(q_cat_text)}"
+                res_pq = requests.get(url_p_q, headers=headers, timeout=8)
+                if res_pq.status_code == 200:
+                    pq_results = res_pq.json().get("results", [])
+                    if pq_results:
+                        catalog_id = pq_results[0].get("id", "")
+                        if not product_title:
+                            product_title = pq_results[0].get("name", "")
+            except Exception:
+                pass
 
-    if not raw_items:
-        url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={target_catalog_id}"
+    # 3. Si encontramos un catalog_id real (NUNCA hardcodeado), traer sus publicaciones
+    if catalog_id:
+        url_prod_items = f"https://api.mercadolibre.com/products/{catalog_id}/items"
         try:
-            res_ci = requests.get(url_c_items, headers=headers, timeout=8)
-            if res_ci.status_code == 200:
-                raw_items = res_ci.json().get("results", [])
+            res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
+            if res_pi.status_code == 200:
+                raw_items = res_pi.json().get("results", [])
         except Exception:
             pass
 
+        if not raw_items:
+            url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
+            try:
+                res_ci = requests.get(url_c_items, headers=headers, timeout=8)
+                if res_ci.status_code == 200:
+                    raw_items = res_ci.json().get("results", [])
+            except Exception:
+                pass
+
+    # 4. Si no hay resultados por catálogo, buscar publicaciones directas por título/artículo/query
     if not raw_items:
-        term_search = clean_val if clean_val else "Alacena 120"
-        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
-        try:
-            res_q = requests.get(url_q, headers=headers, timeout=8)
-            if res_q.status_code == 200:
-                raw_items = res_q.json().get("results", [])
-        except Exception:
-            pass
+        search_terms = []
+        if titulo_gold.strip() and articulo_gold.strip():
+            search_terms.append(f"{titulo_gold.strip()} {articulo_gold.strip()}")
+        if titulo_gold.strip():
+            search_terms.append(titulo_gold.strip())
+        if articulo_gold.strip():
+            search_terms.append(articulo_gold.strip())
+        if clean_val and clean_val not in search_terms:
+            search_terms.append(clean_val)
+
+        for term_search in search_terms:
+            if raw_items:
+                break
+            url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
+            try:
+                res_q = requests.get(url_q, headers=headers, timeout=8)
+                if res_q.status_code == 200:
+                    raw_items = res_q.json().get("results", [])
+            except Exception:
+                pass
 
     list_ids = []
     for r in raw_items[:50]:
@@ -653,9 +687,12 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
                                     stk = stk_vars
                                     
                             detalles_dict[it_id] = {
+                                "title_real": b.get("title", ""),
                                 "stock_real": stk,
                                 "sold_real": int(b.get("sold_quantity", 0)),
-                                "price_real": float(b.get("price", 0.0))
+                                "price_real": float(b.get("price", 0.0)),
+                                "category_real": b.get("category_id", "MLA4765"),
+                                "permalink_real": b.get("permalink", "")
                             }
             except Exception:
                 pass
@@ -673,15 +710,18 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
             seller_id = r.get("seller_id")
 
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
-        url_oficial = construir_url_canonica_meli(item_id, r.get("permalink", ""))
+        det = detalles_dict.get(item_id, {})
+
+        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""))
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
-        det = detalles_dict.get(item_id, {})
+        title_final = det.get("title_real") or r.get("title") or product_title or f"Publicación {item_id}"
         stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
+        cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
 
         if stock_final <= 0:
             stock_final = max(1, 15 - ((idx * 3 + sold_final) % 12))
@@ -689,33 +729,31 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None):
         items_procesados.append({
             "vendedor_name": nickname,
             "id": item_id,
-            "title": r.get("title", product_title if product_title else "Alacena Centro Estant"),
+            "title": title_final,
             "price": price_final,
             "installments_qty": q_c,
             "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
             "stock": stock_final,
             "sold_quantity": sold_final,
             "permalink": url_oficial,
-            "category_id": r.get("category_id", "MLA4765")
+            "category_id": cat_final
         })
 
-    return target_catalog_id, product_title, items_procesados
+    return catalog_id, product_title, items_procesados
 
 def extraer_web_fallback_catalogo(catalog_id: str, res_data: dict):
-    """Fallback público de página de catálogo cuando la API devuelve HTTP 403."""
     if not catalog_id:
-        return False
+        return None
     url_web = f"https://www.mercadolibre.com.ar/p/{catalog_id}"
     headers_web = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "es-AR,es;q=0.9"
     }
     try:
-        r = requests.get(url_web, headers=headers_web, timeout=10)
+        r = requests.get(url_web, headers=headers_web, timeout=8)
         if r.status_code == 200 and len(r.text) > 1000:
             html = r.text
             encontrado = False
-            # Extraer título
             m_title = re.search(r'<meta property="og:title" content="([^"]+)"', html)
             if not m_title:
                 m_title = re.search(r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>([^<]+)</h1>', html)
@@ -725,13 +763,11 @@ def extraer_web_fallback_catalogo(catalog_id: str, res_data: dict):
                     res_data["family_name"] = tit[:60]
                     encontrado = True
 
-            # Extraer imagen principal y galería
             for m_img in re.findall(r'https://http2\.mlstatic\.com/D_NQ_NP_[^"\'\s>]+\.(?:jpg|webp|png)', html):
                 clean_img = m_img.replace("-O.webp", "-O.jpg").replace("-F.webp", "-O.jpg")
                 if clean_img not in res_data["fotos"] and len(res_data["fotos"]) < 10:
                     res_data["fotos"].append(clean_img)
 
-            # Extraer precio desde JSON-LD o meta tags
             m_price = re.search(r'"price"\s*:\s*(\d+(?:\.\d+)?)', html)
             if m_price:
                 p_val = float(m_price.group(1))
@@ -740,17 +776,14 @@ def extraer_web_fallback_catalogo(catalog_id: str, res_data: dict):
                     res_data["etiqueta_precio"] = "🏆 PVP Catálogo Público"
                     encontrado = True
 
-            # Extraer marca y modelo desde JSON-LD
             m_brand = re.search(r'"brand"\s*:\s*\{\s*"@type"\s*:\s*"Brand"\s*,\s*"name"\s*:\s*"([^"]+)"', html)
             if m_brand:
                 res_data["marca"] = m_brand.group(1).strip()
 
-            # Extraer category_id si figura en el HTML
             m_cat = re.search(r'"category_id"\s*:\s*"(MLA\d+)"', html)
             if m_cat:
                 res_data["cat_meli_id"] = m_cat.group(1)
 
-            # Extraer un item_id activo de esa página de catálogo (ej. MLA1456789012)
             m_item = re.search(r'"item_id"\s*:\s*"(MLA\d+)"', html)
             if m_item:
                 return m_item.group(1)
@@ -774,7 +807,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         "desc_gold": desc_gold_b,
         "pvp_sugerido": round(costo_gold_b * 2.1, 2) if found_gold_b else 185000.0,
         "etiqueta_precio": "PVP Sugerido (Lista Gold)" if found_gold_b else "PVP Base",
-        "cat_product_id": "MLA27874272",
+        "cat_product_id": "",
         "cat_meli_id": "MLA4765",
         "marca": "Centro Estant",
         "modelo": art_gold_b if art_gold_b else "Standard",
@@ -883,7 +916,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # 2. Si /products/ dio HTTP 403/404, buscar publicaciones activas del catálogo vía /sites/MLA/search?catalog_product_id=
+        # 2. Buscar publicaciones activas vía búsqueda de catálogo
         if not resolved_item_id and parsed_meli["catalog_id"]:
             cat_q = parsed_meli["catalog_id"]
             try:
@@ -909,13 +942,13 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception:
                 pass
 
-        # 3. Si aún no se resolvió ningún item_id (por bloqueo 403 sin token), extraer desde la web pública /p/{catalog_id}
+        # 3. Web fallback público
         if not resolved_item_id and parsed_meli["catalog_id"]:
             web_item_id = extraer_web_fallback_catalogo(parsed_meli["catalog_id"], res_data)
             if web_item_id:
                 resolved_item_id = web_item_id
 
-        # 4. Probar endpoints de Ítem (/items/{id}) con el item_id resuelto y candidatos
+        # 4. Probar endpoints de Ítem
         if resolved_item_id and resolved_item_id not in i_candidates:
             i_candidates.insert(0, resolved_item_id)
 
@@ -995,6 +1028,21 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if not res_data["exito_externo"] and errores_http:
             res_data["error_api"] = " | ".join(errores_http)
 
+    # FALLBACK LOCAL: Si la API de MeLi no devolvió datos, buscar en Lista Gold
+    if not res_data["exito_externo"]:
+        digits_fallback = re.sub(r'\D', '', query_builder)
+        if len(digits_fallback) >= 6:
+            found_g_alt, costo_g_alt, desc_g_alt, art_g_alt = buscar_costo_y_titulo_en_lista_gold(digits_fallback)
+            if found_g_alt:
+                res_data["found_gold"] = True
+                res_data["costo_gold"] = costo_g_alt
+                res_data["desc_gold"] = desc_g_alt
+                res_data["family_name"] = desc_g_alt[:60]
+                res_data["modelo"] = art_g_alt if art_g_alt else "Standard"
+                res_data["pvp_sugerido"] = round(costo_g_alt * 2.1, 2)
+                res_data["etiqueta_precio"] = "🏆 PVP Sugerido (Fallback Local Lista Gold)"
+                res_data["exito_externo"] = True
+
     if not found_mat_b:
         _, p_fact_chk, _, ok_emb = calcular_flete_desde_embalaje(
             res_data["alto"], res_data["ancho"], res_data["prof"], res_data["peso"], res_data["pvp_sugerido"]
@@ -1064,7 +1112,7 @@ st.markdown("""
                 <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
                 <div>
                     <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 13 Nov, 2026 (v176.0 Catalog Search & Public Fallback)</div>
+                    <div class="nq-brand-subtitle">Data last updated: 16 Nov, 2026 (v178.0 Exact Product Search Fix)</div>
                 </div>
             </div>
         </div>
@@ -1237,7 +1285,12 @@ with tabs[1]:
         found_mat_m, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_mon, pvp_ref_mon)
 
         with st.spinner("Analizando competencia y controlando precios..."):
-            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(query_mon, st.session_state["access_token"])
+            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(
+                query_mon,
+                st.session_state["access_token"],
+                titulo_gold=desc_m,
+                articulo_gold=art_m
+            )
 
         if not found_gold_m:
             st.markdown(f'<div class="badge-missing">❌ El código "{query_mon.strip()}" no está en la Lista Gold.</div><br>', unsafe_allow_html=True)
@@ -1251,7 +1304,7 @@ with tabs[1]:
             costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
             
             if min_comp_price > 0 and min_comp_price < costo_total_operativo:
-                st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a <b>${min_comp_price:,.2f}</b>. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No iguaIes ese precio!</div><br>', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a <b>${min_comp_price:,.2f}</b>. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No igualés ese precio!</div><br>', unsafe_allow_html=True)
 
             st.subheader("📊 Competencia Activa Detectada")
             df_comp_m['Cuotas'] = df_comp_m['installments_qty'].apply(lambda x: f"{int(x)} cuotas sin interés" if pd.notna(x) and int(x) > 1 else "1 pago / Sin cuotas")
@@ -1265,6 +1318,8 @@ with tabs[1]:
                 use_container_width=True,
                 hide_index=True
             )
+        else:
+            st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
 
 # ------------------------------------------------------------------------------
 # TAB 3: MONITOR DE MERCADO & ALERTA DE QUIEBRE DE STOCK
