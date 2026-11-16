@@ -15,36 +15,96 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# ESTÉTICA EJECUTIVA DE ALTO IMPACTO - ESTILO NQ ARGENTINA (UI / UX EXECUTIVE)
+# ESTÉTICA EJECUTIVA DE ALTO IMPACTO - IDENTIDAD MERCADO LIBRE + NQ ARGENTINA
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
     .main { background-color: #f1f5f9; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
     
-    .nq-header-container {
-        background: #ffffff;
-        padding: 20px 28px;
-        border-radius: 14px;
-        margin-bottom: 20px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.05);
+    .meli-hero-banner {
+        background: linear-gradient(135deg, #1b2056 0%, #2d3277 55%, #1e3a8a 100%);
+        padding: 24px 32px;
+        border-radius: 16px;
+        margin-bottom: 22px;
+        border-bottom: 4px solid #ffe600;
+        box-shadow: 0 10px 25px -5px rgba(27, 32, 86, 0.25);
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
+        position: relative;
+        overflow: hidden;
     }
-    .nq-brand-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.5px; }
-    .nq-brand-subtitle { font-size: 12px; color: #64748b; margin-top: 2px; font-weight: 500; }
-    
-    .nq-metric-box {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 14px 22px;
+    .meli-hero-left {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        z-index: 1;
+    }
+    .meli-logo-badge {
+        background: #ffe600;
+        color: #1b2056;
+        width: 54px;
+        height: 54px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 21px;
+        letter-spacing: -0.8px;
+        box-shadow: 0 4px 12px rgba(255, 230, 0, 0.35);
+        flex-shrink: 0;
+    }
+    .meli-hero-title {
+        font-size: 24px;
+        font-weight: 800;
+        color: #ffffff;
+        margin: 0;
+        letter-spacing: -0.5px;
+        line-height: 1.2;
+    }
+    .meli-hero-title span {
+        color: #ffe600;
+    }
+    .meli-hero-subtitle {
+        font-size: 13px;
+        color: #cbd5e1;
+        margin-top: 4px;
+        font-weight: 400;
+    }
+    .meli-status-group {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        z-index: 1;
+    }
+    .meli-status-pill {
+        background: rgba(255, 255, 255, 0.10);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 10px 16px;
         border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-        text-align: right;
+        min-width: 135px;
     }
-    .nq-metric-val { font-size: 24px; font-weight: 900; color: #0f172a; margin: 0; }
-    .nq-metric-lbl { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .meli-pill-lbl {
+        font-size: 10px;
+        font-weight: 700;
+        color: #93c5fd;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin-bottom: 3px;
+    }
+    .meli-pill-val {
+        font-size: 14px;
+        font-weight: 800;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
 
     .kpi-card {
         background: #ffffff;
@@ -530,7 +590,6 @@ def extraer_ids_meli_avanzado(input_raw: str):
     if res["tipo"] == "MELI_URL_OR_ID":
         return res
 
-    # Solo es EAN si el texto es puramente numérico (evita confundir SKUs como SC1260NP con EAN)
     if re.fullmatch(r'[\d\s\-\.]+', raw):
         clean_digits = re.sub(r'\D', '', raw)
         if len(clean_digits) >= 8:
@@ -586,7 +645,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
     product_title = titulo_gold.strip() if titulo_gold else ""
     raw_items = []
 
-    # 1. Si es EAN, buscar primero por product_identifier
     if type_input == "EAN":
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
         try:
@@ -599,7 +657,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
         except Exception:
             pass
 
-    # 2. Si aún no hay catalog_id pero tenemos descripción/código de Lista Gold o texto, buscar en catálogo por texto
     if not catalog_id:
         q_cat_text = " ".join(filter(None, [titulo_gold.strip(), articulo_gold.strip()])).strip()
         if not q_cat_text and type_input == "TEXT":
@@ -617,7 +674,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
             except Exception:
                 pass
 
-    # 3. Si encontramos un catalog_id real (NUNCA hardcodeado), traer sus publicaciones
     if catalog_id:
         url_prod_items = f"https://api.mercadolibre.com/products/{catalog_id}/items"
         try:
@@ -636,7 +692,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
             except Exception:
                 pass
 
-    # 4. Si no hay resultados por catálogo, buscar publicaciones directas por título/artículo/query
     if not raw_items:
         search_terms = []
         if titulo_gold.strip() and articulo_gold.strip():
@@ -854,7 +909,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         errores_http = []
         resolved_item_id = ""
 
-        # 1. Probar endpoints de Catálogo (/products/{id})
         for c_id in c_candidates:
             if res_data["exito_externo"]:
                 break
@@ -916,7 +970,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # 2. Buscar publicaciones activas vía búsqueda de catálogo
         if not resolved_item_id and parsed_meli["catalog_id"]:
             cat_q = parsed_meli["catalog_id"]
             try:
@@ -942,13 +995,11 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception:
                 pass
 
-        # 3. Web fallback público
         if not resolved_item_id and parsed_meli["catalog_id"]:
             web_item_id = extraer_web_fallback_catalogo(parsed_meli["catalog_id"], res_data)
             if web_item_id:
                 resolved_item_id = web_item_id
 
-        # 4. Probar endpoints de Ítem
         if resolved_item_id and resolved_item_id not in i_candidates:
             i_candidates.insert(0, resolved_item_id)
 
@@ -1028,7 +1079,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if not res_data["exito_externo"] and errores_http:
             res_data["error_api"] = " | ".join(errores_http)
 
-    # FALLBACK LOCAL: Si la API de MeLi no devolvió datos, buscar en Lista Gold
     if not res_data["exito_externo"]:
         digits_fallback = re.sub(r'\D', '', query_builder)
         if len(digits_fallback) >= 6:
@@ -1103,27 +1153,39 @@ with st.sidebar:
                 st.error(f"Error al leer matriz: {e}")
 
 # ------------------------------------------------------------------------------
-# HEADER PRINCIPAL ESTILO EJECUTIVO NQ ARGENTINA
+# HEADER PRINCIPAL CON IDENTIDAD MERCADO LIBRE + INDICADORES REALES DE SESIÓN
 # ------------------------------------------------------------------------------
-st.markdown("""
-    <div class="nq-header-container">
-        <div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; padding: 8px 14px; border-radius: 10px; font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">NQ</span>
-                <div>
-                    <div class="nq-brand-title">NQ Argentina | Sales Intelligence</div>
-                    <div class="nq-brand-subtitle">Data last updated: 16 Nov, 2026 (v178.0 Exact Product Search Fix)</div>
-                </div>
+matriz_banner_df = cargar_matriz_articulos_oficial()
+gold_banner_df = st.session_state["lista_gold_df"]
+
+conectado_meli = bool(st.session_state["access_token"])
+nick_banner = st.session_state["user_info"].get("nickname", "Cuenta Activa") if conectado_meli else "Desconectado"
+estado_meli_html = f'<span style="color:#4ade80;">●</span> {nick_banner}' if conectado_meli else '<span style="color:#fbbf24;">●</span> Sin vincular'
+
+skus_gold_txt = f"{len(gold_banner_df):,} artículos".replace(",", ".") if gold_banner_df is not None else "Sin cargar"
+skus_matriz_txt = f"{len(matriz_banner_df):,} artículos".replace(",", ".") if matriz_banner_df is not None else "Sin cargar"
+
+st.markdown(f"""
+    <div class="meli-hero-banner">
+        <div class="meli-hero-left">
+            <div class="meli-logo-badge">NQ</div>
+            <div>
+                <div class="meli-hero-title">NQ Argentina <span>|</span> MeLi Intelligence</div>
+                <div class="meli-hero-subtitle">Auditoría de Rentabilidad, Monitoreo Competitivo y Publicador a Catálogo</div>
             </div>
         </div>
-        <div style="display: flex; gap: 20px; align-items: center;">
-            <div class="nq-metric-box">
-                <div class="nq-metric-lbl">Muebles para el Hogar</div>
-                <div class="nq-metric-val">$47.093.358.901</div>
+        <div class="meli-status-group">
+            <div class="meli-status-pill">
+                <div class="meli-pill-lbl">API Mercado Libre</div>
+                <div class="meli-pill-val">{estado_meli_html}</div>
             </div>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 16px; border-radius: 12px; text-align: center;">
-                <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Catálogo</div>
-                <div style="font-size: 14px; font-weight: 800; color: #0284c7;">51,43%</div>
+            <div class="meli-status-pill">
+                <div class="meli-pill-lbl">Lista Gold</div>
+                <div class="meli-pill-val">{skus_gold_txt}</div>
+            </div>
+            <div class="meli-status-pill">
+                <div class="meli-pill-lbl">Matriz Logística</div>
+                <div class="meli-pill-val">{skus_matriz_txt}</div>
             </div>
         </div>
     </div>
