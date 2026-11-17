@@ -15,20 +15,20 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------------------------
-# ESTÉTICA EJECUTIVA COMPACTA - ALTA DENSIDAD DE DATOS (MERCADO LIBRE + NQ)
+# ESTÉTICA EJECUTIVA SLATE & ESMERALDA - ALTO CONTRASTE Y DENSIDAD DE DATOS
 # ------------------------------------------------------------------------------
 st.markdown("""
     <style>
-    .main { background-color: #f1f5f9; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
     
-    /* COMPACT HERO BANNER */
-    .meli-hero-banner {
-        background: linear-gradient(135deg, #1b2056 0%, #2d3277 55%, #1e3a8a 100%);
+    /* HERO BANNER EJECUTIVO (SLATE OSCURO + ACENTO ESMERALDA) */
+    .exec-hero-banner {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f2922 100%);
         padding: 14px 22px;
         border-radius: 12px;
         margin-bottom: 12px;
-        border-bottom: 3px solid #ffe600;
-        box-shadow: 0 6px 16px -4px rgba(27, 32, 86, 0.2);
+        border-bottom: 3px solid #10b981;
+        box-shadow: 0 6px 18px -4px rgba(15, 23, 42, 0.25);
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -37,15 +37,15 @@ st.markdown("""
         position: relative;
         overflow: hidden;
     }
-    .meli-hero-left {
+    .exec-hero-left {
         display: flex;
         align-items: center;
         gap: 14px;
         z-index: 1;
     }
-    .meli-logo-badge {
-        background: #ffe600;
-        color: #1b2056;
+    .exec-logo-badge {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: #ffffff;
         width: 42px;
         height: 42px;
         border-radius: 10px;
@@ -55,50 +55,50 @@ st.markdown("""
         font-weight: 900;
         font-size: 17px;
         letter-spacing: -0.5px;
-        box-shadow: 0 3px 8px rgba(255, 230, 0, 0.3);
+        box-shadow: 0 3px 10px rgba(16, 185, 129, 0.35);
         flex-shrink: 0;
     }
-    .meli-hero-title {
+    .exec-hero-title {
         font-size: 19px;
         font-weight: 800;
-        color: #ffffff;
+        color: #f8fafc;
         margin: 0;
         letter-spacing: -0.4px;
         line-height: 1.1;
     }
-    .meli-hero-title span {
-        color: #ffe600;
+    .exec-hero-title span {
+        color: #34d399;
     }
-    .meli-hero-subtitle {
+    .exec-hero-subtitle {
         font-size: 11px;
-        color: #cbd5e1;
-        margin-top: 2px;
+        color: #94a3b8;
+        margin-top: 3px;
         font-weight: 400;
     }
-    .meli-status-group {
+    .exec-status-group {
         display: flex;
         gap: 10px;
         align-items: center;
         flex-wrap: wrap;
         z-index: 1;
     }
-    .meli-status-pill {
-        background: rgba(255, 255, 255, 0.08);
+    .exec-status-pill {
+        background: rgba(255, 255, 255, 0.06);
         backdrop-filter: blur(6px);
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         padding: 6px 12px;
         border-radius: 10px;
-        min-width: 115px;
+        min-width: 118px;
     }
-    .meli-pill-lbl {
+    .exec-pill-lbl {
         font-size: 9px;
         font-weight: 700;
-        color: #93c5fd;
+        color: #6ee7b7;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         margin-bottom: 1px;
     }
-    .meli-pill-val {
+    .exec-pill-val {
         font-size: 13px;
         font-weight: 800;
         color: #ffffff;
@@ -112,34 +112,75 @@ st.markdown("""
     h2 { font-size: 17px !important; font-weight: 750 !important; color: #1e293b !important; padding-top: 0px !important; margin-bottom: 2px !important; }
     h3 { font-size: 14px !important; font-weight: 700 !important; color: #334155 !important; padding-top: 0px !important; margin-bottom: 2px !important; }
     
-    p, .stCaptionContainer { font-size: 12px !important; color: #64748b !important; margin-bottom: 6px !important; }
+    .stCaptionContainer { font-size: 12px !important; color: #64748b !important; margin-bottom: 6px !important; }
 
-    /* BOTONES DE NAVEGACIÓN VISUALES COMPACTOS */
+    /* FIX DE CONTRASTE PARA TODOS LOS BOTONES PRIMARIOS DE ACCIÓN (ADIÓS BOTÓN ROJO ILEGIBLE) */
+    button[kind="primary"],
+    button[data-testid="stBaseButton-primary"],
+    a[kind="primary"],
+    a[data-testid="stBaseLinkButton-primary"] {
+        background-color: #059669 !important;
+        border: 1px solid #047857 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border-radius: 10px !important;
+        box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25) !important;
+        transition: all 0.2s ease !important;
+    }
+    button[kind="primary"] p,
+    button[data-testid="stBaseButton-primary"] p,
+    button[kind="primary"] span,
+    button[data-testid="stBaseButton-primary"] span,
+    a[kind="primary"] p,
+    a[data-testid="stBaseLinkButton-primary"] p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    button[kind="primary"]:hover,
+    button[data-testid="stBaseButton-primary"]:hover,
+    a[kind="primary"]:hover,
+    a[data-testid="stBaseLinkButton-primary"]:hover {
+        background-color: #047857 !important;
+        border-color: #065f46 !important;
+        color: #ffffff !important;
+        transform: translateY(-1px);
+    }
+
+    /* BOTONES DE NAVEGACIÓN DE SOLAPAS VISUALES */
     div[data-testid="stHorizontalBlock"] .nav-btn-wrap button {
         border-radius: 10px !important;
-        padding: 8px 8px !important;
+        padding: 9px 8px !important;
         font-weight: 700 !important;
         font-size: 13px !important;
         transition: all 0.2s ease !important;
         box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04) !important;
     }
     div[data-testid="stHorizontalBlock"] .nav-btn-active button {
-        background: linear-gradient(135deg, #1b2056 0%, #2d3277 100%) !important;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
         color: #ffffff !important;
-        border: 1px solid #1b2056 !important;
-        border-bottom: 3px solid #ffe600 !important;
-        box-shadow: 0 4px 10px rgba(27, 32, 86, 0.2) !important;
+        border: 1px solid #0f172a !important;
+        border-bottom: 3px solid #10b981 !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.22) !important;
+    }
+    div[data-testid="stHorizontalBlock"] .nav-btn-active button p {
+        color: #ffffff !important;
     }
     div[data-testid="stHorizontalBlock"] .nav-btn-inactive button {
         background: #ffffff !important;
-        color: #1e293b !important;
+        color: #334155 !important;
         border: 1px solid #cbd5e1 !important;
     }
+    div[data-testid="stHorizontalBlock"] .nav-btn-inactive button p {
+        color: #334155 !important;
+    }
     div[data-testid="stHorizontalBlock"] .nav-btn-inactive button:hover {
-        background: #eff6ff !important;
-        border-color: #3483fa !important;
-        color: #1b2056 !important;
+        background: #ecfdf5 !important;
+        border-color: #10b981 !important;
+        color: #065f46 !important;
         transform: translateY(-1px);
+    }
+    div[data-testid="stHorizontalBlock"] .nav-btn-inactive button:hover p {
+        color: #065f46 !important;
     }
 
     .kpi-card {
@@ -153,14 +194,14 @@ st.markdown("""
     .kpi-value { font-size: 20px; font-weight: 800; color: #0f172a; margin: 2px 0; }
 
     .card-viable {
-        background: #f0fdf4;
-        color: #166534;
+        background: #ecfdf5;
+        color: #065f46;
         padding: 12px 16px;
         border-radius: 10px;
-        border: 1px solid #bbf7d0;
+        border: 1px solid #a7f3d0;
         font-size: 13px;
         font-weight: 700;
-        box-shadow: 0 2px 8px rgba(22, 101, 52, 0.04);
+        box-shadow: 0 2px 8px rgba(6, 95, 70, 0.05);
     }
     .card-noviable {
         background: #fef2f2;
@@ -170,26 +211,27 @@ st.markdown("""
         border: 1px solid #fecaca;
         font-size: 13px;
         font-weight: 700;
-        box-shadow: 0 2px 8px rgba(153, 27, 27, 0.04);
+        box-shadow: 0 2px 8px rgba(153, 27, 27, 0.05);
     }
     .warning-stock {
         background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-        color: #c2410c;
+        color: #9a3412;
         padding: 12px 16px;
         border-radius: 10px;
-        border-left: 5px solid #f97316;
+        border-left: 5px solid #ea580c;
         font-size: 13px;
     }
     .ai-bubble {
-        background: #f0fdf4;
+        background: #ecfdf5;
+        color: #064e3b;
         padding: 14px;
         border-radius: 10px;
-        border-left: 5px solid #22c55e;
-        border: 1px solid #dcfce7;
+        border-left: 5px solid #10b981;
+        border: 1px solid #a7f3d0;
         font-size: 13px;
     }
     .badge-missing {
-        background-color: #fee2e2;
+        background-color: #fef2f2;
         color: #991b1b;
         padding: 8px 12px;
         border-radius: 8px;
@@ -1192,46 +1234,46 @@ with st.sidebar:
                 st.error(f"Error al leer matriz: {e}")
 
 # ------------------------------------------------------------------------------
-# HEADER PRINCIPAL COMPACTO CON IDENTIDAD MERCADO LIBRE
+# HEADER PRINCIPAL COMPACTO (SLATE & ESMERALDA)
 # ------------------------------------------------------------------------------
 matriz_banner_df = cargar_matriz_articulos_oficial()
 gold_banner_df = st.session_state["lista_gold_df"]
 
 conectado_meli = bool(st.session_state["access_token"])
 nick_banner = st.session_state["user_info"].get("nickname", "Cuenta Activa") if conectado_meli else "Desconectado"
-estado_meli_html = f'<span style="color:#4ade80;">●</span> {nick_banner}' if conectado_meli else '<span style="color:#fbbf24;">●</span> Sin vincular'
+estado_meli_html = f'<span style="color:#34d399;">●</span> {nick_banner}' if conectado_meli else '<span style="color:#f59e0b;">●</span> Sin vincular'
 
 skus_gold_txt = f"{len(gold_banner_df):,} artículos".replace(",", ".") if gold_banner_df is not None else "Sin cargar"
 skus_matriz_txt = f"{len(matriz_banner_df):,} artículos".replace(",", ".") if matriz_banner_df is not None else "Sin cargar"
 
 st.markdown(f"""
-    <div class="meli-hero-banner">
-        <div class="meli-hero-left">
-            <div class="meli-logo-badge">NQ</div>
+    <div class="exec-hero-banner">
+        <div class="exec-hero-left">
+            <div class="exec-logo-badge">NQ</div>
             <div>
-                <div class="meli-hero-title">NQ Argentina <span>|</span> MeLi Intelligence</div>
-                <div class="meli-hero-subtitle">Auditoría de Rentabilidad, Monitoreo Competitivo y Publicador a Catálogo</div>
+                <div class="exec-hero-title">NQ Argentina <span>|</span> MeLi Intelligence</div>
+                <div class="exec-hero-subtitle">Auditoría de Rentabilidad, Monitoreo Competitivo y Publicador a Catálogo</div>
             </div>
         </div>
-        <div class="meli-status-group">
-            <div class="meli-status-pill">
-                <div class="meli-pill-lbl">API Mercado Libre</div>
-                <div class="meli-pill-val">{estado_meli_html}</div>
+        <div class="exec-status-group">
+            <div class="exec-status-pill">
+                <div class="exec-pill-lbl">API Mercado Libre</div>
+                <div class="exec-pill-val">{estado_meli_html}</div>
             </div>
-            <div class="meli-status-pill">
-                <div class="meli-pill-lbl">Lista Gold</div>
-                <div class="meli-pill-val">{skus_gold_txt}</div>
+            <div class="exec-status-pill">
+                <div class="exec-pill-lbl">Lista Gold</div>
+                <div class="exec-pill-val">{skus_gold_txt}</div>
             </div>
-            <div class="meli-status-pill">
-                <div class="meli-pill-lbl">Matriz Logística</div>
-                <div class="meli-pill-val">{skus_matriz_txt}</div>
+            <div class="exec-status-pill">
+                <div class="exec-pill-lbl">Matriz Logística</div>
+                <div class="exec-pill-val">{skus_matriz_txt}</div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES (PILLS ESTILO MERCADO LIBRE)
+# NAVEGACIÓN VISUAL POR BOTONES (PILLS SLATE & ESMERALDA)
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
@@ -1359,7 +1401,7 @@ if tab_activa == 0:
             st.markdown(f"""
             <div class="kpi-card">
                 <div class="kpi-label">Neto Libre a Bolsillo</div>
-                <div class="kpi-value" style="color: {'#16a34a' if ganancia_neta > 0 else '#dc2626'};">${ganancia_neta:,.2f} ({margen_pct:.1f}%)</div>
+                <div class="kpi-value" style="color: {'#059669' if ganancia_neta > 0 else '#dc2626'};">${ganancia_neta:,.2f} ({margen_pct:.1f}%)</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1644,7 +1686,7 @@ elif tab_activa == 5:
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">Peso Embalado</div>
-            <div class="kpi-value" style="font-size: 18px; color: #16a34a;">{st.session_state.get('pub_peso_dyn') or 'Sin dato'}</div>
+            <div class="kpi-value" style="font-size: 18px; color: #059669;">{st.session_state.get('pub_peso_dyn') or 'Sin dato'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1664,241 +1706,4 @@ elif tab_activa == 5:
 
     f_col1, f_col2 = st.columns(2)
     with f_col1:
-        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
-        
-        cat_actual_code = st.session_state.get("pub_cat_id_dyn", "MLA4765").strip()
-        nombre_cat_actual = obtener_nombre_categoria_meli(cat_actual_code)
-        st.markdown(f"📂 **Categoría Actual:** <span style='color: #0284c7; font-weight: 700;'>{nombre_cat_actual}</span>", unsafe_allow_html=True)
-        
-        sugerencias_cat = predecir_categorias_meli(pub_family_name)
-        if sugerencias_cat:
-            opciones_sug = ["(Mantener categoría actual)"] + [f"{ruta} ({cid})" for cid, ruta in sugerencias_cat]
-            sel_sug = st.selectbox("🔄 Cambiar categoría por sugerencia oficial de MeLi (Opcional):", opciones_sug, key="sel_sug_cat_opt")
-            if sel_sug != "(Mantener categoría actual)":
-                nuevo_cid = sel_sug.split("(")[-1].replace(")", "").strip()
-                if nuevo_cid != cat_actual_code:
-                    st.session_state["pub_cat_id_dyn"] = nuevo_cid
-                    st.rerun()
-
-        pub_cat_id = st.text_input("ID Categoría MeLi (category_id - Editable)", key="pub_cat_id_dyn")
-        pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
-        pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
-        
-        archivos_imagenes_subidos = st.file_uploader(
-            "🖼️ Reemplazar/Subir Fotos Propias (Opcional, hasta 10 JPG/PNG)", 
-            type=["jpg", "jpeg", "png"], 
-            accept_multiple_files=True, 
-            key="uploader_imgs_pub_multi"
-        )
-        if archivos_imagenes_subidos:
-            st.info(f"📁 Usando tus {min(len(archivos_imagenes_subidos), 10)} imágenes subidas manualmente.")
-        elif urls_fotos_extraidas:
-            st.success(f"✅ Se enviarán las {len(urls_fotos_extraidas)} fotos clonadas de la publicación.")
-
-        pub_video_id = st.text_input("🎬 ID de YouTube (Clonado o Editable)", key="pub_video_dyn")
-
-    with f_col2:
-        pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
-        pub_pvp = st.number_input(f"💲 Precio de Venta ($ ARS) — [{etiqueta_precio_origen}]", step=500.0, key="pub_pvp_dyn")
-        pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
-        pub_type = st.selectbox("💳 Tipo de Publicación", list(TASAS_CUOTAS.keys()), index=0, key="pub_type_dyn")
-        
-        c_dim1, c_dim2 = st.columns(2)
-        with c_dim1:
-            pub_altura = st.text_input("Altura Paquete / Caja", key="pub_altura_dyn")
-            pub_ancho = st.text_input("Ancho Paquete / Caja", key="pub_ancho_dyn")
-        with c_dim2:
-            pub_prof = st.text_input("Profundidad Paquete / Caja", key="pub_prof_dyn")
-            pub_peso_embalado = st.text_input("Peso Paquete / Caja", key="pub_peso_dyn")
-            
-        pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
-
-    # --------------------------------------------------------------------------
-    # AUDITOR DE MARGEN EN TIEMPO REAL (FLETE AUTOMÁTICO + ÚNICO DATO MANUAL: COSTO)
-    # --------------------------------------------------------------------------
-    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-    st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
-
-    if datos.get("found_matriz"):
-        _, costo_envio_auto, peso_unit_m, peso_tot_m, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, pub_pvp)
-        tiene_embalaje = True
-        detalle_flete_txt = f"Calculado desde Matriz Logística ({cant_cajas_m} bulto/s · {peso_tot_m:.1f} kg facturables)"
-    else:
-        costo_envio_auto, peso_fact_calc, peso_vol_calc, tiene_embalaje = calcular_flete_desde_embalaje(
-            pub_altura, pub_ancho, pub_prof, pub_peso_embalado, pub_pvp
-        )
-        if tiene_embalaje:
-            detalle_flete_txt = f"Calculado desde embalaje API ({peso_fact_calc:.1f} kg facturables · Vol: {peso_vol_calc:.1f} kg)"
-        else:
-            detalle_flete_txt = "Sin datos de embalaje en API/Matriz (Flete = $0)"
-
-    costo_producto_manual = st.number_input(
-        "🏷️ Costo del Producto ($ ARS) — [Único dato manual para evaluar rentabilidad]", 
-        min_value=0.0, 
-        step=500.0, 
-        key="pub_costo_base_input",
-        help="Ingresá tu costo neto del artículo. El envío, comisiones e impuestos se calculan automáticamente."
-    )
-
-    info_tasa = TASAS_CUOTAS[pub_type]
-    comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
-    
-    m_comision = pub_pvp * comision_pct
-    m_iibb = pub_pvp * ALICUOTA_IIBB
-    m_iva = pub_pvp * ALICUOTA_IVA
-    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_auto
-    
-    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_producto_manual
-    margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
-
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Envío Calculado (Embalaje)</div>
-            <div class="kpi-value" style="color: #0284c7; font-size: 18px;">${costo_envio_auto:,.2f}</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">{detalle_flete_txt}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_m2:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
-            <div class="kpi-value" style="color: #e11d48; font-size: 18px;">${total_impuestos_deducciones:,.2f}</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">Comis. {comision_pct*100:.1f}% + Impuestos 24.5% + Envío</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_m3:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Neto Libre a Bolsillo</div>
-            <div class="kpi-value" style="color: {'#16a34a' if ganancia_neta_pub > 0 else '#dc2626'}; font-size: 18px;">${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">PVP ${pub_pvp:,.0f} - Deducciones - Costo</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-    if costo_producto_manual <= 0:
-        st.info("ℹ️ **Ingresá el Costo del Producto ($ ARS)** arriba para verificar al instante si la publicación da positiva o negativa en margen.")
-    elif ganancia_neta_pub > 0:
-        st.markdown(f'''
-        <div class="card-viable">
-            🟢 <b>PUBLICACIÓN POSITIVA EN MARGEN (RENTABLE):</b><br>
-            Deja una ganancia neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Aprobada para subir!
-        </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown(f'''
-        <div class="card-noviable">
-            🔴 <b>PUBLICACIÓN NEGATIVA EN MARGEN (PÉRDIDA):</b><br>
-            Genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. No conviene publicarla a este precio/costo.
-        </div>
-        ''', unsafe_allow_html=True)
-
-    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Clonada o Editable)", height=120, key="pub_desc_dyn")
-
-    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-    if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
-        if not st.session_state["access_token"]:
-            st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
-        elif not pub_catalog_id.strip():
-            st.error("❌ Se requiere un Catalog Product ID válido.")
-        elif not pub_cat_id.strip():
-            st.error("❌ Se requiere un ID de Categoría válido.")
-        else:
-            access_token_clean = st.session_state["access_token"].strip()
-            pictures_payload = []
-
-            if archivos_imagenes_subidos:
-                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes propias a Mercado Libre..."):
-                    for img_file in archivos_imagenes_subidos[:10]:
-                        try:
-                            url_upload = "https://api.mercadolibre.com/pictures/items/upload"
-                            headers_img = {"Authorization": f"Bearer {access_token_clean}"}
-                            files_data = {"file": (img_file.name, img_file.getvalue(), img_file.type)}
-                            
-                            res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
-                            if res_img.status_code in [200, 201]:
-                                pic_id = res_img.json().get("id")
-                                if pic_id:
-                                    pictures_payload.append({"id": pic_id})
-                        except Exception:
-                            pass
-
-            if not pictures_payload and urls_fotos_extraidas:
-                pictures_payload = [{"source": u} for u in urls_fotos_extraidas[:10]]
-
-            if not pictures_payload:
-                pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
-
-            tipo_list_clean = "gold_special" if "Clásica" in pub_type else "gold_pro"
-            
-            payload_post = {
-                "family_name": pub_family_name.strip(),
-                "category_id": pub_cat_id.strip(),
-                "catalog_product_id": pub_catalog_id.strip(),
-                "price": float(pub_pvp),
-                "currency_id": "ARS",
-                "available_quantity": int(pub_stock_qty),
-                "buying_mode": "buy_it_now",
-                "listing_type_id": tipo_list_clean,
-                "condition": "new",
-                "channels": ["marketplace"],
-                "pictures": pictures_payload,
-                "sale_terms": [
-                    {"id": "WARRANTY_TIME", "value_name": "90 días"}
-                ],
-                "shipping": {
-                    "mode": "me2",
-                    "local_pick_up": False,
-                    "free_shipping": False
-                },
-                "attributes": [
-                    {"id": "BRAND", "value_name": pub_brand.strip()},
-                    {"id": "MODEL", "value_name": pub_model.strip()},
-                    {"id": "HEIGHT", "value_name": pub_altura.strip()},
-                    {"id": "WIDTH", "value_name": pub_ancho.strip()},
-                    {"id": "DEPTH", "value_name": pub_prof.strip()},
-                    {"id": "REQUIRES_ASSEMBLY", "value_name": pub_ensamblado.strip()},
-                    {"id": "INCLUDES_ASSEMBLY_MANUAL", "value_name": "Sí"}
-                ]
-            }
-
-            if pub_video_id.strip():
-                payload_post["video_id"] = pub_video_id.strip()
-
-            headers_post = {
-                "Authorization": f"Bearer {access_token_clean}",
-                "Content-Type": "application/json"
-            }
-
-            try:
-                with st.spinner("Enviando sumado a catálogo a Mercado Libre..."):
-                    res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
-                    if res_api.status_code in [200, 201]:
-                        data_created = res_api.json()
-                        item_id = data_created.get("id")
-                        permalink = data_created.get("permalink")
-
-                        if item_id and pub_descripcion.strip():
-                            try:
-                                requests.post(
-                                    f"https://api.mercadolibre.com/items/{item_id}/description",
-                                    json={"plain_text": pub_descripcion.strip()},
-                                    headers=headers_post,
-                                    timeout=8
-                                )
-                            except Exception:
-                                pass
-
-                        st.success(f"🎉 ¡Sumado a catálogo exitoso! ID Item: **{item_id}**")
-                        if permalink:
-                            st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
-                    else:
-                        err_resp = res_api.json() if res_api.content else {}
-                        st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
-                        if "cause" in err_resp:
-                            st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
-            except Exception as e:
-                st.error(f"Error de conexión: {e}")
+        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60
