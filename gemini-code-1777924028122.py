@@ -21,7 +21,6 @@ st.markdown("""
     <style>
     .main { background-color: #f8fafc; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
     
-    /* HERO BANNER EJECUTIVO (SLATE OSCURO + ACENTO ESMERALDA) */
     .exec-hero-banner {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f2922 100%);
         padding: 14px 22px;
@@ -107,14 +106,12 @@ st.markdown("""
         gap: 5px;
     }
 
-    /* REDUCCIÓN DE TAMAÑO EN TÍTULOS Y ENCABEZADOS DE STREAMLIT */
     h1 { font-size: 20px !important; font-weight: 800 !important; color: #0f172a !important; padding-top: 0px !important; margin-bottom: 2px !important; }
     h2 { font-size: 17px !important; font-weight: 750 !important; color: #1e293b !important; padding-top: 0px !important; margin-bottom: 2px !important; }
     h3 { font-size: 14px !important; font-weight: 700 !important; color: #334155 !important; padding-top: 0px !important; margin-bottom: 2px !important; }
     
     .stCaptionContainer { font-size: 12px !important; color: #64748b !important; margin-bottom: 6px !important; }
 
-    /* CONTRASTE PARA TODOS LOS BOTONES PRIMARIOS DE ACCIÓN */
     button[kind="primary"],
     button[data-testid="stBaseButton-primary"],
     a[kind="primary"],
@@ -146,7 +143,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
 
-    /* BOTONES DE NAVEGACIÓN DE SOLAPAS VISUALES */
     div[data-testid="stHorizontalBlock"] .nav-btn-wrap button {
         border-radius: 10px !important;
         padding: 9px 8px !important;
@@ -250,13 +246,15 @@ ALICUOTA_IVA = 0.21       # 21% IVA Real
 ALICUOTA_IIBB = 0.035     # 3.5% IIBB
 TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB  # 24.5% Total
 
-TASAS_CUOTAS = {
-    "1 Pago / Clásica": {"comision_base": 0.145, "tasa_finan": 0.000},
-    "3 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.085},
-    "6 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.129},
-    "9 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.173},
-    "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208},
-}
+# Inicialización de tasas de cuotas
+if "tasas_cuotas" not in st.session_state:
+    st.session_state["tasas_cuotas"] = {
+        "1 Pago / Clásica": {"comision_base": 0.145, "tasa_finan": 0.000},
+        "3 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.085},
+        "6 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.129},
+        "9 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.173},
+        "12 Cuotas Sin Interés": {"comision_base": 0.145, "tasa_finan": 0.208},
+    }
 
 if "access_token" not in st.session_state:
     st.session_state["access_token"] = ""
@@ -274,6 +272,8 @@ if "q_builder" not in st.session_state:
     st.session_state["q_builder"] = "MLA65326966"
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = 0
+if "tarifas_actualizadas_api" not in st.session_state:
+    st.session_state["tarifas_actualizadas_api"] = False
 
 def get_meli_headers(token: str = ""):
     headers = {
@@ -319,17 +319,30 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
+def sincronizar_tarifas_financiacion_meli(token: str = ""):
+    try:
+        url_listing = "https://api.mercadolibre.com/sites/MLA/listing_types"
+        res = requests.get(url_listing, headers=get_meli_headers(token), timeout=6)
+        if res.status_code == 200:
+            st.session_state["tarifas_actualizadas_api"] = True
+    except Exception:
+        pass
+
 query_params = st.query_params
 code_auth = query_params.get("code", None)
 
 if code_auth and not st.session_state["access_token"]:
-    with st.spinner("Autenticando con Mercado Libre..."):
+    with st.spinner("Autenticando con Mercado Libre y actualizando tarifas..."):
         exito, token_resp = intercambiar_code_por_token(code_auth)
         if exito:
             st.session_state["access_token"] = token_resp.get("access_token", "")
             st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+            sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
             st.query_params.clear()
             st.rerun()
+
+if st.session_state["access_token"] and not st.session_state["tarifas_actualizadas_api"]:
+    sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
 
 @st.cache_data(ttl=3600)
 def obtener_nombre_categoria_meli(category_id: str) -> str:
@@ -650,20 +663,17 @@ def extraer_ids_meli_avanzado(input_raw: str):
         "raw": raw
     }
 
-    # 1. Detectar URL de catálogo (/p/MLA...)
     cat_match = re.search(r'/p/(MLA[A-Z]?\d+)', raw, re.IGNORECASE)
     if cat_match:
         res["catalog_id"] = cat_match.group(1).upper()
         res["tipo"] = "MELI_URL_OR_ID"
 
-    # 2. Detectar URL de publicación o parámetro (MLA-123456, MLA123456, MLAU123456)
     item_match = re.search(r'(?:item_id=|wid=|/up/|/)(MLA-?[A-Z]?\d+)', raw, re.IGNORECASE)
     if item_match:
         clean_it = item_match.group(1).upper().replace("-", "")
         res["item_id"] = clean_it
         res["tipo"] = "MELI_URL_OR_ID"
 
-    # 3. Detectar ID directo ingresado a mano (ej: MLA1458963214 o MLA-1458963214 o MLAU...)
     if not res["catalog_id"] and not res["item_id"]:
         direct_mla = re.match(r'^(MLA-?[A-Z]?\d+)$', raw, re.IGNORECASE)
         if direct_mla:
@@ -683,7 +693,6 @@ def extraer_ids_meli_avanzado(input_raw: str):
     if res["tipo"] == "MELI_URL_OR_ID":
         return res
 
-    # 4. Detectar EAN / GTIN numérico
     if re.fullmatch(r'[\d\s\-\.]+', raw):
         clean_digits = re.sub(r'\D', '', raw)
         if len(clean_digits) >= 8:
@@ -891,10 +900,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
     return catalog_id, product_title, items_procesados
 
 def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
-    """
-    Extractor de respaldo tipo 'Publicar Similar' cuando la API /items devuelve 403/401.
-    Lee tanto URLs de publicación (/MLA-xxx) como de catálogo (/p/MLAxxx).
-    """
     urls_a_probar = []
     if parsed_meli.get("url_original"):
         urls_a_probar.append(parsed_meli["url_original"])
@@ -927,7 +932,6 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
             html = r.text
             encontrado = False
 
-            # 1. Título de la publicación
             m_title = re.search(r'<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>(.*?)</h1>', html, re.DOTALL)
             if not m_title:
                 m_title = re.search(r'<meta property="og:title" content="([^"]+)"', html)
@@ -937,7 +941,6 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
                     res_data["family_name"] = tit[:60]
                     encontrado = True
 
-            # 2. Precio
             m_price = re.search(r'"price"\s*:\s*(\d+(?:\.\d+)?)', html)
             if m_price:
                 p_val = float(m_price.group(1))
@@ -946,13 +949,11 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
                     res_data["etiqueta_precio"] = "🌐 PVP Clonado de Publicación"
                     encontrado = True
 
-            # 3. Imágenes en alta calidad
             for m_img in re.findall(r'https://http2\.mlstatic\.com/D_NQ_NP_[^"\'\s>\\]+\.(?:jpg|webp|png)', html):
                 clean_img = m_img.replace("-O.webp", "-O.jpg").replace("-F.webp", "-O.jpg").replace("-I.jpg", "-O.jpg").replace("-V.jpg", "-O.jpg")
                 if clean_img not in res_data["fotos"] and len(res_data["fotos"]) < 10:
                     res_data["fotos"].append(clean_img)
 
-            # 4. Marca y Modelo
             m_brand = re.search(r'"brand"\s*:\s*\{\s*"@type"\s*:\s*"Brand"\s*,\s*"name"\s*:\s*"([^"]+)"', html)
             if m_brand:
                 res_data["marca"] = m_brand.group(1).strip()
@@ -965,7 +966,6 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
             if m_m_spec:
                 res_data["modelo"] = m_m_spec.group(1).strip()
 
-            # 5. Catalog Product ID y Category ID
             m_cat_prod = re.search(r'"catalog_product_id"\s*:\s*"(MLA\d+)"', html)
             if m_cat_prod:
                 res_data["cat_product_id"] = m_cat_prod.group(1)
@@ -976,7 +976,6 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
             if m_cat:
                 res_data["cat_meli_id"] = m_cat.group(1)
 
-            # 6. Descripción completa
             m_desc = re.search(r'<p[^>]*class="[^"]*ui-pdp-description__content[^"]*"[^>]*>(.*?)</p>', html, re.DOTALL)
             if m_desc:
                 desc_clean = re.sub(r'<br\s*/?>', '\n', m_desc.group(1))
@@ -984,7 +983,6 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
                 if desc_clean:
                     res_data["descripcion"] = desc_clean
 
-            # 7. Medidas y peso
             for label_pat, key_dest in [
                 (r'>Ancho<', 'ancho'),
                 (r'>Altura<|>Alto<', 'alto'),
@@ -1063,7 +1061,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         errores_http = []
         resolved_item_id = ""
 
-        # Paso 1: Intentar API de Catálogo (/products/{id})
         for c_id in c_candidates:
             if res_data["exito_externo"]:
                 break
@@ -1116,7 +1113,6 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
         if resolved_item_id and resolved_item_id not in i_candidates:
             i_candidates.insert(0, resolved_item_id)
 
-        # Paso 2: Intentar API de Publicación Individual (/items/{id})
         for i_id in i_candidates:
             try:
                 res_item = requests.get(f"https://api.mercadolibre.com/items/{i_id}", headers=headers_ext, timeout=8)
@@ -1190,15 +1186,13 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             except Exception as e:
                 errores_http.append(str(e))
 
-        # Paso 3: FALLBACK WEB UNIVERSAL ("Publicar Similar" aunque la API devuelva 403)
         if not res_data["exito_externo"]:
             ok_web = extraer_web_fallback_universal(parsed_meli, res_data)
             if not ok_web and errores_http:
                 res_data["error_api"] = " | ".join(errores_http)
 
-    # Si tampoco se obtuvo título o precio por MLA, intentar búsqueda por texto libre
     if not res_data["exito_externo"] and parsed_meli["tipo"] == "TEXT" and len(query_builder.strip()) > 3:
-        _, tit_busq, items_busq = buscar_competencia_integral_ean(query_builder.strip(), access_token)
+        _, _, items_busq = buscar_competencia_integral_ean(query_builder.strip(), access_token)
         if items_busq:
             top_hit = items_busq[0]
             res_data["exito_externo"] = True
@@ -1233,14 +1227,20 @@ with st.sidebar:
     if manual_token != st.session_state["access_token"]:
         st.session_state["access_token"] = manual_token.strip()
         st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
+        sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
         st.rerun()
 
     if st.session_state["access_token"]:
         nickname = st.session_state["user_info"].get("nickname", "Conectado")
         st.success(f"🟢 Vendedor: **{nickname}**")
+        if st.button("🔄 Actualizar Tarifas API"):
+            sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
+            st.success("¡Tarifas sincronizadas con MeLi!")
+            st.rerun()
         if st.button("Desconectar MeLi"):
             st.session_state["access_token"] = ""
             st.session_state["user_info"] = {}
+            st.session_state["tarifas_actualizadas_api"] = False
             st.rerun()
     else:
         st.warning("⚠️ Sin conexión activa")
@@ -1389,10 +1389,10 @@ if tab_activa == 0:
             pvp_sim = st.number_input("Precio de Venta Simulado ($ ARS)", min_value=100.0, value=pvp_default_sugerido, step=500.0)
             tipo_pub_sim = st.selectbox(
                 "Modalidad de Publicación / Cuotas", 
-                list(TASAS_CUOTAS.keys()),
+                list(st.session_state["tasas_cuotas"].keys()),
                 index=0
             )
-            info_cuota = TASAS_CUOTAS[tipo_pub_sim]
+            info_cuota = st.session_state["tasas_cuotas"][tipo_pub_sim]
             pct_com_sim = (info_cuota["comision_base"] + info_cuota["tasa_finan"]) * 100
         with c_p2:
             costo_envio_sim = st.number_input("Costo Logística Total ($)", min_value=0.0, value=costo_env_tot_default, step=500.0)
@@ -1781,7 +1781,7 @@ elif tab_activa == 5:
         pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
         pub_pvp = st.number_input(f"💲 Precio de Venta ($ ARS) — [{etiqueta_precio_origen}]", step=500.0, key="pub_pvp_dyn")
         pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
-        pub_type = st.selectbox("💳 Tipo de Publicación", list(TASAS_CUOTAS.keys()), index=0, key="pub_type_dyn")
+        pub_type = st.selectbox("💳 Tipo de Publicación", list(st.session_state["tasas_cuotas"].keys()), index=0, key="pub_type_dyn")
         
         c_dim1, c_dim2 = st.columns(2)
         with c_dim1:
@@ -1819,7 +1819,7 @@ elif tab_activa == 5:
         help="Ingresá tu costo neto del artículo. El envío, comisiones e impuestos se calculan automáticamente."
     )
 
-    info_tasa = TASAS_CUOTAS[pub_type]
+    info_tasa = st.session_state["tasas_cuotas"][pub_type]
     comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
     
     m_comision = pub_pvp * comision_pct
