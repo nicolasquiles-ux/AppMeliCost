@@ -114,7 +114,7 @@ st.markdown("""
     
     .stCaptionContainer { font-size: 12px !important; color: #64748b !important; margin-bottom: 6px !important; }
 
-    /* FIX DE CONTRASTE PARA TODOS LOS BOTONES PRIMARIOS DE ACCIÓN (ADIÓS BOTÓN ROJO ILEGIBLE) */
+    /* CONTRASTE PARA TODOS LOS BOTONES PRIMARIOS DE ACCIÓN */
     button[kind="primary"],
     button[data-testid="stBaseButton-primary"],
     a[kind="primary"],
@@ -1699,6 +1699,11 @@ elif tab_activa == 5:
             for idx_img, img_u in enumerate(urls_fotos_extraidas[:5]):
                 with cols_imgs[idx_img]:
                     st.image(img_u, caption=f"Foto {idx_img+1}", use_container_width=True)
+            if len(urls_fotos_extraidas) > 5:
+                cols_imgs2 = st.columns(min(len(urls_fotos_extraidas) - 5, 5))
+                for idx_img, img_u in enumerate(urls_fotos_extraidas[5:10]):
+                    with cols_imgs2[idx_img]:
+                        st.image(img_u, caption=f"Foto {idx_img+6}", use_container_width=True)
         if video_id_extraido:
             st.info(f"🎬 **Video de YouTube detectado y vinculado:** `https://www.youtube.com/watch?v={video_id_extraido}`")
 
@@ -1706,4 +1711,241 @@ elif tab_activa == 5:
 
     f_col1, f_col2 = st.columns(2)
     with f_col1:
-        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60
+        pub_family_name = st.text_input("🏷️ Nombre de Familia (family_name, máx 60 car.)", max_chars=60, key="pub_family_name_dyn")
+        
+        cat_actual_code = st.session_state.get("pub_cat_id_dyn", "MLA4765").strip()
+        nombre_cat_actual = obtener_nombre_categoria_meli(cat_actual_code)
+        st.markdown(f"📂 **Categoría Actual:** <span style='color: #0284c7; font-weight: 700;'>{nombre_cat_actual}</span>", unsafe_allow_html=True)
+        
+        sugerencias_cat = predecir_categorias_meli(pub_family_name)
+        if sugerencias_cat:
+            opciones_sug = ["(Mantener categoría actual)"] + [f"{ruta} ({cid})" for cid, ruta in sugerencias_cat]
+            sel_sug = st.selectbox("🔄 Cambiar categoría por sugerencia oficial de MeLi (Opcional):", opciones_sug, key="sel_sug_cat_opt")
+            if sel_sug != "(Mantener categoría actual)":
+                nuevo_cid = sel_sug.split("(")[-1].replace(")", "").strip()
+                if nuevo_cid != cat_actual_code:
+                    st.session_state["pub_cat_id_dyn"] = nuevo_cid
+                    st.rerun()
+
+        pub_cat_id = st.text_input("ID Categoría MeLi (category_id - Editable)", key="pub_cat_id_dyn")
+        pub_catalog_id = st.text_input("🎯 Catalog Product ID", key="pub_catalog_id_dyn")
+        pub_brand = st.text_input("🏢 Marca (BRAND)", key="pub_brand_dyn")
+        
+        archivos_imagenes_subidos = st.file_uploader(
+            "🖼️ Reemplazar/Subir Fotos Propias (Opcional, hasta 10 JPG/PNG)", 
+            type=["jpg", "jpeg", "png"], 
+            accept_multiple_files=True, 
+            key="uploader_imgs_pub_multi"
+        )
+        if archivos_imagenes_subidos:
+            st.info(f"📁 Usando tus {min(len(archivos_imagenes_subidos), 10)} imágenes subidas manualmente.")
+        elif urls_fotos_extraidas:
+            st.success(f"✅ Se enviarán las {len(urls_fotos_extraidas)} fotos clonadas de la publicación.")
+
+        pub_video_id = st.text_input("🎬 ID de YouTube (Clonado o Editable)", key="pub_video_dyn")
+
+    with f_col2:
+        pub_model = st.text_input("📌 Modelo (MODEL)", key="pub_model_dyn")
+        pub_pvp = st.number_input(f"💲 Precio de Venta ($ ARS) — [{etiqueta_precio_origen}]", step=500.0, key="pub_pvp_dyn")
+        pub_stock_qty = st.number_input("📊 Stock Disponible", value=10, step=1, key="pub_stock_dyn")
+        pub_type = st.selectbox("💳 Tipo de Publicación", list(TASAS_CUOTAS.keys()), index=0, key="pub_type_dyn")
+        
+        c_dim1, c_dim2 = st.columns(2)
+        with c_dim1:
+            pub_altura = st.text_input("Altura Paquete / Caja", key="pub_altura_dyn")
+            pub_ancho = st.text_input("Ancho Paquete / Caja", key="pub_ancho_dyn")
+        with c_dim2:
+            pub_prof = st.text_input("Profundidad Paquete / Caja", key="pub_prof_dyn")
+            pub_peso_embalado = st.text_input("Peso Paquete / Caja", key="pub_peso_dyn")
+            
+        pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
+
+    # --------------------------------------------------------------------------
+    # AUDITOR DE MARGEN EN TIEMPO REAL (FLETE AUTOMÁTICO + ÚNICO DATO MANUAL: COSTO)
+    # --------------------------------------------------------------------------
+    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+    st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
+
+    if datos.get("found_matriz"):
+        _, costo_envio_auto, peso_unit_m, peso_tot_m, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, pub_pvp)
+        tiene_embalaje = True
+        detalle_flete_txt = f"Calculado desde Matriz Logística ({cant_cajas_m} bulto/s · {peso_tot_m:.1f} kg facturables)"
+    else:
+        costo_envio_auto, peso_fact_calc, peso_vol_calc, tiene_embalaje = calcular_flete_desde_embalaje(
+            pub_altura, pub_ancho, pub_prof, pub_peso_embalado, pub_pvp
+        )
+        if tiene_embalaje:
+            detalle_flete_txt = f"Calculado desde embalaje API ({peso_fact_calc:.1f} kg facturables · Vol: {peso_vol_calc:.1f} kg)"
+        else:
+            detalle_flete_txt = "Sin datos de embalaje en API/Matriz (Flete = $0)"
+
+    costo_producto_manual = st.number_input(
+        "🏷️ Costo del Producto ($ ARS) — [Único dato manual para evaluar rentabilidad]", 
+        min_value=0.0, 
+        step=500.0, 
+        key="pub_costo_base_input",
+        help="Ingresá tu costo neto del artículo. El envío, comisiones e impuestos se calculan automáticamente."
+    )
+
+    info_tasa = TASAS_CUOTAS[pub_type]
+    comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
+    
+    m_comision = pub_pvp * comision_pct
+    m_iibb = pub_pvp * ALICUOTA_IIBB
+    m_iva = pub_pvp * ALICUOTA_IVA
+    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_auto
+    
+    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_producto_manual
+    margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Envío Calculado (Embalaje)</div>
+            <div class="kpi-value" style="color: #0284c7; font-size: 18px;">${costo_envio_auto:,.2f}</div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">{detalle_flete_txt}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_m2:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
+            <div class="kpi-value" style="color: #e11d48; font-size: 18px;">${total_impuestos_deducciones:,.2f}</div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">Comis. {comision_pct*100:.1f}% + Impuestos 24.5% + Envío</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_m3:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-label">Neto Libre a Bolsillo</div>
+            <div class="kpi-value" style="color: {'#059669' if ganancia_neta_pub > 0 else '#dc2626'}; font-size: 18px;">${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">PVP ${pub_pvp:,.0f} - Deducciones - Costo</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+    if costo_producto_manual <= 0:
+        st.info("ℹ️ **Ingresá el Costo del Producto ($ ARS)** arriba para verificar al instante si la publicación da positiva o negativa en margen.")
+    elif ganancia_neta_pub > 0:
+        st.markdown(f'''
+        <div class="card-viable">
+            🟢 <b>PUBLICACIÓN POSITIVA EN MARGEN (RENTABLE):</b><br>
+            Deja una ganancia neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Aprobada para subir!
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''
+        <div class="card-noviable">
+            🔴 <b>PUBLICACIÓN NEGATIVA EN MARGEN (PÉRDIDA):</b><br>
+            Genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. No conviene publicarla a este precio/costo.
+        </div>
+        ''', unsafe_allow_html=True)
+
+    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Clonada o Editable)", height=120, key="pub_desc_dyn")
+
+    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+    if st.button("🚀 ENVIAR SUMADO A CATÁLOGO OFICIAL", type="primary", use_container_width=True):
+        if not st.session_state["access_token"]:
+            st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
+        elif not pub_catalog_id.strip():
+            st.error("❌ Se requiere un Catalog Product ID válido.")
+        elif not pub_cat_id.strip():
+            st.error("❌ Se requiere un ID de Categoría válido.")
+        else:
+            access_token_clean = st.session_state["access_token"].strip()
+            pictures_payload = []
+
+            if archivos_imagenes_subidos:
+                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes propias a Mercado Libre..."):
+                    for img_file in archivos_imagenes_subidos[:10]:
+                        try:
+                            url_upload = "https://api.mercadolibre.com/pictures/items/upload"
+                            headers_img = {"Authorization": f"Bearer {access_token_clean}"}
+                            files_data = {"file": (img_file.name, img_file.getvalue(), img_file.type)}
+                            
+                            res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
+                            if res_img.status_code in [200, 201]:
+                                pic_id = res_img.json().get("id")
+                                if pic_id:
+                                    pictures_payload.append({"id": pic_id})
+                        except Exception:
+                            pass
+
+            if not pictures_payload and urls_fotos_extraidas:
+                pictures_payload = [{"source": u} for u in urls_fotos_extraidas[:10]]
+
+            if not pictures_payload:
+                pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
+
+            tipo_list_clean = "gold_special" if "Clásica" in pub_type else "gold_pro"
+            
+            payload_post = {
+                "family_name": pub_family_name.strip(),
+                "category_id": pub_cat_id.strip(),
+                "catalog_product_id": pub_catalog_id.strip(),
+                "price": float(pub_pvp),
+                "currency_id": "ARS",
+                "available_quantity": int(pub_stock_qty),
+                "buying_mode": "buy_it_now",
+                "listing_type_id": tipo_list_clean,
+                "condition": "new",
+                "channels": ["marketplace"],
+                "pictures": pictures_payload,
+                "sale_terms": [
+                    {"id": "WARRANTY_TIME", "value_name": "90 días"}
+                ],
+                "shipping": {
+                    "mode": "me2",
+                    "local_pick_up": False,
+                    "free_shipping": False
+                },
+                "attributes": [
+                    {"id": "BRAND", "value_name": pub_brand.strip()},
+                    {"id": "MODEL", "value_name": pub_model.strip()},
+                    {"id": "HEIGHT", "value_name": pub_altura.strip()},
+                    {"id": "WIDTH", "value_name": pub_ancho.strip()},
+                    {"id": "DEPTH", "value_name": pub_prof.strip()},
+                    {"id": "REQUIRES_ASSEMBLY", "value_name": pub_ensamblado.strip()},
+                    {"id": "INCLUDES_ASSEMBLY_MANUAL", "value_name": "Sí"}
+                ]
+            }
+
+            if pub_video_id.strip():
+                payload_post["video_id"] = pub_video_id.strip()
+
+            headers_post = {
+                "Authorization": f"Bearer {access_token_clean}",
+                "Content-Type": "application/json"
+            }
+
+            try:
+                with st.spinner("Enviando sumado a catálogo a Mercado Libre..."):
+                    res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
+                    if res_api.status_code in [200, 201]:
+                        data_created = res_api.json()
+                        item_id = data_created.get("id")
+                        permalink = data_created.get("permalink")
+
+                        if item_id and pub_descripcion.strip():
+                            try:
+                                requests.post(
+                                    f"https://api.mercadolibre.com/items/{item_id}/description",
+                                    json={"plain_text": pub_descripcion.strip()},
+                                    headers=headers_post,
+                                    timeout=8
+                                )
+                            except Exception:
+                                pass
+
+                        st.success(f"🎉 ¡Sumado a catálogo exitoso! ID Item: **{item_id}**")
+                        if permalink:
+                            st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
+                    else:
+                        err_resp = res_api.json() if res_api.content else {}
+                        st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
+                        if "cause" in err_resp:
+                            st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
+            except Exception as e:
+                st.error(f"Error de conexión: {e}")
