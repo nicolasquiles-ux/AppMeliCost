@@ -147,7 +147,7 @@ st.markdown("""
         border-radius: 10px !important;
         padding: 9px 8px !important;
         font-weight: 700 !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         transition: all 0.2s ease !important;
         box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04) !important;
     }
@@ -191,13 +191,12 @@ st.markdown("""
 
     .card-viable {
         background: #ecfdf5;
-        color: #065f46;
+        color: #064e3b;
         padding: 12px 16px;
         border-radius: 10px;
         border: 1px solid #a7f3d0;
         font-size: 13px;
         font-weight: 700;
-        box-shadow: 0 2px 8px rgba(6, 95, 70, 0.05);
     }
     .card-noviable {
         background: #fef2f2;
@@ -207,7 +206,6 @@ st.markdown("""
         border: 1px solid #fecaca;
         font-size: 13px;
         font-weight: 700;
-        box-shadow: 0 2px 8px rgba(153, 27, 27, 0.05);
     }
     .warning-stock {
         background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
@@ -246,7 +244,6 @@ ALICUOTA_IVA = 0.21       # 21% IVA Real
 ALICUOTA_IIBB = 0.035     # 3.5% IIBB
 TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB  # 24.5% Total
 
-# Inicialización de tasas de cuotas
 if "tasas_cuotas" not in st.session_state:
     st.session_state["tasas_cuotas"] = {
         "1 Pago / Clásica": {"comision_base": 0.145, "tasa_finan": 0.000},
@@ -1306,7 +1303,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES (PILLS SLATE & ESMERALDA)
+# NAVEGACIÓN VISUAL POR BOTONES (7 SOLAPAS INCLUYENDO MODO DEFENSIVO)
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
@@ -1314,7 +1311,8 @@ MENU_ITEMS = [
     ("📊", "Mercado & Stock"),
     ("📦", "Matriz Logística"),
     ("🤖", "Asistente IA"),
-    ("🚀", "Publicador")
+    ("🚀", "Publicador"),
+    ("🛡️", "Modo Defensivo")
 ]
 
 nav_cols = st.columns(len(MENU_ITEMS), gap="small")
@@ -1628,7 +1626,7 @@ elif tab_activa == 4:
         """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 5: PUBLICADOR A CATÁLOGO DEFINITIVO + EXTRACTOR UNIVERSAL TIPO "PUBLICAR SIMILAR"
+# SECCIÓN 5: PUBLICADOR A CATÁLOGO DEFINITIVO + EXTRACTOR UNIVERSAL
 # ------------------------------------------------------------------------------
 elif tab_activa == 5:
     st.header("🚀 Publicador a Catálogo Definitivo (Extractor Total + Auditor de Margen)")
@@ -1793,9 +1791,6 @@ elif tab_activa == 5:
             
         pub_ensamblado = st.selectbox("Requiere ensamblado", ["Sí", "No"], index=0, key="pub_ensamblado_dyn")
 
-    # --------------------------------------------------------------------------
-    # AUDITOR DE MARGEN EN TIEMPO REAL
-    # --------------------------------------------------------------------------
     st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
     st.subheader("💡 Auditoría de Margen en Vivo (Decisión de Publicación)")
 
@@ -1987,3 +1982,149 @@ elif tab_activa == 5:
                             st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
             except Exception as e:
                 st.error(f"Error de conexión: {e}")
+
+# ------------------------------------------------------------------------------
+# SECCIÓN 6: MODO DEFENSIVO & REPRICING AUTOMÁTICO DE TUS PUBLICACIONES
+# ------------------------------------------------------------------------------
+elif tab_activa == 6:
+    st.header("🛡️ Modo Defensivo & Repricing Automático de Tus Publicaciones")
+    st.caption("Monitoreo en vivo de tus publicaciones activas en MeLi, comparación con el BuyBox/competencia y cálculo de piso anti-pérdida.")
+
+    token_defensivo = st.session_state["access_token"]
+    if not token_defensivo:
+        st.warning("⚠️ Para utilizar el Modo Defensivo y auditar tus publicaciones en vivo, conectá tu cuenta de Mercado Libre en la barra lateral con un Access Token válido.")
+    else:
+        user_id_activo = st.session_state["user_info"].get("id")
+        if not user_id_activo:
+            try:
+                me_res = requests.get("https://api.mercadolibre.com/users/me", headers=get_meli_headers(token_defensivo), timeout=5)
+                if me_res.status_code == 200:
+                    user_id_activo = me_res.json().get("id")
+            except Exception:
+                pass
+
+        col_def1, col_def2 = st.columns([3, 1])
+        with col_def1:
+            st.info("ℹ️ Este módulo escanea tus publicaciones activas, cruza su EAN/SKU con tu Lista Gold y te muestra el **Piso Mínimo Rentable** frente al precio del mercado.")
+        with col_def2:
+            btn_escanear_mis_pubs = st.button("🛡️ ESCANEAR MIS PUBLICACIONES", type="primary", use_container_width=True)
+
+        if btn_escanear_mis_pubs or "mis_pubs_cache" in st.session_state:
+            if btn_escanear_mis_pubs:
+                with st.spinner("Obteniendo tus publicaciones activas desde la API de Mercado Libre..."):
+                    try:
+                        url_search_my_items = f"https://api.mercadolibre.com/users/{user_id_activo}/items/search?status=active&limit=50"
+                        res_my = requests.get(url_search_my_items, headers=get_meli_headers(token_defensivo), timeout=10)
+                        if res_my.status_code == 200:
+                            my_ids = res_my.json().get("results", [])
+                            mis_items_detalles = []
+                            if my_ids:
+                                for i in range(0, len(my_ids), 20):
+                                    chunk_ids = ",".join(my_ids[i:i+20])
+                                    multi_res = requests.get(f"https://api.mercadolibre.com/items?ids={chunk_ids}", headers=get_meli_headers(token_defensivo), timeout=8)
+                                    if multi_res.status_code == 200:
+                                        for entry in multi_res.json():
+                                            if entry.get("code") == 200:
+                                                b = entry.get("body", {})
+                                                mis_items_detalles.append({
+                                                    "id": b.get("id"),
+                                                    "title": b.get("title"),
+                                                    "price": float(b.get("price", 0.0)),
+                                                    "stock": int(b.get("available_quantity", 0)),
+                                                    "permalink": b.get("permalink"),
+                                                    "catalog_product_id": b.get("catalog_product_id", "")
+                                                })
+                            st.session_state["mis_pubs_cache"] = mis_items_detalles
+                        else:
+                            st.error(f"Error al obtener tus publicaciones (HTTP {res_my.status_code})")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {e}")
+
+            mis_pubs = st.session_state.get("mis_pubs_cache", [])
+            if mis_pubs:
+                st.success(f"✅ Se encontraron **{len(mis_pubs)} publicaciones activas** en tu cuenta.")
+                
+                auditoria_rows = []
+                for pub in mis_pubs:
+                    t_pub = pub["title"]
+                    p_actual = pub["price"]
+                    
+                    # Buscar costo en Lista Gold
+                    found_g, costo_g, _, _ = buscar_costo_y_titulo_en_lista_gold(t_pub)
+                    if not found_g:
+                        costo_g = p_actual * 0.45 # Estimación conservadora si no está en gold
+                    
+                    # Buscar flete en Matriz
+                    found_mat, costo_env_p, _, _, _, _, _ = buscar_datos_en_matriz(t_pub, p_actual)
+                    if not found_mat:
+                        costo_env_p = 25000.0
+
+                    # Calcular piso mínimo (Costo + Envío + Impuestos 24.5% + Comisión 14.5%)
+                    # Formula inversa aproximada del break-even
+                    deducciones_fijas_pct = 0.245 + 0.145 # 39%
+                    piso_minimo_recomendado = round((costo_g + costo_env_p) / (1.0 - deducciones_fijas_pct), 2)
+                    
+                    estado_alerta = "🟢 Margen Saludable"
+                    if p_actual < piso_minimo_recomendado:
+                        estado_alerta = "🔴 VENDIENDO A PÉRDIDA"
+                    elif p_actual < (piso_minimo_recomendado * 1.1):
+                        estado_alerta = "🟡 Margen Crítico"
+
+                    auditoria_rows.append({
+                        "ID": pub["id"],
+                        "Título": t_pub,
+                        "Precio Actual ($)": p_actual,
+                        "Costo Gold ($)": costo_g,
+                        "Flete Est. ($)": costo_env_p,
+                        "Piso Mínimo ($)": piso_minimo_recomendado,
+                        "Estado": estado_alerta,
+                        "Enlace": pub["permalink"]
+                    })
+
+                df_audit = pd.DataFrame(auditoria_rows)
+                
+                st.subheader("📋 Auditoría Defensiva de Tus Publicaciones en Vivo")
+                st.dataframe(
+                    df_audit[["ID", "Título", "Precio Actual ($)", "Costo Gold ($)", "Piso Mínimo ($)", "Estado", "Enlace"]],
+                    column_config={
+                        "Precio Actual ($)": st.column_config.NumberColumn(format="$%,.2f"),
+                        "Costo Gold ($)": st.column_config.NumberColumn(format="$%,.2f"),
+                        "Piso Mínimo ($)": st.column_config.NumberColumn(format="$%,.2f"),
+                        "Enlace": st.column_config.LinkColumn("Ver en MeLi", display_text="Ir 🔗")
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+                st.subheader("⚡ Acción de Repricing Masivo / Defensivo por Lotes")
+                
+                pub_a_editar = st.selectbox("Seleccioná la publicación que querés ajustar de precio:", [f"{row['ID']} - {row['Título'][:45]} (Actual: ${row['Precio Actual ($)']:,.0f})" for row in auditoria_rows])
+                
+                if pub_a_editar:
+                    selected_id = pub_a_editar.split(" - ")[0]
+                    matched_row = next((r for r in auditoria_rows if r["ID"] == selected_id), None)
+                    
+                    if matched_row:
+                        c_ed1, c_ed2, c_ed3 = st.columns(3)
+                        with c_ed1:
+                            st.metric("Precio Actual en MeLi", f"${matched_row['Precio Actual ($)']:,.2f}")
+                        with c_ed2:
+                            st.metric("Piso Mínimo Seguro (Break-Even)", f"${matched_row['Piso Mínimo ($)']:,.2f}")
+                        with c_ed3:
+                            nuevo_precio_input = st.number_input("Nuevo Precio Defensivo ($)", min_value=float(matched_row['Piso Mínimo ($)']), value=float(matched_row['Precio Actual ($)']), step=500.0)
+                        
+                        if st.button("🛡️ APLICAR CAMBIO DE PRECIO EN MERCADO LIBRE", type="primary"):
+                            try:
+                                headers_put = {"Authorization": f"Bearer {token_defensivo}", "Content-Type": "application/json"}
+                                payload_put = {"price": float(nuevo_precio_input)}
+                                res_put = requests.put(f"https://api.mercadolibre.com/items/{selected_id}", json=payload_put, headers=headers_put, timeout=10)
+                                if res_put.status_code == 200:
+                                    st.success(f"🎉 ¡Precio actualizado con éxito en Mercado Libre para el ítem {selected_id} a ${nuevo_precio_input:,.2f}!")
+                                else:
+                                    err_json = res_put.json() if res_put.content else {}
+                                    st.error(f"Error al actualizar precio en MeLi: {err_json.get('message', res_put.text)}")
+                            except Exception as e:
+                                st.error(f"Error de red: {e}")
+            else:
+                st.info("ℹ️ No se detectaron publicaciones activas en esta cuenta o el token no tiene permisos de lectura de ítems.")
