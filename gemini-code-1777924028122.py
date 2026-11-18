@@ -233,6 +233,14 @@ st.markdown("""
         border: 1px solid #fca5a5;
         font-size: 12px;
     }
+    .mla-focus-box {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 1px solid #cbd5e1;
+        border-left: 5px solid #0284c7;
+        padding: 14px 18px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -267,6 +275,8 @@ if "search_query_mon" not in st.session_state:
     st.session_state["search_query_mon"] = "7798009181204"
 if "q_builder" not in st.session_state:
     st.session_state["q_builder"] = "MLA65326966"
+if "q_mercado_mla" not in st.session_state:
+    st.session_state["q_mercado_mla"] = "MLA1456789012"
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = 0
 if "tarifas_actualizadas_api" not in st.session_state:
@@ -736,6 +746,161 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
+# ------------------------------------------------------------------------------
+# NUEVA FUNCIÓN PARA SOLAPA 2: AUDITORÍA PROFUNDA DE CUALQUIER MLA / URL / TÉRMINO
+# ------------------------------------------------------------------------------
+@st.cache_data(ttl=600)
+def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
+    """
+    Si el usuario ingresa un MLA o URL, consulta directamente /items/{id} para obtener
+    sus métricas reales, detecta su categoría/catálogo, y barre los competidores directos.
+    Si ingresa texto o EAN, busca directamente en mercado.
+    """
+    headers = get_meli_headers(access_token)
+    parsed = extraer_ids_meli_avanzado(query_input)
+    
+    item_objetivo = None
+    catalog_id = parsed.get("catalog_id", "")
+    category_id = ""
+    search_query = parsed.get("raw", "")
+
+    # Paso 1: Si es un MLA o URL de ítem, consultar /items/{id} directamente
+    if parsed["tipo"] == "MELI_URL_OR_ID":
+        candidatos_item = [x for x in [parsed["item_id"], parsed["alt_item_id"]] if x]
+        for cid_it in candidatos_item:
+            try:
+                r_it = requests.get(f"https://api.mercadolibre.com/items/{cid_it}", headers=headers, timeout=8)
+                if r_it.status_code == 200:
+                    b = r_it.json()
+                    seller_nick = resolver_vendedor_nickname_oficial(b.get("seller_id"), access_token)
+                    
+                    stk = int(b.get("available_quantity", 0))
+                    vars_list = b.get("variations", [])
+                    if vars_list and isinstance(vars_list, list):
+                        stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                        if stk_vars > 0:
+                            stk = stk_vars
+
+                    item_objetivo = {
+                        "id": b.get("id"),
+                        "title": b.get("title", ""),
+                        "price": float(b.get("price", 0.0)),
+                        "stock": stk,
+                        "sold_quantity": int(b.get("sold_quantity", 0)),
+                        "category_id": b.get("category_id", ""),
+                        "catalog_product_id": b.get("catalog_product_id", ""),
+                        "vendedor_name": seller_nick,
+                        "permalink": construir_url_canonica_meli(b.get("id"), b.get("permalink", "")),
+                        "condition": b.get("condition", "new"),
+                        "listing_type_id": b.get("listing_type_id", ""),
+                        "thumbnail": b.get("secure_thumbnail") or b.get("thumbnail", "")
+                    }
+                    if item_objetivo["catalog_product_id"]:
+                        catalog_id = item_objetivo["catalog_product_id"]
+                    category_id = item_objetivo["category_id"]
+                    search_query = item_objetivo["title"]
+                    break
+            except Exception:
+                pass
+
+    # Paso 2: Obtener competidores del mismo catálogo o misma categoría/título
+    raw_items = []
+    if catalog_id:
+        try:
+            res_pi = requests.get(f"https://api.mercadolibre.com/products/{catalog_id}/items", headers=headers, timeout=8)
+            if res_pi.status_code == 200:
+                raw_items = res_pi.json().get("results", [])
+        except Exception:
+            pass
+        if not raw_items:
+            try:
+                res_ci = requests.get(f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}", headers=headers, timeout=8)
+                if res_ci.status_code == 200:
+                    raw_items = res_ci.json().get("results", [])
+            except Exception:
+                pass
+
+    if not raw_items and search_query:
+        # Buscar por palabras clave principales del título o término ingresado
+        palabras_clave = " ".join(search_query.split()[:6])
+        url_search = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(palabras_clave)}&limit=40"
+        if category_id:
+            url_search += f"&category={category_id}"
+        try:
+            res_q = requests.get(url_search, headers=headers, timeout=8)
+            if res_q.status_code == 200:
+                raw_items = res_q.json().get("results", [])
+        except Exception:
+            pass
+
+    # Paso 3: Enriquecer con multiget real para obtener stock y ventas exactas
+    list_ids = []
+    for r in raw_items[:40]:
+        i_id = r.get("item_id") or r.get("id", "")
+        if i_id and i_id not in list_ids:
+            list_ids.append(i_id)
+
+    detalles_dict = {}
+    if list_ids:
+        for i in range(0, len(list_ids), 20):
+            chunk = list_ids[i:i+20]
+            try:
+                res_m = requests.get(f"https://api.mercadolibre.com/items?ids={','.join(chunk)}", headers=headers, timeout=8)
+                if res_m.status_code == 200:
+                    for entry in res_m.json():
+                        if entry.get("code") == 200:
+                            b = entry.get("body", {})
+                            it_id = b.get("id")
+                            stk = int(b.get("available_quantity", 0))
+                            vars_list = b.get("variations", [])
+                            if vars_list and isinstance(vars_list, list):
+                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                                if stk_vars > 0:
+                                    stk = stk_vars
+                            detalles_dict[it_id] = {
+                                "title_real": b.get("title", ""),
+                                "stock_real": stk,
+                                "sold_real": int(b.get("sold_quantity", 0)),
+                                "price_real": float(b.get("price", 0.0)),
+                                "category_real": b.get("category_id", category_id or "MLA4765"),
+                                "permalink_real": b.get("permalink", ""),
+                                "seller_id": b.get("seller_id")
+                            }
+            except Exception:
+                pass
+
+    items_procesados = []
+    for r in raw_items[:40]:
+        item_id = r.get("item_id") or r.get("id", "")
+        if not item_id:
+            continue
+        det = detalles_dict.get(item_id, {})
+        seller_id = det.get("seller_id") or (r.get("seller", {}).get("id") if isinstance(r.get("seller"), dict) else r.get("seller_id"))
+        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
+
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
+        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
+        price_final = det.get("price_real", float(r.get("price", 0.0)))
+        cat_final = det.get("category_real") or r.get("category_id", category_id or "MLA4765")
+        title_final = det.get("title_real") or r.get("title", "")
+
+        items_procesados.append({
+            "vendedor_name": nickname,
+            "id": item_id,
+            "title": title_final,
+            "price": price_final,
+            "stock": stock_final,
+            "sold_quantity": sold_final,
+            "permalink": construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", "")),
+            "category_id": cat_final
+        })
+
+    # Asegurar que el ítem consultado aparezca en la lista si no vino en el top
+    if item_objetivo and not any(x["id"] == item_objetivo["id"] for x in items_procesados):
+        items_procesados.insert(0, item_objetivo)
+
+    return item_objetivo, items_procesados
+
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
     headers = get_meli_headers(access_token)
@@ -877,9 +1042,6 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
         cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
-
-        if stock_final <= 0:
-            stock_final = max(1, 15 - ((idx * 3 + sold_final) % 12))
 
         items_procesados.append({
             "vendedor_name": nickname,
@@ -1303,12 +1465,12 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES (7 SOLAPAS INCLUYENDO MODO DEFENSIVO)
+# NAVEGACIÓN VISUAL POR BOTONES
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
     ("⚡", "Control Precios"),
-    ("📊", "Mercado & Stock"),
+    ("📊", "Radiografía MLA"),
     ("📦", "Matriz Logística"),
     ("🤖", "Asistente IA"),
     ("🚀", "Publicador"),
@@ -1514,84 +1676,121 @@ elif tab_activa == 1:
             st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 2: MONITOR DE MERCADO & ALERTA DE QUIEBRE DE STOCK
+# SECCIÓN 2: RADIOGRAFÍA DE CUALQUIER MLA / ANÁLISIS DE MERCADO & STOCK REAL
 # ------------------------------------------------------------------------------
 elif tab_activa == 2:
-    st.header("📊 Monitor de Mercado & Alerta de Quiebre de Stock")
-    st.caption("Detección de oportunidades comerciales monitoreando publicaciones activas con stock crítico (≤ 2 unidades).")
+    st.header("📊 Radiografía de Cualquier MLA & Inteligencia de Mercado")
+    st.caption("Pegá cualquier código MLA (ej. MLA1456789012), URL de publicación, catálogo o palabra clave para auditar ventas acumuladas, stock real y competidores directos.")
 
     col_mkt1, col_mkt2 = st.columns([3, 1])
     with col_mkt1:
-        search_term_mkt = st.text_input("Término de Búsqueda de Mercado / Categoría", value="Ropero placard")
+        query_mla_mkt = st.text_input("Código MLA / URL de Publicación / Palabra Clave", key="q_mercado_mla", placeholder="Ej: MLA1456789012 o https://articulo.mercadolibre.com.ar/MLA-...")
     with col_mkt2:
         st.write("")
-        btn_refresh_mkt = st.button("🔄 Actualizar Datos Mercado", type="primary", use_container_width=True)
+        btn_auditar_mla = st.button("🔍 AUDITAR MLA / MERCADO", type="primary", use_container_width=True)
 
-    if search_term_mkt:
-        with st.spinner("Rastreando publicaciones, stock real y ventas acumuladas en Mercado Libre..."):
-            _, _, items_mkt = buscar_competencia_integral_ean(search_term_mkt, st.session_state["access_token"])
+    if query_mla_mkt and query_mla_mkt.strip():
+        with st.spinner("Consultando API de Mercado Libre y analizando métricas del ítem y su competencia..."):
+            item_foco, items_mercado = analizar_mla_y_mercado(query_mla_mkt.strip(), st.session_state["access_token"])
 
-        if items_mkt:
-            df_mkt = pd.DataFrame(items_mkt)
+        # 1. SI SE ENCONTRÓ EL MLA ESPECÍFICO, MOSTRAR SU RADIOGRAFÍA DETALLADA ARRIBA
+        if item_foco:
+            cat_nombre_foco = obtener_nombre_categoria_meli(item_foco["category_id"])
+            fact_item_foco = item_foco["price"] * item_foco["sold_quantity"]
+
+            st.markdown(f"""
+            <div class="mla-focus-box">
+                <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase;">🎯 Publicación Auditada Directamente ({item_foco['id']})</div>
+                <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 3px 0;">{item_foco['title']}</div>
+                <div style="font-size: 12px; color: #475569;">
+                    <b>Vendedor:</b> {item_foco['vendedor_name']} &nbsp;|&nbsp; 
+                    <b>Categoría:</b> {cat_nombre_foco} ({item_foco['category_id']}) &nbsp;|&nbsp;
+                    <b>Catálogo:</b> {item_foco['catalog_product_id'] or 'Publicación Tradicional'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Precio Actual (PVP)</div>
+                    <div class="kpi-value" style="color: #0284c7;">${item_foco['price']:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with k2:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Stock Real Disponible</div>
+                    <div class="kpi-value" style="color: {'#dc2626' if item_foco['stock'] <= 2 else '#059669'};">{item_foco['stock']:,} un.</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with k3:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Ventas Acumuladas</div>
+                    <div class="kpi-value" style="color: #0f172a;">{item_foco['sold_quantity']:,} un.</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with k4:
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Facturación Histórica Est.</div>
+                    <div class="kpi-value" style="color: #059669;">${fact_item_foco:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+            st.link_button("🔗 Abrir esta publicación en Mercado Libre", item_foco["permalink"])
+            st.markdown("<hr style='margin: 12px 0;'>", unsafe_allow_html=True)
+
+        # 2. ANÁLISIS COMPARATIVO DE COMPETIDORES Y STOCK DEL SEGMENTO
+        if items_mercado:
+            df_mkt = pd.DataFrame(items_mercado)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-            quiebres_inminentes = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
-            if not quiebres_inminentes.empty:
+            # Alerta real de quiebre de stock (competidores con stock real entre 1 y 2 unidades)
+            quiebres = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
+            if not quiebres.empty:
                 st.markdown(f'''
                 <div class="warning-stock">
-                    🚨 <b>ALERTA DE QUIEBRE DE STOCK DETECTADA:</b> Se identificaron <b>{len(quiebres_inminentes)} publicaciones competidoras</b> con stock crítico ($\le 2$ unidades). ¡Momento ideal para ajustar precios o capturar demanda!
+                    🚨 <b>OPORTUNIDAD POR QUIEBRE DE STOCK:</b> Hay <b>{len(quiebres)} competidores directos</b> en este segmento con stock crítico ($\le 2$ unidades disponibles).
                 </div><br>
                 ''', unsafe_allow_html=True)
 
-            st.subheader("1. Resumen de Stock, Ventas y Facturación Estimada por Categoría")
+            # Resumen de métricas del segmento
+            precio_prom_seg = df_mkt["price"].mean()
+            stock_tot_seg = df_mkt["stock"].sum()
+            ventas_tot_seg = df_mkt["sold_quantity"].sum()
 
-            cat_summary = df_mkt.groupby("category_id").agg(
-                Publicaciones=("id", "count"),
-                Stock_Total_Disponible=("stock", "sum"),
-                Unidades_Vendidas=("sold_quantity", "sum"),
-                Facturacion_Total=("facturacion_estimada", "sum"),
-                Precio_Promedio=("price", "mean")
-            ).reset_index()
+            s1, s2, s3 = st.columns(3)
+            with s1:
+                st.metric("Precio Promedio del Segmento", f"${precio_prom_seg:,.0f}")
+            with s2:
+                st.metric("Stock Total en Competencia", f"{stock_tot_seg:,} un.")
+            with s3:
+                st.metric("Ventas Acumuladas del Nicho", f"{ventas_tot_seg:,} un.")
 
-            total_mkt_fact = cat_summary["Facturacion_Total"].sum()
-            cat_summary["Cuota_Mercado_%"] = (cat_summary["Facturacion_Total"] / total_mkt_fact * 100) if total_mkt_fact > 0 else 0
-
-            st.dataframe(
-                cat_summary,
-                column_config={
-                    "category_id": "ID Categoría MeLi",
-                    "Publicaciones": st.column_config.NumberColumn("Publicaciones Activas", format="%d"),
-                    "Stock_Total_Disponible": st.column_config.NumberColumn("Stock Total Disp.", format="%d"),
-                    "Unidades_Vendidas": st.column_config.NumberColumn("Ventas Acum.", format="%d"),
-                    "Facturacion_Total": st.column_config.NumberColumn("Facturación Est. ($)", format="$%.0f"),
-                    "Precio_Promedio": st.column_config.NumberColumn("Precio Promedio ($)", format="$%.0f"),
-                    "Cuota_Mercado_%": st.column_config.NumberColumn("Cuota de Mercado (%)", format="%.1f%%")
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-            st.subheader("2. Ranking Top 15 Productos Más Vendidos del Mercado (con Stock en Vivo)")
-
-            top_15_mkt = df_mkt.sort_values(by="sold_quantity", ascending=False).head(15).reset_index(drop=True)
-            top_15_mkt.index += 1
+            st.subheader("🏆 Ranking de Competidores en el Mismo Nicho / Catálogo")
+            df_ranking = df_mkt.sort_values(by=["sold_quantity", "price"], ascending=[False, True]).reset_index(drop=True)
+            df_ranking.index += 1
 
             st.dataframe(
-                top_15_mkt[["vendedor_name", "title", "price", "stock", "sold_quantity", "facturacion_estimada", "permalink"]],
+                df_ranking[["id", "vendedor_name", "title", "price", "stock", "sold_quantity", "facturacion_estimada", "permalink"]],
                 column_config={
-                    "vendedor_name": "Vendedor / Competidor",
-                    "title": "Título de la Publicación",
-                    "price": st.column_config.NumberColumn("PVP Actual ($)", format="$%.0f"),
-                    "stock": st.column_config.NumberColumn("Stock Disp. (`stock`)", format="%d"),
-                    "sold_quantity": st.column_config.NumberColumn("Ventas Acum. (`sold_quantity`)", format="%d"),
-                    "facturacion_estimada": st.column_config.NumberColumn("Facturación Acum. Est. ($)", format="$%.0f"),
-                    "permalink": st.column_config.LinkColumn("Enlace MeLi", display_text="Ver 🔗")
+                    "id": "ID MLA",
+                    "vendedor_name": "Vendedor",
+                    "title": "Publicación",
+                    "price": st.column_config.NumberColumn("Precio ($)", format="$%,.0f"),
+                    "stock": st.column_config.NumberColumn("Stock Real", format="%d"),
+                    "sold_quantity": st.column_config.NumberColumn("Ventas Acum.", format="%d"),
+                    "facturacion_estimada": st.column_config.NumberColumn("Facturación Est. ($)", format="$%,.0f"),
+                    "permalink": st.column_config.LinkColumn("Enlace", display_text="Ver 🔗")
                 },
                 use_container_width=True
             )
-        else:
-            st.warning("No se encontraron publicaciones activas para el término ingresado.")
+        elif not item_foco:
+            st.error("❌ No se pudo encontrar información para el código o término ingresado. Verificá que el código MLA sea correcto (ej: `MLA1456789012`) o que tengas un Access Token activo.")
 
 # ------------------------------------------------------------------------------
 # SECCIÓN 3: MATRIZ DE ARTÍCULOS & COSTOS LOGÍSTICOS
@@ -2049,19 +2248,15 @@ elif tab_activa == 6:
                     t_pub = pub["title"]
                     p_actual = pub["price"]
                     
-                    # Buscar costo en Lista Gold
                     found_g, costo_g, _, _ = buscar_costo_y_titulo_en_lista_gold(t_pub)
                     if not found_g:
-                        costo_g = p_actual * 0.45 # Estimación conservadora si no está en gold
+                        costo_g = p_actual * 0.45
                     
-                    # Buscar flete en Matriz
                     found_mat, costo_env_p, _, _, _, _, _ = buscar_datos_en_matriz(t_pub, p_actual)
                     if not found_mat:
                         costo_env_p = 25000.0
 
-                    # Calcular piso mínimo (Costo + Envío + Impuestos 24.5% + Comisión 14.5%)
-                    # Formula inversa aproximada del break-even
-                    deducciones_fijas_pct = 0.245 + 0.145 # 39%
+                    deducciones_fijas_pct = 0.245 + 0.145
                     piso_minimo_recomendado = round((costo_g + costo_env_p) / (1.0 - deducciones_fijas_pct), 2)
                     
                     estado_alerta = "🟢 Margen Saludable"
