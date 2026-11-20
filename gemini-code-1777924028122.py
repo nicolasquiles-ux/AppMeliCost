@@ -793,8 +793,10 @@ def mapear_tipo_envio_meli(logistic_type: str, free_shipping: bool = False) -> s
         return "ME2"
     if lt in ("self_service",):
         return "FLEX"
-    if lt in ("custom", "not_specified", ""):
-        return "ME1" if not free_shipping else "ME2"
+    if lt in ("custom",):
+        return "ME1"
+    if lt in ("not_specified", ""):
+        return "ME2" if free_shipping else "ME1"
     return lt.upper()
 
 def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict) -> list:
@@ -880,6 +882,167 @@ def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> byte
         df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
     output.seek(0)
     return output.getvalue()
+
+# ------------------------------------------------------------------------------
+# FUNCIONES PARA COMPARADOR POR MEDIDAS, CARACTERÍSTICAS Y MERCADO (SIN IA)
+# ------------------------------------------------------------------------------
+def extraer_medidas_cm_de_texto(texto: str) -> list:
+    if not texto:
+        return []
+    nums = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*(?:cm|mm|m)\b", str(texto).lower())]
+    normalizados = []
+    for n in nums:
+        if "mm" in str(texto).lower() and n > 20:
+            normalizados.append(n / 10.0)
+        elif re.search(r"\b\d+(?:[.,]\d+)?\s*m\b", str(texto).lower()) and n < 5:
+            normalizados.append(n * 100.0)
+        else:
+            normalizados.append(n)
+    return normalizados
+
+@st.cache_data(ttl=900)
+def evaluar_comparable_sin_ia(
+    titulo_base: str,
+    caracteristicas_txt: str,
+    ancho_cm: float,
+    alto_cm: float,
+    prof_cm: float,
+    peso_kg: float,
+    costo_base: float,
+    horizonte_dias: int,
+    access_token: str = ""
+):
+    headers = get_meli_headers(access_token)
+    partes_q = [titulo_base.strip()]
+    palabras_car = [p.strip() for p in re.split(r"[,;/|\n]+", caracteristicas_txt or "") if len(p.strip()) >= 3]
+    if palabras_car:
+        partes_q.append(" ".join(palabras_car[:3]))
+    consulta_str = " ".join(partes_q).strip()
+
+    cat_id = ""
+    cat_nombre = ""
+    sugerencias = predecir_categorias_meli(consulta_str)
+    if sugerencias:
+        cat_id, cat_nombre = sugerencias[0]
+
+    raw_items = []
+    try:
+        url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(consulta_str)}&limit=40"
+        if cat_id:
+            url_q += f"&category={cat_id}"
+        res_q = requests.get(url_q, headers=headers, timeout=8)
+        if res_q.status_code == 200:
+            raw_items = res_q.json().get("results", [])
+        if not raw_items and cat_id:
+            res_q2 = requests.get(
+                f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(titulo_base.strip())}&limit=40",
+                headers=headers,
+                timeout=8
+            )
+            if res_q2.status_code == 200:
+                raw_items = res_q2.json().get("results", [])
+    except Exception:
+        pass
+
+    tokens_clave = [
+        w.lower() for w in re.findall(r"[a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]{3,}", f"{titulo_base} {caracteristicas_txt}")
+        if w.lower() not in {"con", "para", "sin", "de", "del", "las", "los", "por", "una", "uno"}
+    ]
+    medidas_user = sorted([m for m in [ancho_cm, alto_cm, prof_cm] if m > 0])
+
+    comparables = []
+    for r in raw_items:
+        precio = float(r.get("price") or 0.0)
+        if precio <= 0:
+            continue
+        tit = str(r.get("title") or "")
+        tit_low = tit.lower()
+        sold = int(r.get("sold_quantity") or 0)
+        stk = int(r.get("available_quantity") or 0)
+        item_id = r.get("id") or ""
+        seller_id = r.get("seller", {}).get("id") if isinstance(r.get("seller"), dict) else r.get("seller_id")
+        vendedor = resolver_vendedor_nickname_oficial(seller_id, access_token)
+        ship = r.get("shipping") or {}
+        tipo_env = mapear_tipo_envio_meli(ship.get("logistic_type", ""), bool(ship.get("free_shipping", False)))
+
+        coincidencias = sum(1 for tk in set(tokens_clave) if tk in tit_low)
+        score = coincidencias * 10.0
+
+        meds_item = sorted(extraer_medidas_cm_de_texto(tit))
+        if medidas_user and meds_item:
+            pares = min(len(medidas_user), len(meds_item))
+            diffs = [abs(medidas_user[i] - meds_item[i]) / max(medidas_user[i], 1.0) for i in range(pares)]
+            diff_prom = sum(diffs) / max(pares, 1)
+            if diff_prom <= 0.25:
+                score += 20.0
+            elif diff_prom > 0.65:
+                score -= 15.0
+
+        if sold > 0:
+            score += min(np.log1p(sold) * 2.0, 10.0)
+
+        comparables.append({
+            "ID": item_id,
+            "Vendedor": vendedor,
+            "Título": tit,
+            "Precio ($)": precio,
+            "Ventas Acum.": sold,
+            "Stock Disp.": stk,
+            "Envío": tipo_env,
+            "Similitud": round(score, 1),
+            "Enlace": construir_url_canonica_meli(item_id, r.get("permalink", ""), r.get("catalog_product_id", ""))
+        })
+
+    comparables.sort(key=lambda x: (-x["Similitud"], x["Precio ($)"]))
+    top_comps = comparables[:20]
+
+    precios = [c["Precio ($)"] for c in top_comps if c["Precio ($)"] > 0]
+    if precios:
+        p25 = float(np.percentile(precios, 25))
+        mediana_p = float(np.median(precios))
+        p75 = float(np.percentile(precios, 75))
+    else:
+        p25 = mediana_p = p75 = 0.0
+
+    peso_vol = round((ancho_cm * alto_cm * prof_cm) / 4000.0, 2) if (ancho_cm > 0 and alto_cm > 0 and prof_cm > 0) else 0.0
+    peso_fact = max(float(peso_kg or 0.0), peso_vol)
+    pvp_ref_flete = mediana_p if mediana_p > 0 else (costo_base * 2.0 if costo_base > 0 else 208000.0)
+    costo_envio_est = calcular_costo_envio_por_peso_facturable(peso_fact, pvp_ref_flete)
+
+    if costo_base > 0:
+        piso_break_even = (costo_base + costo_envio_est) / (1.0 - (0.145 + TOTAL_IMPUESTOS))
+        pvp_sugerido = max(mediana_p if mediana_p > 0 else piso_break_even * 1.15, piso_break_even * 1.12)
+    else:
+        piso_break_even = 0.0
+        pvp_sugerido = mediana_p if mediana_p > 0 else 0.0
+
+    ventas_comps = [c["Ventas Acum."] for c in top_comps if c["Ventas Acum."] > 0]
+    mediana_ventas = float(np.median(ventas_comps)) if ventas_comps else 5.0
+    factor_horizonte = horizonte_dias / 30.0
+    factor_precio = 1.15 if (mediana_p > 0 and pvp_sugerido <= mediana_p * 0.95) else (0.85 if (mediana_p > 0 and pvp_sugerido > mediana_p * 1.1) else 1.0)
+    factor_competencia = 1.0 / max(1.0, (len(top_comps) / 12.0) ** 0.35)
+
+    base_unid = max(1.0, (mediana_ventas * 0.25) * factor_horizonte * factor_precio * factor_competencia)
+    unid_cons = max(1, int(round(base_unid * 0.6)))
+    unid_base = max(unid_cons, int(round(base_unid)))
+    unid_opt = max(unid_base + 1, int(round(base_unid * 1.5)))
+
+    return {
+        "consulta": consulta_str,
+        "cat_id": cat_id,
+        "cat_nombre": cat_nombre,
+        "comparables": top_comps,
+        "p25": p25,
+        "mediana": mediana_p,
+        "p75": p75,
+        "peso_fact": peso_fact,
+        "costo_envio_est": costo_envio_est,
+        "piso_break_even": piso_break_even,
+        "pvp_sugerido": pvp_sugerido,
+        "unid_cons": unid_cons,
+        "unid_base": unid_base,
+        "unid_opt": unid_opt
+    }
 
 @st.cache_data(ttl=600)
 def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
@@ -1587,7 +1750,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES (8 SOLAPAS)
+# NAVEGACIÓN VISUAL POR BOTONES (9 SOLAPAS)
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
@@ -1597,7 +1760,8 @@ MENU_ITEMS = [
     ("🤖", "Asistente IA"),
     ("🚀", "Publicador"),
     ("🛡️", "Modo Defensivo"),
-    ("📥", "Cotizador Matriz")
+    ("📥", "Cotizador Matriz"),
+    ("🔍", "Comparador Similares")
 ]
 
 nav_cols = st.columns(len(MENU_ITEMS), gap="small")
@@ -2572,3 +2736,115 @@ elif tab_activa == 7:
             )
     else:
         st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
+
+# ------------------------------------------------------------------------------
+# SECCIÓN 8: COMPARADOR POR IMAGEN, MEDIDAS Y CARACTERÍSTICAS (SIN API DE IA)
+# ------------------------------------------------------------------------------
+elif tab_activa == 8:
+    st.header("🔍 Comparador por Imagen, Medidas y Características (Sin IA)")
+    st.caption("Cargá la imagen de referencia, medidas y características principales para buscar comparables en MeLi, estimar PVP sugerido y calcular unidades probables de venta.")
+
+    col_v1, col_v2 = st.columns([1, 2])
+    with col_v1:
+        img_comp = st.file_uploader("🖼️ Imagen del Producto (Referencia)", type=["jpg", "jpeg", "png", "webp"], key="img_comp_similares")
+        if img_comp is not None:
+            st.image(img_comp, caption="Imagen cargada", use_container_width=True)
+    with col_v2:
+        titulo_comp = st.text_input("🏷️ Tipo de Producto / Título Base", value="Biblioteca melamina 4 estantes", key="tit_comp_similares")
+        caract_comp = st.text_area(
+            "🧩 Características Principales (separadas por coma o salto de línea)",
+            value="melamina 18mm, blanco, con puertas, entrega armada/desarmada",
+            height=80,
+            key="car_comp_similares"
+        )
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        ancho_comp = st.number_input("Ancho (cm)", min_value=0.0, value=60.0, step=1.0, key="ancho_comp_sim")
+    with m2:
+        alto_comp = st.number_input("Alto (cm)", min_value=0.0, value=180.0, step=1.0, key="alto_comp_sim")
+    with m3:
+        prof_comp = st.number_input("Profundidad (cm)", min_value=0.0, value=30.0, step=1.0, key="prof_comp_sim")
+    with m4:
+        peso_comp = st.number_input("Peso Embalado (kg)", min_value=0.0, value=28.0, step=0.5, key="peso_comp_sim")
+
+    e1, e2 = st.columns(2)
+    with e1:
+        costo_comp = st.number_input("Costo Unitario del Producto ($ ARS, opcional)", min_value=0.0, value=0.0, step=1000.0, key="costo_comp_sim")
+    with e2:
+        horizonte_comp = st.selectbox("Horizonte de Estimación", [7, 15, 30, 60], index=2, format_func=lambda d: f"{d} días", key="horiz_comp_sim")
+
+    if st.button("🔍 EVALUAR COMPARABLES, PVP Y UNIDADES", type="primary", use_container_width=True, key="btn_eval_comp_sim"):
+        if not titulo_comp.strip():
+            st.error("❌ Ingresá al menos el tipo de producto o título base.")
+        else:
+            with st.spinner("Buscando comparables en Mercado Libre y calculando PVP y unidades estimadas..."):
+                res_sim = evaluar_comparable_sin_ia(
+                    titulo_base=titulo_comp,
+                    caracteristicas_txt=caract_comp,
+                    ancho_cm=ancho_comp,
+                    alto_cm=alto_comp,
+                    prof_cm=prof_comp,
+                    peso_kg=peso_comp,
+                    costo_base=costo_comp,
+                    horizonte_dias=int(horizonte_comp),
+                    access_token=st.session_state["access_token"]
+                )
+            st.session_state["res_comparador_similares"] = res_sim
+
+    if "res_comparador_similares" in st.session_state:
+        r_s = st.session_state["res_comparador_similares"]
+        st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+        if r_s.get("cat_nombre"):
+            st.info(f"📂 **Categoría detectada:** {r_s['cat_nombre']} (`{r_s['cat_id']}`) | **Búsqueda:** `{r_s['consulta']}`")
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">PVP Sugerido</div>
+                <div class="kpi-value" style="color: #059669;">${r_s['pvp_sugerido']:,.0f}</div>
+                <div style="font-size: 10px; color: #64748b;">Mediana: ${r_s['mediana']:,.0f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k2:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Rango de Mercado (P25 - P75)</div>
+                <div class="kpi-value" style="color: #0284c7; font-size: 16px;">${r_s['p25']:,.0f} - ${r_s['p75']:,.0f}</div>
+                <div style="font-size: 10px; color: #64748b;">{len(r_s['comparables'])} comparables</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k3:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Unidades Estimadas ({horizonte_comp}d)</div>
+                <div class="kpi-value" style="color: #0f172a;">{r_s['unid_base']} un.</div>
+                <div style="font-size: 10px; color: #64748b;">Rango: {r_s['unid_cons']} a {r_s['unid_opt']} un.</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k4:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Flete Est. ({r_s['peso_fact']:.1f} kg fact.)</div>
+                <div class="kpi-value" style="color: #e11d48;">${r_s['costo_envio_est']:,.0f}</div>
+                <div style="font-size: 10px; color: #64748b;">Piso: ${r_s['piso_break_even']:,.0f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if r_s["comparables"]:
+            st.subheader("📊 Publicaciones Similares Encontradas")
+            df_sim = pd.DataFrame(r_s["comparables"])
+            st.dataframe(
+                df_sim[["Similitud", "Vendedor", "Título", "Precio ($)", "Ventas Acum.", "Stock Disp.", "Envío", "Enlace"]],
+                column_config={
+                    "Precio ($)": st.column_config.NumberColumn(format="$%,.0f"),
+                    "Ventas Acum.": st.column_config.NumberColumn(format="%d"),
+                    "Stock Disp.": st.column_config.NumberColumn(format="%d"),
+                    "Enlace": st.column_config.LinkColumn("Enlace", display_text="Ver 🔗")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.warning("⚠️ No se encontraron publicaciones comparables con esos filtros. Probá ampliar el título base o reducir características.")
