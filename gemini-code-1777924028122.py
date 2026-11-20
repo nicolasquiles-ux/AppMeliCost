@@ -8,10 +8,12 @@ import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
+
+APP_VERSION = "v189.0"
 
 st.set_page_config(
-    page_title="NQ Sales Intelligence Matrix Pro",
+    page_title=f"NQ Sales Intelligence Matrix Pro ({APP_VERSION})",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -67,9 +69,23 @@ st.markdown("""
         margin: 0;
         letter-spacing: -0.4px;
         line-height: 1.1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
     }
     .exec-hero-title span {
         color: #34d399;
+    }
+    .exec-version-tag {
+        background: rgba(16, 185, 129, 0.18);
+        color: #6ee7b7;
+        border: 1px solid rgba(52, 211, 153, 0.45);
+        font-size: 11px;
+        font-weight: 800;
+        padding: 2px 8px;
+        border-radius: 999px;
+        letter-spacing: 0.2px;
     }
     .exec-hero-subtitle {
         font-size: 11px;
@@ -946,33 +962,42 @@ def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> byte
 
 
 # ------------------------------------------------------------------------------
-# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (IDA Y VUELTA CON API)
+# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (v189.0)
 # ------------------------------------------------------------------------------
-def calcular_vector_visual_pil(pil_img: Image.Image):
-    try:
-        img_small = pil_img.convert("RGB").resize((24, 24), Image.Resampling.BILINEAR)
-        arr = np.asarray(img_small, dtype=np.float32) / 255.0
-        vec = arr.flatten()
-        norm = np.linalg.norm(vec)
-        if norm == 0:
-            return None
-        return vec / norm
-    except Exception:
-        return None
-
-
-def calcular_vector_visual_bytes(img_bytes: bytes):
+def calcular_firma_visual_robusta(img_bytes: bytes):
+    """Genera un vector normalizado combinando color en grilla 8x8 y histograma de color
+    para tolerar fondos blancos de catálogo vs. fotos ambientadas.
+    """
     if not img_bytes:
         return None
     try:
         with Image.open(io.BytesIO(img_bytes)) as im:
-            return calcular_vector_visual_pil(im)
+            rgb = ImageOps.exif_transpose(im).convert("RGB")
+            w, h = rgb.size
+            if w > 10 and h > 10:
+                margin_x = int(w * 0.06)
+                margin_y = int(h * 0.06)
+                rgb = rgb.crop((margin_x, margin_y, w - margin_x, h - margin_y))
+
+            grid = np.asarray(rgb.resize((8, 8), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
+            grid_vec = grid.flatten()
+
+            small = np.asarray(rgb.resize((32, 32), Image.Resampling.BILINEAR), dtype=np.float32)
+            bins = np.clip((small // 64.0).astype(np.int32), 0, 3)
+            idx = bins[:, :, 0] * 16 + bins[:, :, 1] * 4 + bins[:, :, 2]
+            hist = np.bincount(idx.flatten(), minlength=64).astype(np.float32)
+            if hist.sum() > 0:
+                hist /= hist.sum()
+
+            vec = np.concatenate([grid_vec * 0.65, hist * 0.35])
+            norm = np.linalg.norm(vec)
+            return vec / norm if norm > 0 else None
     except Exception:
         return None
 
 
 @st.cache_data(ttl=1800)
-def obtener_vector_miniatura_url(img_url: str):
+def obtener_firma_miniatura_url(img_url: str):
     if not img_url or not str(img_url).startswith("http"):
         return None
     headers = {
@@ -982,20 +1007,17 @@ def obtener_vector_miniatura_url(img_url: str):
     try:
         resp = requests.get(str(img_url).strip(), headers=headers, timeout=6)
         if resp.status_code == 200 and resp.content:
-            return calcular_vector_visual_bytes(resp.content)
+            return calcular_firma_visual_robusta(resp.content)
     except Exception:
         return None
     return None
 
 
 def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", limit: int = 50):
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0",
-    }
-    if access_token and access_token.strip():
-        headers["Authorization"] = f"Bearer {access_token.strip()}"
-
+    """Consulta /sites/MLA/search y, si viene vacío o bloqueado, recurre a
+    /products/search + /products/{id}/items para garantizar resultados.
+    """
+    headers = get_meli_headers(access_token)
     q = (consulta or "").strip()
     diag = {
         "status_code": None,
@@ -1005,7 +1027,7 @@ def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", 
     }
 
     if not q:
-        diag["error"] = "Sin palabra clave de búsqueda."
+        diag["error"] = "Ingresá una palabra clave o tipo de producto."
         return [], diag
 
     url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(q)}&limit={limit}"
@@ -1018,17 +1040,61 @@ def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", 
             data = r.json()
             results = data.get("results", []) or []
             diag["total_api"] = len(results)
-            return results, diag
-
-        try:
-            err_body = r.json()
-            diag["error"] = err_body.get("message") or str(err_body)
-        except Exception:
-            diag["error"] = r.text[:200] if r.text else f"HTTP {r.status_code}"
-        return [], diag
+            if results:
+                return results, diag
+        else:
+            try:
+                err_body = r.json()
+                diag["error"] = err_body.get("message") or str(err_body)
+            except Exception:
+                diag["error"] = r.text[:200] if r.text else f"HTTP {r.status_code}"
     except Exception as e:
         diag["error"] = str(e)
-        return [], diag
+
+    # Respaldo automático por catálogo de productos y sus ítems activos
+    recolectados = []
+    seen_ids = set()
+    try:
+        url_prod = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(q)}"
+        rp = requests.get(url_prod, headers=headers, timeout=10)
+        if rp.status_code == 200:
+            prods = (rp.json().get("results", []) or [])[:4]
+            for prod in prods:
+                pid = prod.get("id")
+                pname = prod.get("name", q)
+                pthumb = ""
+                pics = prod.get("pictures") or []
+                if pics and isinstance(pics, list):
+                    pthumb = pics[0].get("secure_url") or pics[0].get("url") or ""
+
+                if pid:
+                    rit = requests.get(f"https://api.mercadolibre.com/products/{pid}/items", headers=headers, timeout=10)
+                    if rit.status_code == 200:
+                        for it in (rit.json().get("results", []) or []):
+                            iid = it.get("item_id") or it.get("id") or ""
+                            if iid and iid not in seen_ids:
+                                seen_ids.add(iid)
+                                recolectados.append({
+                                    "id": iid,
+                                    "title": it.get("title") or pname,
+                                    "price": it.get("price", 0),
+                                    "available_quantity": it.get("available_quantity", 0),
+                                    "sold_quantity": it.get("sold_quantity", 0),
+                                    "permalink": it.get("permalink") or construir_url_canonica_meli(iid, "", pid),
+                                    "thumbnail": it.get("thumbnail") or pthumb,
+                                    "seller_id": it.get("seller_id"),
+                                })
+    except Exception:
+        pass
+
+    if recolectados:
+        diag["endpoint_usado"] = "/products/search -> /products/{id}/items (respaldo)"
+        diag["status_code"] = 200
+        diag["error"] = ""
+        diag["total_api"] = len(recolectados)
+        return recolectados[:limit], diag
+
+    return [], diag
 
 
 def buscar_publicaciones_similares_por_imagen(
@@ -1041,7 +1107,7 @@ def buscar_publicaciones_similares_por_imagen(
         access_token=access_token,
         limit=50,
     )
-    vec_ref = calcular_vector_visual_bytes(img_bytes) if img_bytes else None
+    vec_ref = calcular_firma_visual_robusta(img_bytes) if img_bytes else None
 
     filas = []
     for item in raw_items:
@@ -1064,7 +1130,7 @@ def buscar_publicaciones_similares_por_imagen(
 
         sim_pct = np.nan
         if vec_ref is not None and thumb:
-            vec_item = obtener_vector_miniatura_url(thumb)
+            vec_item = obtener_firma_miniatura_url(thumb)
             if vec_item is not None:
                 cos_sim = float(np.clip(np.dot(vec_ref, vec_item), -1.0, 1.0))
                 sim_pct = round(max(0.0, (cos_sim + 1.0) / 2.0 * 100.0), 1)
@@ -1715,6 +1781,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
 # ------------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚡ Control Panel")
+    st.caption(f"Versión activa: **{APP_VERSION}**")
     
     st.markdown("---")
     st.subheader("🔗 Conexión Mercado Libre")
@@ -1780,7 +1847,7 @@ st.markdown(f"""
         <div class="exec-hero-left">
             <div class="exec-logo-badge">NQ</div>
             <div>
-                <div class="exec-hero-title">NQ Argentina <span>|</span> MeLi Intelligence</div>
+                <div class="exec-hero-title">NQ Argentina <span>|</span> MeLi Intelligence <span class="exec-version-tag">{APP_VERSION}</span></div>
                 <div class="exec-hero-subtitle">Auditoría de Rentabilidad, Monitoreo Competitivo y Publicador a Catálogo</div>
             </div>
         </div>
@@ -2866,13 +2933,13 @@ elif tab_activa == 7:
                 barra_c.progress((idx + 1) / max(total_proc, 1))
                 time.sleep(pausa_c)
 
-            st.session_state["df_matriz_completada_v188"] = df_out
-            st.session_state["hoja_matriz_completada_v188"] = hoja_c
+            st.session_state["df_matriz_completada_v189"] = df_out
+            st.session_state["hoja_matriz_completada_v189"] = hoja_c
             estado_c.success("✅ ¡Matriz procesada por completo!")
 
-        if "df_matriz_completada_v188" in st.session_state:
-            df_final_c = st.session_state["df_matriz_completada_v188"]
-            hoja_final_c = st.session_state.get("hoja_matriz_completada_v188", "Hoja1")
+        if "df_matriz_completada_v189" in st.session_state:
+            df_final_c = st.session_state["df_matriz_completada_v189"]
+            hoja_final_c = st.session_state.get("hoja_matriz_completada_v189", "Hoja1")
 
             st.markdown("### 📋 Resultados de la Matriz Completada")
             st.dataframe(df_final_c, use_container_width=True)
@@ -2891,47 +2958,52 @@ elif tab_activa == 7:
         st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (IDA Y VUELTA CON API + LINKS)
+# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (v189.0)
 # ------------------------------------------------------------------------------
 elif tab_activa == 8:
-    st.header("🔍 Comparador por Imagen Similar")
-    st.caption("Trae publicaciones con imagen similar y su Link directo sin descartar por medidas ni características.")
+    st.header(f"🔍 Comparador por Imagen Similar ({APP_VERSION})")
+    st.caption(
+        "Compara tu foto usando firma visual robusta (grilla + color) y consulta con respaldo automático en catálogo para traer publicaciones y su Link directo."
+    )
 
     col_img, col_txt = st.columns([1, 2])
     with col_img:
         img_subida = st.file_uploader(
             "🖼️ Imagen de referencia",
             type=["jpg", "jpeg", "png", "webp"],
-            key="cmp_img_ref_v188_6",
+            key="cmp_img_ref_v189",
         )
         if img_subida is not None:
             st.image(img_subida, caption="Referencia cargada", use_container_width=True)
 
     with col_txt:
         termino = st.text_input(
-            "🏷️ Palabra clave / tipo de producto para consultar la API",
-            value="biblioteca melamina",
-            key="cmp_txt_query_v188_6",
+            "🏷️ Palabra clave / tipo de producto para consultar",
+            value="placard 2 puertas 2 cajones",
+            key="cmp_txt_query_v189",
         )
         st.caption(
-            "No se aplican filtros de medidas ni características: te devuelve las publicaciones encontradas y sus links para que sigas el análisis."
+            "Tip: si /sites/MLA/search no devuelve ítems, busca automáticamente en /products/search y sus ítems activos."
         )
 
-    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v188_6"):
+    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v189"):
         img_bytes = img_subida.getvalue() if img_subida is not None else None
-        with st.spinner("Consultando API de Mercado Libre y evaluando similitud visual..."):
+        with st.spinner("Consultando Mercado Libre y calculando similitud visual..."):
             filas, diag = buscar_publicaciones_similares_por_imagen(
                 consulta_base=termino,
                 img_bytes=img_bytes,
                 access_token=st.session_state["access_token"],
             )
-        st.session_state["cmp_sim_filas_v188_6"] = filas
-        st.session_state["cmp_sim_diag_v188_6"] = diag
+        st.session_state["cmp_sim_filas_v189"] = filas
+        st.session_state["cmp_sim_diag_v189"] = diag
 
-    if "cmp_sim_filas_v188_6" in st.session_state:
-        filas = st.session_state["cmp_sim_filas_v188_6"]
-        diag = st.session_state.get("cmp_sim_diag_v188_6", {})
+    if "cmp_sim_filas_v189" in st.session_state:
+        filas = st.session_state["cmp_sim_filas_v189"]
+        diag = st.session_state.get("cmp_sim_diag_v189", {})
         st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+
+        if diag.get("endpoint_usado"):
+            st.caption(f"Endpoint usado: `{diag.get('endpoint_usado')}` · HTTP {diag.get('status_code')}")
 
         if diag.get("error"):
             st.warning(
@@ -2956,5 +3028,5 @@ elif tab_activa == 8:
             )
         else:
             st.info(
-                "No se obtuvieron publicaciones. Probá con otro término o revisá si tu cuenta/token tiene habilitado el acceso a `/sites/MLA/search`."
+                "No se obtuvieron publicaciones. Probá con otro término o conectá un Access Token en el panel lateral."
             )
