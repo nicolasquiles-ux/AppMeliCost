@@ -251,9 +251,9 @@ CLIENT_ID = st.secrets.get("MELI_CLIENT_ID", "7265495583900621")
 CLIENT_SECRET = st.secrets.get("MELI_CLIENT_SECRET", "")
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://melicost.streamlit.app").strip().rstrip("/")
 
-ALICUOTA_IVA = 0.21       # 21% IVA Real
-ALICUOTA_IIBB = 0.035     # 3.5% IIBB
-TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB  # 24.5% Total
+ALICUOTA_IVA = 0.21
+ALICUOTA_IIBB = 0.035
+TOTAL_IMPUESTOS = ALICUOTA_IVA + ALICUOTA_IIBB
 
 if "tasas_cuotas" not in st.session_state:
     st.session_state["tasas_cuotas"] = {
@@ -285,17 +285,20 @@ if "active_tab" not in st.session_state:
 if "tarifas_actualizadas_api" not in st.session_state:
     st.session_state["tarifas_actualizadas_api"] = False
 
+
 def get_meli_headers(token: str = ""):
     headers = {
         "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0"
     }
     if token and token.strip():
         headers["Authorization"] = f"Bearer {token.strip()}"
     return headers
 
+
 def obtener_url_login_meli():
     return f"https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
+
 
 def intercambiar_code_por_token(code: str):
     url = "https://api.mercadolibre.com/oauth/token"
@@ -317,6 +320,7 @@ def intercambiar_code_por_token(code: str):
     except Exception as e:
         return False, str(e)
 
+
 def obtener_perfil_meli(token: str):
     if not token:
         return {}
@@ -329,6 +333,7 @@ def obtener_perfil_meli(token: str):
         pass
     return {}
 
+
 def sincronizar_tarifas_financiacion_meli(token: str = ""):
     try:
         url_listing = "https://api.mercadolibre.com/sites/MLA/listing_types"
@@ -337,6 +342,7 @@ def sincronizar_tarifas_financiacion_meli(token: str = ""):
             st.session_state["tarifas_actualizadas_api"] = True
     except Exception:
         pass
+
 
 query_params = st.query_params
 code_auth = query_params.get("code", None)
@@ -353,6 +359,7 @@ if code_auth and not st.session_state["access_token"]:
 
 if st.session_state["access_token"] and not st.session_state["tarifas_actualizadas_api"]:
     sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
+
 
 @st.cache_data(ttl=3600)
 def obtener_nombre_categoria_meli(category_id: str) -> str:
@@ -371,6 +378,7 @@ def obtener_nombre_categoria_meli(category_id: str) -> str:
         pass
     return category_id
 
+
 @st.cache_data(ttl=1800)
 def predecir_categorias_meli(titulo_producto: str) -> list:
     if not titulo_producto or len(titulo_producto.strip()) < 3:
@@ -388,6 +396,7 @@ def predecir_categorias_meli(titulo_producto: str) -> list:
     except Exception:
         pass
     return sugerencias
+
 
 def procesar_archivo_lista_gold(file):
     try:
@@ -409,6 +418,7 @@ def procesar_archivo_lista_gold(file):
     except Exception as e:
         st.error(f"Error al procesar archivo: {e}")
         return None
+
 
 def calcular_costo_envio_por_peso_facturable(peso_facturable: float, pvp: float = 208000.0) -> float:
     peso = float(peso_facturable) if pd.notna(peso_facturable) and peso_facturable > 0 else 10.0
@@ -451,6 +461,7 @@ def calcular_costo_envio_por_peso_facturable(peso_facturable: float, pvp: float 
 
     return float(costos[col_idx])
 
+
 def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
     if not val_str:
         return default_cm
@@ -465,6 +476,7 @@ def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
         return num * 100.0
     return num
 
+
 def parsear_valor_kg(val_str: str, default_kg: float = 0.0) -> float:
     if not val_str:
         return default_kg
@@ -476,6 +488,7 @@ def parsear_valor_kg(val_str: str, default_kg: float = 0.0) -> float:
     if 'g' in s and 'kg' not in s:
         return num / 1000.0
     return num
+
 
 def calcular_flete_desde_embalaje(alto_str: str, ancho_str: str, prof_str: str, peso_str: str, pvp: float) -> tuple:
     alto_cm = parsear_valor_cm(alto_str, 0.0)
@@ -492,6 +505,7 @@ def calcular_flete_desde_embalaje(alto_str: str, ancho_str: str, prof_str: str, 
     costo_env = calcular_costo_envio_por_peso_facturable(peso_facturable, pvp)
     return costo_env, peso_facturable, peso_vol_kg, True
 
+
 def procesar_matriz_articulos_df(df, pvp_referencia: float = 208000.0):
     try:
         df = df.copy()
@@ -507,6 +521,7 @@ def procesar_matriz_articulos_df(df, pvp_referencia: float = 208000.0):
     except Exception:
         return df
 
+
 def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     if st.session_state["matriz_custom_df"] is not None:
         return procesar_matriz_articulos_df(st.session_state["matriz_custom_df"], pvp_referencia)
@@ -518,6 +533,7 @@ def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
             except Exception:
                 pass
     return None
+
 
 def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
     matriz_df = cargar_matriz_articulos_oficial(pvp_referencia)
@@ -555,6 +571,7 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
 
     return False, 39090.0, 10.0, 10.0, 39090.0, 1, ""
 
+
 def buscar_datos_en_matriz_completa(clave_busqueda: str):
     matriz_df = cargar_matriz_articulos_oficial()
     if matriz_df is None:
@@ -587,6 +604,7 @@ def buscar_datos_en_matriz_completa(clave_busqueda: str):
 
     return "120 cm", "60 cm", "30 cm", "10.0 kg"
 
+
 def extraer_opciones_ean_lista_gold():
     if st.session_state["lista_gold_df"] is None:
         return []
@@ -608,6 +626,7 @@ def extraer_opciones_ean_lista_gold():
             opciones.append((label, val_ean))
     return opciones
 
+
 def limpiar_precio_moneda(valor_raw):
     if pd.isna(valor_raw):
         return 0.0
@@ -626,6 +645,7 @@ def limpiar_precio_moneda(valor_raw):
         return float(val_str)
     except Exception:
         return 0.0
+
 
 def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
     if st.session_state["lista_gold_df"] is None:
@@ -664,6 +684,7 @@ def buscar_costo_y_titulo_en_lista_gold(clave_busqueda: str):
                 return True, costo_parsed, desc_val, art_val
 
     return False, 0.0, "", ""
+
 
 def extraer_ids_meli_avanzado(input_raw: str):
     raw = unquote(input_raw.strip())
@@ -716,6 +737,7 @@ def extraer_ids_meli_avanzado(input_raw: str):
 
     return res
 
+
 def extraer_id_catalogo_o_ean_input(input_raw: str):
     parsed = extraer_ids_meli_avanzado(input_raw)
     if parsed["tipo"] == "MELI_URL_OR_ID":
@@ -723,6 +745,7 @@ def extraer_id_catalogo_o_ean_input(input_raw: str):
     elif parsed["tipo"] == "EAN":
         return "EAN", parsed["ean"]
     return "TEXT", parsed["raw"]
+
 
 def construir_url_canonica_meli(raw_id: str, permalink_api: str = "", catalog_id: str = ""):
     if permalink_api and str(permalink_api).strip().startswith("http"):
@@ -738,6 +761,7 @@ def construir_url_canonica_meli(raw_id: str, permalink_api: str = "", catalog_id
     if clean_cat.startswith("MLA"):
         return f"https://www.mercadolibre.com.ar/p/{clean_cat}"
     return ""
+
 
 @st.cache_data(ttl=3600)
 def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
@@ -758,6 +782,7 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
         pass
     return f"Vendedor #{seller_id}"
 
+
 # ------------------------------------------------------------------------------
 # FUNCIONES PARA COMPLETADO DE MATRIZ (.XLSX) DESDE API DE MELI
 # ------------------------------------------------------------------------------
@@ -768,6 +793,7 @@ def normalizar_ean_matriz(valor) -> str:
     if re.fullmatch(r"\d+(?:\.0+)?", s):
         s = s.split(".")[0]
     return re.sub(r"\D", "", s)
+
 
 def calcular_peso_facturable_fila_matriz(row: pd.Series) -> float:
     peso_real = pd.to_numeric(row.get("Peso embalado (Kg)", 0.0), errors="coerce")
@@ -786,6 +812,7 @@ def calcular_peso_facturable_fila_matriz(row: pd.Series) -> float:
 
     return max(peso_real, peso_vol)
 
+
 def mapear_tipo_envio_meli(logistic_type: str, free_shipping: bool = False) -> str:
     lt = str(logistic_type or "").lower().strip()
     if lt == "fulfillment":
@@ -799,6 +826,37 @@ def mapear_tipo_envio_meli(logistic_type: str, free_shipping: bool = False) -> s
     if lt in ("not_specified", ""):
         return "ME2" if free_shipping else "ME1"
     return lt.upper()
+
+
+def obtener_tasa_cuotas_session(cuotas: int) -> float:
+    tasas = st.session_state.get("tasas_cuotas", {})
+    clave_map = {
+        3: "3 Cuotas Sin Interés",
+        6: "6 Cuotas Sin Interés",
+        9: "9 Cuotas Sin Interés",
+        12: "12 Cuotas Sin Interés",
+    }
+    defaults = {3: 0.085, 6: 0.129, 9: 0.173, 12: 0.208}
+    nombre = clave_map.get(cuotas, "")
+    if nombre in tasas and isinstance(tasas[nombre], dict):
+        return float(tasas[nombre].get("tasa_finan", defaults.get(cuotas, 0.0)))
+    return float(defaults.get(cuotas, 0.0))
+
+
+def calcular_pvp_en_cuotas(pvp_base: float, cuotas: int, ofertas: list | None = None) -> float:
+    if pd.isna(pvp_base) or float(pvp_base) <= 0:
+        return np.nan
+
+    # Si alguna oferta activa expone explícitamente la cantidad de cuotas solicitada, se prioriza su precio
+    if ofertas:
+        for of in ofertas:
+            inst = of.get("installments")
+            if isinstance(inst, dict) and int(inst.get("quantity") or 0) == cuotas and float(of.get("price") or 0) > 0:
+                return round(float(of["price"]), 2)
+
+    tasa_fin = obtener_tasa_cuotas_session(cuotas)
+    return round(float(pvp_base) * (1.0 + tasa_fin), 2)
+
 
 def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict) -> list:
     ofertas = []
@@ -835,6 +893,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                                 "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
                                 "logistic_type": ship.get("logistic_type", ""),
                                 "free_shipping": bool(ship.get("free_shipping", False)),
+                                "installments": it.get("installments") if isinstance(it.get("installments"), dict) else {},
                             })
     except Exception:
         pass
@@ -868,6 +927,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                                 "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
                                 "logistic_type": ship.get("logistic_type", ""),
                                 "free_shipping": bool(ship.get("free_shipping", False)),
+                                "installments": it.get("installments") if isinstance(it.get("installments"), dict) else {},
                             })
                     if ofertas:
                         break
@@ -877,6 +937,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
     ofertas.sort(key=lambda x: x["price"])
     return ofertas
 
+
 def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -884,13 +945,14 @@ def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> byte
     output.seek(0)
     return output.getvalue()
 
+
 # ------------------------------------------------------------------------------
-# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (SIN API DE IA)
+# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (IDA Y VUELTA CON API)
 # ------------------------------------------------------------------------------
-def calcular_vector_visual_desde_pil(pil_img: Image.Image):
+def calcular_vector_visual_pil(pil_img: Image.Image):
     try:
-        arr = np.asarray(pil_img.convert("RGB").resize((16, 16), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
-        # Vector compacto de color y estructura (16x16x3 -> 768 dims normalizadas)
+        img_small = pil_img.convert("RGB").resize((24, 24), Image.Resampling.BILINEAR)
+        arr = np.asarray(img_small, dtype=np.float32) / 255.0
         vec = arr.flatten()
         norm = np.linalg.norm(vec)
         if norm == 0:
@@ -899,81 +961,137 @@ def calcular_vector_visual_desde_pil(pil_img: Image.Image):
     except Exception:
         return None
 
-def calcular_vector_visual_desde_bytes(img_bytes: bytes):
+
+def calcular_vector_visual_bytes(img_bytes: bytes):
+    if not img_bytes:
+        return None
     try:
         with Image.open(io.BytesIO(img_bytes)) as im:
-            return calcular_vector_visual_desde_pil(im)
+            return calcular_vector_visual_pil(im)
     except Exception:
         return None
+
 
 @st.cache_data(ttl=1800)
-def descargar_vector_visual_url(img_url: str):
+def obtener_vector_miniatura_url(img_url: str):
     if not img_url or not str(img_url).startswith("http"):
         return None
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
     try:
-        r = requests.get(str(img_url).strip(), timeout=5)
-        if r.status_code == 200 and r.content:
-            return calcular_vector_visual_desde_bytes(r.content)
+        resp = requests.get(str(img_url).strip(), headers=headers, timeout=6)
+        if resp.status_code == 200 and resp.content:
+            return calcular_vector_visual_bytes(resp.content)
     except Exception:
-        pass
+        return None
     return None
 
-@st.cache_data(ttl=900)
-def buscar_por_imagen_similar(
+
+def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", limit: int = 50):
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+    }
+    if access_token and access_token.strip():
+        headers["Authorization"] = f"Bearer {access_token.strip()}"
+
+    q = (consulta or "").strip()
+    diag = {
+        "status_code": None,
+        "endpoint_usado": "",
+        "error": "",
+        "total_api": 0,
+    }
+
+    if not q:
+        diag["error"] = "Sin palabra clave de búsqueda."
+        return [], diag
+
+    url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(q)}&limit={limit}"
+    diag["endpoint_usado"] = "/sites/MLA/search"
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        diag["status_code"] = r.status_code
+        if r.status_code == 200:
+            data = r.json()
+            results = data.get("results", []) or []
+            diag["total_api"] = len(results)
+            return results, diag
+
+        try:
+            err_body = r.json()
+            diag["error"] = err_body.get("message") or str(err_body)
+        except Exception:
+            diag["error"] = r.text[:200] if r.text else f"HTTP {r.status_code}"
+        return [], diag
+    except Exception as e:
+        diag["error"] = str(e)
+        return [], diag
+
+
+def buscar_publicaciones_similares_por_imagen(
     consulta_base: str,
     img_bytes: bytes | None,
-    access_token: str = ""
+    access_token: str = "",
 ):
-    headers = get_meli_headers(access_token)
-    consulta_limpia = (consulta_base or "").strip()
+    raw_items, diag = consultar_items_meli_con_diagnostico(
+        consulta=consulta_base,
+        access_token=access_token,
+        limit=50,
+    )
+    vec_ref = calcular_vector_visual_bytes(img_bytes) if img_bytes else None
 
-    raw_items = []
-    if consulta_limpia:
-        try:
-            url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(consulta_limpia)}&limit=40"
-            res_q = requests.get(url_q, headers=headers, timeout=8)
-            if res_q.status_code == 200:
-                raw_items = res_q.json().get("results", [])
-        except Exception:
-            pass
-
-    vec_ref = calcular_vector_visual_desde_bytes(img_bytes) if img_bytes else None
-    resultados = []
-
-    for r in raw_items:
-        precio = float(r.get("price") or 0.0)
+    filas = []
+    for item in raw_items:
+        precio = float(item.get("price") or 0.0)
         if precio <= 0:
             continue
-        item_id = r.get("id") or r.get("item_id") or ""
-        tit = str(r.get("title") or "")
-        seller_id = r.get("seller", {}).get("id") if isinstance(r.get("seller"), dict) else r.get("seller_id")
+
+        item_id = str(item.get("id") or item.get("item_id") or "")
+        titulo = str(item.get("title") or "")
+        thumb = str(item.get("secure_thumbnail") or item.get("thumbnail") or "")
+        permalink = construir_url_canonica_meli(
+            item_id,
+            item.get("permalink") or "",
+            item.get("catalog_product_id") or "",
+        )
+
+        seller_obj = item.get("seller")
+        seller_id = seller_obj.get("id") if isinstance(seller_obj, dict) else item.get("seller_id")
         vendedor = resolver_vendedor_nickname_oficial(seller_id, access_token)
-        thumb = r.get("secure_thumbnail") or r.get("thumbnail") or ""
-        link = construir_url_canonica_meli(item_id, r.get("permalink", ""), r.get("catalog_product_id", ""))
 
         sim_pct = np.nan
         if vec_ref is not None and thumb:
-            vec_item = descargar_vector_visual_url(thumb)
+            vec_item = obtener_vector_miniatura_url(thumb)
             if vec_item is not None:
                 cos_sim = float(np.clip(np.dot(vec_ref, vec_item), -1.0, 1.0))
                 sim_pct = round(max(0.0, (cos_sim + 1.0) / 2.0 * 100.0), 1)
 
-        resultados.append({
+        filas.append({
             "Similitud Imagen (%)": sim_pct,
             "Miniatura": thumb,
             "ID": item_id,
             "Vendedor": vendedor,
-            "Título": tit,
+            "Título": titulo,
             "Precio ($)": precio,
-            "Stock Disp.": int(r.get("available_quantity") or 0),
-            "Ventas Acum.": int(r.get("sold_quantity") or 0),
-            "Link": link
+            "Stock Disp.": int(item.get("available_quantity") or 0),
+            "Ventas Acum.": int(item.get("sold_quantity") or 0),
+            "Link": permalink,
         })
 
-    if vec_ref is not None:
-        resultados.sort(key=lambda x: (-1.0 if pd.isna(x["Similitud Imagen (%)"]) else -x["Similitud Imagen (%)"], x["Precio ($)"]))
+    if vec_ref is not None and filas:
+        filas.sort(
+            key=lambda x: (
+                -1.0 if pd.isna(x["Similitud Imagen (%)"]) else -x["Similitud Imagen (%)"],
+                x["Precio ($)"],
+            )
+        )
 
-    return resultados[:25]
+    return filas[:30], diag
+
 
 @st.cache_data(ttl=600)
 def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
@@ -1116,6 +1234,7 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
         items_procesados.insert(0, item_objetivo)
 
     return item_objetivo, items_procesados
+
 
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
@@ -1274,6 +1393,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
 
     return catalog_id, product_title, items_procesados
 
+
 def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
     urls_a_probar = []
     if parsed_meli.get("url_original"):
@@ -1293,7 +1413,7 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
                 urls_a_probar.append(f"https://www.mercadolibre.com.ar/up/{candidate}")
 
     headers_web = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "es-AR,es;q=0.9"
     }
@@ -1376,6 +1496,7 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
             continue
 
     return False
+
 
 def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
     headers_ext = get_meli_headers(access_token)
@@ -1588,6 +1709,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             res_data["origen_embalaje"] = "Sin datos de embalaje en publicación"
 
     return res_data
+
 
 # ------------------------------------------------------------------------------
 # SIDEBAR UNIFICADO: CENTRO DE CARGA DE ARCHIVOS Y CONEXIÓN OAUTH
@@ -2544,7 +2666,10 @@ elif tab_activa == 6:
 # ------------------------------------------------------------------------------
 elif tab_activa == 7:
     st.header("📥 Cotizador & Completador Masivo de Matriz (.xlsx)")
-    st.caption("Subí tu matriz de artículos, completá PVG GANADOR, PVP 2, LINK, VENDEDOR GANADOR, TIPO ENVIO y COSTO ENVIO desde la API de MeLi y descargá el Excel completo.")
+    st.caption(
+        "Completa PVG GANADOR, PVP 2, PVP en 3, 6, 9 y 12 pagos, LINK, VENDEDOR GANADOR, TIPO ENVIO y COSTO ENVIO. "
+        "Como la API de MeLi no devuelve 4 precios fijos distintos por artículo, los PVP en 3, 6, 9 y 12 pagos toman el dato explícito si aparece en la oferta o calculan el PVP equivalente sobre PVG GANADOR según las tasas de financiación configuradas."
+    )
 
     archivo_matriz_cot = st.file_uploader(
         "📁 Subí tu archivo de matriz (.xlsx)",
@@ -2588,7 +2713,19 @@ elif tab_activa == 7:
 
         if st.button("🚀 COMPLETAR MATRIZ DESDE MELI", type="primary", use_container_width=True, key="btn_run_cot_tab7"):
             df_out = df_base_c.copy()
-            for col_obj in ["PVG GANADOR", "PVP 2", "LINK", "VENDEDOR GANADOR", "TIPO ENVIO", "COSTO ENVIO"]:
+            cols_salida = [
+                "PVG GANADOR",
+                "PVP 2",
+                "PVP 3 PAGOS",
+                "PVP 6 PAGOS",
+                "PVP 9 PAGOS",
+                "PVP 12 PAGOS",
+                "LINK",
+                "VENDEDOR GANADOR",
+                "TIPO ENVIO",
+                "COSTO ENVIO",
+            ]
+            for col_obj in cols_salida:
                 if col_obj not in df_out.columns:
                     df_out[col_obj] = np.nan
                 else:
@@ -2609,9 +2746,14 @@ elif tab_activa == 7:
 
                 pvg_ganador = np.nan
                 pvp_2 = np.nan
+                pvp_3 = np.nan
+                pvp_6 = np.nan
+                pvp_9 = np.nan
+                pvp_12 = np.nan
                 link_ganador = ""
                 vendedor_ganador = ""
                 tipo_envio = ""
+                ofertas = []
 
                 if ean_limpio:
                     ofertas = consultar_ofertas_ean_para_matriz(ean_limpio, desc, headers_c)
@@ -2626,10 +2768,23 @@ elif tab_activa == 7:
                         if len(ofertas) > 1:
                             pvp_2 = ofertas[1]["price"]
 
+                        pvp_3 = calcular_pvp_en_cuotas(pvg_ganador, 3, ofertas)
+                        pvp_6 = calcular_pvp_en_cuotas(pvg_ganador, 6, ofertas)
+                        pvp_9 = calcular_pvp_en_cuotas(pvg_ganador, 9, ofertas)
+                        pvp_12 = calcular_pvp_en_cuotas(pvg_ganador, 12, ofertas)
+
                 if pd.notna(pvg_ganador):
                     df_out.at[idx, "PVG GANADOR"] = pvg_ganador
                 if pd.notna(pvp_2):
                     df_out.at[idx, "PVP 2"] = pvp_2
+                if pd.notna(pvp_3):
+                    df_out.at[idx, "PVP 3 PAGOS"] = pvp_3
+                if pd.notna(pvp_6):
+                    df_out.at[idx, "PVP 6 PAGOS"] = pvp_6
+                if pd.notna(pvp_9):
+                    df_out.at[idx, "PVP 9 PAGOS"] = pvp_9
+                if pd.notna(pvp_12):
+                    df_out.at[idx, "PVP 12 PAGOS"] = pvp_12
                 if link_ganador:
                     df_out.at[idx, "LINK"] = link_ganador
                 if vendedor_ganador:
@@ -2669,53 +2824,70 @@ elif tab_activa == 7:
         st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (TRAE PUBLICACIONES Y LINK)
+# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (IDA Y VUELTA CON API + LINKS)
 # ------------------------------------------------------------------------------
 elif tab_activa == 8:
     st.header("🔍 Comparador por Imagen Similar")
-    st.caption("Subí una imagen de referencia y un término base para traer publicaciones con imagen similar y su Link de Mercado Libre (sin filtrar ni descartar por medidas o características).")
+    st.caption("Trae publicaciones con imagen similar y su Link directo sin descartar por medidas ni características.")
 
-    col_v1, col_v2 = st.columns([1, 2])
-    with col_v1:
-        img_comp = st.file_uploader("🖼️ Imagen de Referencia", type=["jpg", "jpeg", "png", "webp"], key="img_comp_similares")
-        if img_comp is not None:
-            st.image(img_comp, caption="Imagen cargada", use_container_width=True)
-    with col_v2:
-        titulo_comp = st.text_input("🏷️ Tipo de Producto / Palabra Clave para Buscar", value="biblioteca melamina", key="tit_comp_similares")
-        st.caption("No se aplican filtros de medidas ni características: te devuelve las publicaciones encontradas y sus links para que sigas el análisis.")
+    col_img, col_txt = st.columns([1, 2])
+    with col_img:
+        img_subida = st.file_uploader(
+            "🖼️ Imagen de referencia",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="cmp_img_ref_v188_5",
+        )
+        if img_subida is not None:
+            st.image(img_subida, caption="Referencia cargada", use_container_width=True)
 
-    if st.button("🔍 BUSCAR IMÁGENES SIMILARES Y LINKS", type="primary", use_container_width=True, key="btn_eval_comp_sim"):
-        if not titulo_comp.strip() and img_comp is None:
-            st.error("❌ Ingresá una palabra clave o subí una imagen de referencia.")
-        else:
-            img_bytes_val = img_comp.getvalue() if img_comp is not None else None
-            with st.spinner("Consultando Mercado Libre y comparando similitud visual..."):
-                res_sim = buscar_por_imagen_similar(
-                    consulta_base=titulo_comp,
-                    img_bytes=img_bytes_val,
-                    access_token=st.session_state["access_token"]
-                )
-            st.session_state["res_comparador_similares"] = res_sim
+    with col_txt:
+        termino = st.text_input(
+            "🏷️ Palabra clave / tipo de producto para consultar la API",
+            value="biblioteca melamina",
+            key="cmp_txt_query_v188_5",
+        )
+        st.caption(
+            "No se aplican filtros de medidas ni características: te devuelve las publicaciones encontradas y sus links para que sigas el análisis."
+        )
 
-    if "res_comparador_similares" in st.session_state:
-        r_s = st.session_state["res_comparador_similares"]
+    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v188_5"):
+        img_bytes = img_subida.getvalue() if img_subida is not None else None
+        with st.spinner("Consultando API de Mercado Libre y evaluando similitud visual..."):
+            filas, diag = buscar_publicaciones_similares_por_imagen(
+                consulta_base=termino,
+                img_bytes=img_bytes,
+                access_token=st.session_state["access_token"],
+            )
+        st.session_state["cmp_sim_filas_v188_5"] = filas
+        st.session_state["cmp_sim_diag_v188_5"] = diag
+
+    if "cmp_sim_filas_v188_5" in st.session_state:
+        filas = st.session_state["cmp_sim_filas_v188_5"]
+        diag = st.session_state.get("cmp_sim_diag_v188_5", {})
         st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
-        if r_s:
-            st.success(f"✅ Se encontraron **{len(r_s)} publicaciones** con su enlace directo.")
-            df_sim = pd.DataFrame(r_s)
+        if diag.get("error"):
+            st.warning(
+                f"API devolvió HTTP {diag.get('status_code')} en `{diag.get('endpoint_usado')}`: {diag.get('error')}"
+            )
+
+        if filas:
+            st.success(f"Se encontraron **{len(filas)}** publicaciones con su enlace directo.")
+            df_res = pd.DataFrame(filas)
             st.dataframe(
-                df_sim[["Similitud Imagen (%)", "Miniatura", "ID", "Vendedor", "Título", "Precio ($)", "Stock Disp.", "Ventas Acum.", "Link"]],
+                df_res,
                 column_config={
                     "Similitud Imagen (%)": st.column_config.NumberColumn(format="%.1f%%"),
                     "Miniatura": st.column_config.ImageColumn("Imagen", width="small"),
                     "Precio ($)": st.column_config.NumberColumn(format="$%,.0f"),
                     "Stock Disp.": st.column_config.NumberColumn(format="%d"),
                     "Ventas Acum.": st.column_config.NumberColumn(format="%d"),
-                    "Link": st.column_config.LinkColumn("Link MeLi", display_text="Ver 🔗")
+                    "Link": st.column_config.LinkColumn("Link MeLi", display_text="Abrir 🔗"),
                 },
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
         else:
-            st.warning("⚠️ No se encontraron publicaciones con esa búsqueda.")
+            st.info(
+                "No se obtuvieron publicaciones. Probá con otro término o revisá si tu cuenta/token tiene habilitado el acceso a `/sites/MLA/search`."
+            )
