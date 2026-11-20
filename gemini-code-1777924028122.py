@@ -1,11 +1,13 @@
-import streamlit as st
+import io
+import os
+import re
+import time
+from urllib.parse import unquote
+
+import numpy as np
 import pandas as pd
 import requests
-import re
-import os
-import json
-import numpy as np
-from urllib.parse import unquote
+import streamlit as st
 
 st.set_page_config(
     page_title="NQ Sales Intelligence Matrix Pro",
@@ -409,40 +411,42 @@ def procesar_archivo_lista_gold(file):
 
 def calcular_costo_envio_por_peso_facturable(peso_facturable: float, pvp: float = 208000.0) -> float:
     peso = float(peso_facturable) if pd.notna(peso_facturable) and peso_facturable > 0 else 10.0
-    if pvp < 33000:
+    pvp_val = float(pvp) if pd.notna(pvp) and pvp > 0 else 208000.0
+
+    if pvp_val < 33000:
         col_idx = 0
-    elif 33000 <= pvp < 50000:
+    elif 33000 <= pvp_val < 50000:
         col_idx = 1
     else:
         col_idx = 2
 
-    if peso <= 0.3:    costos = (8666, 6190, 6790)
-    elif peso <= 0.5:     costos = (9506, 6790, 7290)
-    elif peso <= 1.0:     costos = (10906, 7790, 8290)
-    elif peso <= 1.5:     costos = (11186, 7990, 8590)
-    elif peso <= 2.0:     costos = (11606, 8290, 8790)
-    elif peso <= 3.0:     costos = (12446, 8890, 9590)
-    elif peso <= 4.0:     costos = (13706, 9790, 10890)
-    elif peso <= 5.0:     costos = (15106, 10790, 11890)
-    elif peso <= 8.0:     costos = (16506, 11790, 13090)
-    elif peso <= 10.0:    costos = (17906, 12790, 14190)
-    elif peso <= 13.0:    costos = (19306, 13790, 15190)
-    elif peso <= 15.0:    costos = (20706, 14790, 16290)
-    elif peso <= 20.0:    costos = (24626, 17590, 19390)
-    elif peso <= 25.0:    costos = (29246, 20890, 23390)
-    elif peso <= 30.0:    costos = (40026, 28590, 32090)
-    elif peso <= 40.0:    costos = (45626, 32590, 36990)
-    elif peso <= 50.0:    costos = (48146, 34390, 39090)
-    elif peso <= 60.0:    costos = (53326, 38090, 43590)
-    elif peso <= 70.0:    costos = (55426, 39590, 45490)
-    elif peso <= 80.0:    costos = (64106, 45790, 52690)
-    elif peso <= 90.0:    costos = (78946, 56390, 65190)
-    elif peso <= 100.0:   costos = (90986, 64990, 75090)
-    elif peso <= 120.0:   costos = (99246, 70890, 81990)
-    elif peso <= 140.0:   costos = (111706, 79790, 92290)
-    elif peso <= 160.0:   costos = (124166, 88690, 102690)
-    elif peso <= 180.0:   costos = (136486, 97490, 112990)
-    else:                 costos = (148946, 106390, 123290)
+    if peso <= 0.3:      costos = (8666, 6190, 6790)
+    elif peso <= 0.5:    costos = (9506, 6790, 7290)
+    elif peso <= 1.0:    costos = (10906, 7790, 8290)
+    elif peso <= 1.5:    costos = (11186, 7990, 8590)
+    elif peso <= 2.0:    costos = (11606, 8290, 8790)
+    elif peso <= 3.0:    costos = (12446, 8890, 9590)
+    elif peso <= 4.0:    costos = (13706, 9790, 10890)
+    elif peso <= 5.0:    costos = (15106, 10790, 11890)
+    elif peso <= 8.0:    costos = (16506, 11790, 13090)
+    elif peso <= 10.0:   costos = (17906, 12790, 14190)
+    elif peso <= 13.0:   costos = (19306, 13790, 15190)
+    elif peso <= 15.0:   costos = (20706, 14790, 16290)
+    elif peso <= 20.0:   costos = (24626, 17590, 19390)
+    elif peso <= 25.0:   costos = (29246, 20890, 23390)
+    elif peso <= 30.0:   costos = (40026, 28590, 32090)
+    elif peso <= 40.0:   costos = (45626, 32590, 36990)
+    elif peso <= 50.0:   costos = (48146, 34390, 39090)
+    elif peso <= 60.0:   costos = (53326, 38090, 43590)
+    elif peso <= 70.0:   costos = (55426, 39590, 45490)
+    elif peso <= 80.0:   costos = (64106, 45790, 52690)
+    elif peso <= 90.0:   costos = (78946, 56390, 65190)
+    elif peso <= 100.0:  costos = (90986, 64990, 75090)
+    elif peso <= 120.0:  costos = (99246, 70890, 81990)
+    elif peso <= 140.0:  costos = (111706, 79790, 92290)
+    elif peso <= 160.0:  costos = (124166, 88690, 102690)
+    elif peso <= 180.0:  costos = (136486, 97490, 112990)
+    else:                costos = (148946, 106390, 123290)
 
     return float(costos[col_idx])
 
@@ -489,12 +493,14 @@ def calcular_flete_desde_embalaje(alto_str: str, ancho_str: str, prof_str: str, 
 
 def procesar_matriz_articulos_df(df, pvp_referencia: float = 208000.0):
     try:
-        df['Ancho_cm'] = df['Ancho caja (mm)'] / 10
-        df['Alto_cm'] = df['Alto caja (mm)'] / 10
-        df['Prof_cm'] = df['Prof caja (mm)'] / 10
+        df = df.copy()
+        df['Ancho_cm'] = pd.to_numeric(df.get('Ancho caja (mm)', 0), errors='coerce').fillna(0) / 10
+        df['Alto_cm'] = pd.to_numeric(df.get('Alto caja (mm)', 0), errors='coerce').fillna(0) / 10
+        df['Prof_cm'] = pd.to_numeric(df.get('Prof caja (mm)', 0), errors='coerce').fillna(0) / 10
         df['Volumen_cm3'] = df['Ancho_cm'] * df['Alto_cm'] * df['Prof_cm']
         df['Peso_Volumetrico_Kg'] = (df['Volumen_cm3'] / 4000).round(2)
-        df['Peso_Facturable_Kg'] = df[['Peso embalado (Kg)', 'Peso_Volumetrico_Kg']].max(axis=1)
+        peso_emb = pd.to_numeric(df.get('Peso embalado (Kg)', 0), errors='coerce').fillna(0)
+        df['Peso_Facturable_Kg'] = np.maximum(peso_emb, df['Peso_Volumetrico_Kg'])
         df['Costo_Logistico_Estimado'] = df['Peso_Facturable_Kg'].apply(lambda x: calcular_costo_envio_por_peso_facturable(x, pvp_referencia))
         return df
     except Exception:
@@ -503,13 +509,13 @@ def procesar_matriz_articulos_df(df, pvp_referencia: float = 208000.0):
 def cargar_matriz_articulos_oficial(pvp_referencia: float = 208000.0):
     if st.session_state["matriz_custom_df"] is not None:
         return procesar_matriz_articulos_df(st.session_state["matriz_custom_df"], pvp_referencia)
-    file_path = "Matriz Articulos Gemini.xlsx"
-    if os.path.exists(file_path):
-        try:
-            df = pd.read_excel(file_path)
-            return procesar_matriz_articulos_df(df, pvp_referencia)
-        except Exception:
-            pass
+    for file_path in ["Matriz Articulos Gemini - COTIZADOR PVP.xlsx", "Matriz Articulos Gemini.xlsx"]:
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_excel(file_path)
+                return procesar_matriz_articulos_df(df, pvp_referencia)
+            except Exception:
+                pass
     return None
 
 def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0):
@@ -537,7 +543,7 @@ def buscar_datos_en_matriz(clave_busqueda: str, pvp_referencia: float = 208000.0
             if not matches.empty:
                 row = matches.iloc[0]
                 peso_fact_total = float(row.get('Peso_Facturable_Kg', row.get('Peso embalado (Kg)', 10.0)))
-                cant_cajas = int(row.get('Cantidad Cajas', 1)) if pd.notna(row.get('Cantidad Cajas')) and int(row.get('Cantidad Cajas', 1)) > 0 else 1
+                cant_cajas = int(row.get('Cajas por unidades', row.get('Cantidad Cajas', 1))) if pd.notna(row.get('Cajas por unidades', row.get('Cantidad Cajas', 1))) and int(row.get('Cajas por unidades', row.get('Cantidad Cajas', 1))) > 0 else 1
                 
                 peso_unitario = peso_fact_total / cant_cajas if cant_cajas > 0 else peso_fact_total
                 tarifa_unit = calcular_costo_envio_por_peso_facturable(peso_unitario, pvp_referencia)
@@ -747,15 +753,119 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
     return f"Vendedor #{seller_id}"
 
 # ------------------------------------------------------------------------------
-# NUEVA FUNCIÓN PARA SOLAPA 2: AUDITORÍA PROFUNDA DE CUALQUIER MLA / URL / TÉRMINO
+# FUNCIONES PARA COMPLETADO DE MATRIZ (.XLSX) DESDE API DE MELI
 # ------------------------------------------------------------------------------
+def normalizar_ean_matriz(valor) -> str:
+    if pd.isna(valor):
+        return ""
+    s = str(valor).strip()
+    if re.fullmatch(r"\d+(?:\.0+)?", s):
+        s = s.split(".")[0]
+    return re.sub(r"\D", "", s)
+
+def calcular_peso_facturable_fila_matriz(row: pd.Series) -> float:
+    peso_real = pd.to_numeric(row.get("Peso embalado (Kg)", 0.0), errors="coerce")
+    peso_real = float(peso_real) if pd.notna(peso_real) and peso_real > 0 else 0.0
+
+    ancho_mm = pd.to_numeric(row.get("Ancho caja (mm)", 0.0), errors="coerce")
+    alto_mm = pd.to_numeric(row.get("Alto caja (mm)", 0.0), errors="coerce")
+    prof_mm = pd.to_numeric(row.get("Prof caja (mm)", 0.0), errors="coerce")
+
+    peso_vol = 0.0
+    if pd.notna(ancho_mm) and pd.notna(alto_mm) and pd.notna(prof_mm) and ancho_mm > 0 and alto_mm > 0 and prof_mm > 0:
+        ancho_cm = float(ancho_mm) / 10.0
+        alto_cm = float(alto_mm) / 10.0
+        prof_cm = float(prof_mm) / 10.0
+        peso_vol = round((ancho_cm * alto_cm * prof_cm) / 4000.0, 2)
+
+    return max(peso_real, peso_vol)
+
+def mapear_tipo_envio_meli(logistic_type: str, free_shipping: bool = False) -> str:
+    lt = str(logistic_type or "").lower().strip()
+    if lt == "fulfillment":
+        return "FULL"
+    if lt in ("xd_drop_off", "cross_docking", "drop_off"):
+        return "ME2"
+    if lt in ("self_service",):
+        return "FLEX"
+    if lt in ("custom", "not_specified", ""):
+        return "ME1" if not free_shipping else "ME2"
+    return lt.upper()
+
+def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict) -> list:
+    ofertas = []
+    try:
+        r_prod = requests.get(
+            f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={ean}",
+            headers=headers,
+            timeout=8,
+        )
+        if r_prod.status_code == 200:
+            for prod in r_prod.json().get("results", [])[:2]:
+                cat_id = prod.get("id")
+                if not cat_id:
+                    continue
+                r_items = requests.get(
+                    f"https://api.mercadolibre.com/products/{cat_id}/items",
+                    headers=headers,
+                    timeout=8,
+                )
+                if r_items.status_code == 200:
+                    for it in r_items.json().get("results", []):
+                        p = it.get("price")
+                        if p and float(p) > 0:
+                            ship = it.get("shipping") or {}
+                            ofertas.append({
+                                "price": float(p),
+                                "permalink": it.get("permalink", ""),
+                                "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
+                                "logistic_type": ship.get("logistic_type", ""),
+                                "free_shipping": bool(ship.get("free_shipping", False)),
+                            })
+    except Exception:
+        pass
+
+    if not ofertas:
+        consultas = [ean]
+        if descripcion and str(descripcion).strip():
+            consultas.append(" ".join(str(descripcion).strip().split()[:5]))
+
+        for q in consultas:
+            try:
+                r_s = requests.get(
+                    f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(q)}&limit=15",
+                    headers=headers,
+                    timeout=8,
+                )
+                if r_s.status_code == 200:
+                    for it in r_s.json().get("results", []):
+                        p = it.get("price")
+                        if p and float(p) > 0:
+                            ship = it.get("shipping") or {}
+                            ofertas.append({
+                                "price": float(p),
+                                "permalink": it.get("permalink", ""),
+                                "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
+                                "logistic_type": ship.get("logistic_type", ""),
+                                "free_shipping": bool(ship.get("free_shipping", False)),
+                            })
+                    if ofertas:
+                        break
+            except Exception:
+                pass
+
+    ofertas.sort(key=lambda x: x["price"])
+    return ofertas
+
+def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+    output.seek(0)
+    return output.getvalue()
+
 @st.cache_data(ttl=600)
 def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
-    """
-    Si el usuario ingresa un MLA o URL, consulta directamente /items/{id} para obtener
-    sus métricas reales, detecta su categoría/catálogo, y barre los competidores directos.
-    Si ingresa texto o EAN, busca directamente en mercado.
-    """
     headers = get_meli_headers(access_token)
     parsed = extraer_ids_meli_avanzado(query_input)
     
@@ -764,7 +874,6 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
     category_id = ""
     search_query = parsed.get("raw", "")
 
-    # Paso 1: Si es un MLA o URL de ítem, consultar /items/{id} directamente
     if parsed["tipo"] == "MELI_URL_OR_ID":
         candidatos_item = [x for x in [parsed["item_id"], parsed["alt_item_id"]] if x]
         for cid_it in candidatos_item:
@@ -803,7 +912,6 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
             except Exception:
                 pass
 
-    # Paso 2: Obtener competidores del mismo catálogo o misma categoría/título
     raw_items = []
     if catalog_id:
         try:
@@ -821,7 +929,6 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
                 pass
 
     if not raw_items and search_query:
-        # Buscar por palabras clave principales del título o término ingresado
         palabras_clave = " ".join(search_query.split()[:6])
         url_search = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(palabras_clave)}&limit=40"
         if category_id:
@@ -833,7 +940,6 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
         except Exception:
             pass
 
-    # Paso 3: Enriquecer con multiget real para obtener stock y ventas exactas
     list_ids = []
     for r in raw_items[:40]:
         i_id = r.get("item_id") or r.get("id", "")
@@ -895,7 +1001,6 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
             "category_id": cat_final
         })
 
-    # Asegurar que el ítem consultado aparezca en la lista si no vino en el top
     if item_objetivo and not any(x["id"] == item_objetivo["id"] for x in items_procesados):
         items_procesados.insert(0, item_objetivo)
 
@@ -1018,7 +1123,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
                 pass
 
     items_procesados = []
-    for idx, r in enumerate(raw_items[:50]):
+    for r in raw_items[:50]:
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
@@ -1465,7 +1570,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES
+# NAVEGACIÓN VISUAL POR BOTONES (8 SOLAPAS)
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
@@ -1474,7 +1579,8 @@ MENU_ITEMS = [
     ("📦", "Matriz Logística"),
     ("🤖", "Asistente IA"),
     ("🚀", "Publicador"),
-    ("🛡️", "Modo Defensivo")
+    ("🛡️", "Modo Defensivo"),
+    ("📥", "Cotizador Matriz")
 ]
 
 nav_cols = st.columns(len(MENU_ITEMS), gap="small")
@@ -1693,7 +1799,6 @@ elif tab_activa == 2:
         with st.spinner("Consultando API de Mercado Libre y analizando métricas del ítem y su competencia..."):
             item_foco, items_mercado = analizar_mla_y_mercado(query_mla_mkt.strip(), st.session_state["access_token"])
 
-        # 1. SI SE ENCONTRÓ EL MLA ESPECÍFICO, MOSTRAR SU RADIOGRAFÍA DETALLADA ARRIBA
         if item_foco:
             cat_nombre_foco = obtener_nombre_categoria_meli(item_foco["category_id"])
             fact_item_foco = item_foco["price"] * item_foco["sold_quantity"]
@@ -1704,7 +1809,7 @@ elif tab_activa == 2:
                 <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 3px 0;">{item_foco['title']}</div>
                 <div style="font-size: 12px; color: #475569;">
                     <b>Vendedor:</b> {item_foco['vendedor_name']} &nbsp;|&nbsp; 
-                    <b>Categoría:</b> {cat_nombre_foco} ({item_foco['category_id']}) &nbsp;|&nbsp;
+                    <b>Categoría:</b> {cat_nombre_foco} ({item_foco['category_id']}) &nbsp;|&nbsp; 
                     <b>Catálogo:</b> {item_foco['catalog_product_id'] or 'Publicación Tradicional'}
                 </div>
             </div>
@@ -1744,12 +1849,10 @@ elif tab_activa == 2:
             st.link_button("🔗 Abrir esta publicación en Mercado Libre", item_foco["permalink"])
             st.markdown("<hr style='margin: 12px 0;'>", unsafe_allow_html=True)
 
-        # 2. ANÁLISIS COMPARATIVO DE COMPETIDORES Y STOCK DEL SEGMENTO
         if items_mercado:
             df_mkt = pd.DataFrame(items_mercado)
             df_mkt["facturacion_estimada"] = df_mkt["price"] * df_mkt["sold_quantity"]
 
-            # Alerta real de quiebre de stock (competidores con stock real entre 1 y 2 unidades)
             quiebres = df_mkt[(df_mkt["stock"] > 0) & (df_mkt["stock"] <= 2)]
             if not quiebres.empty:
                 st.markdown(f'''
@@ -1758,7 +1861,6 @@ elif tab_activa == 2:
                 </div><br>
                 ''', unsafe_allow_html=True)
 
-            # Resumen de métricas del segmento
             precio_prom_seg = df_mkt["price"].mean()
             stock_tot_seg = df_mkt["stock"].sum()
             ventas_tot_seg = df_mkt["sold_quantity"].sum()
@@ -2323,3 +2425,131 @@ elif tab_activa == 6:
                                 st.error(f"Error de red: {e}")
             else:
                 st.info("ℹ️ No se detectaron publicaciones activas en esta cuenta o el token no tiene permisos de lectura de ítems.")
+
+# ------------------------------------------------------------------------------
+# SECCIÓN 7: COTIZADOR & COMPLETADOR MASIVO DE MATRIZ (.XLSX)
+# ------------------------------------------------------------------------------
+elif tab_activa == 7:
+    st.header("📥 Cotizador & Completador Masivo de Matriz (.xlsx)")
+    st.caption("Subí tu matriz de artículos, completá PVG GANADOR, PVP 2, LINK, VENDEDOR GANADOR, TIPO ENVIO y COSTO ENVIO desde la API de MeLi y descargá el Excel completo.")
+
+    archivo_matriz_cot = st.file_uploader(
+        "📁 Subí tu archivo de matriz (.xlsx)",
+        type=["xlsx"],
+        key="uploader_matriz_cotizador_tab7",
+        help="Admite 'Matriz Articulos Gemini - COTIZADOR PVP.xlsx' u otro Excel con las mismas columnas."
+    )
+
+    if archivo_matriz_cot is not None:
+        xls_c = pd.ExcelFile(archivo_matriz_cot)
+        hoja_c = st.selectbox("📄 Seleccioná la hoja a procesar", xls_c.sheet_names, index=0, key="sel_hoja_cot_tab7")
+        df_base_c = pd.read_excel(archivo_matriz_cot, sheet_name=hoja_c)
+
+        st.markdown(f"**Filas detectadas:** `{len(df_base_c)}` | **Columnas:** `{len(df_base_c.columns)}`")
+
+        c_o1, c_o2, c_o3 = st.columns(3)
+        with c_o1:
+            max_filas_c = st.number_input(
+                "Cantidad de filas a procesar (0 = todas)",
+                min_value=0,
+                max_value=len(df_base_c),
+                value=0,
+                step=10,
+                key="num_max_filas_cot_tab7"
+            )
+        with c_o2:
+            pausa_c = st.slider(
+                "Pausa entre consultas (seg)",
+                min_value=0.05,
+                max_value=1.0,
+                value=0.15,
+                step=0.05,
+                key="slider_pausa_cot_tab7"
+            )
+        with c_o3:
+            calc_envio_c = st.checkbox(
+                "Calcular COSTO ENVIO por peso/PVP",
+                value=True,
+                key="chk_costo_envio_cot_tab7"
+            )
+
+        if st.button("🚀 COMPLETAR MATRIZ DESDE MELI", type="primary", use_container_width=True, key="btn_run_cot_tab7"):
+            df_out = df_base_c.copy()
+            for col_obj in ["PVG GANADOR", "PVP 2", "LINK", "VENDEDOR GANADOR", "TIPO ENVIO", "COSTO ENVIO"]:
+                if col_obj not in df_out.columns:
+                    df_out[col_obj] = np.nan
+                else:
+                    df_out[col_obj] = df_out[col_obj].astype("object")
+
+            headers_c = get_meli_headers(st.session_state["access_token"])
+            total_proc = len(df_out) if max_filas_c == 0 else min(int(max_filas_c), len(df_out))
+            barra_c = st.progress(0)
+            estado_c = st.empty()
+            cache_vendedores_c = {}
+
+            for idx in range(total_proc):
+                row = df_out.iloc[idx]
+                ean_limpio = normalizar_ean_matriz(row.get("ean", ""))
+                desc = str(row.get("Descripcion", "") or "")
+                peso_fact = calcular_peso_facturable_fila_matriz(row)
+
+                estado_c.text(f"Procesando fila {idx + 1}/{total_proc} — Art: {row.get('Articulo', '')} | EAN: {ean_limpio or 'S/D'}")
+
+                pvg_ganador = np.nan
+                pvp_2 = np.nan
+                link_ganador = ""
+                vendedor_ganador = ""
+                tipo_envio = ""
+
+                if ean_limpio:
+                    ofertas = consultar_ofertas_ean_para_matriz(ean_limpio, desc, headers_c)
+                    if ofertas:
+                        ganador = ofertas[0]
+                        pvg_ganador = ganador["price"]
+                        link_ganador = ganador["permalink"]
+                        tipo_envio = mapear_tipo_envio_meli(ganador["logistic_type"], ganador["free_shipping"])
+                        vendedor_ganador = resolver_vendedor_nickname_oficial(ganador["seller_id"], st.session_state["access_token"])
+                        if len(ofertas) > 1:
+                            pvp_2 = ofertas[1]["price"]
+
+                if pd.notna(pvg_ganador):
+                    df_out.at[idx, "PVG GANADOR"] = pvg_ganador
+                if pd.notna(pvp_2):
+                    df_out.at[idx, "PVP 2"] = pvp_2
+                if link_ganador:
+                    df_out.at[idx, "LINK"] = link_ganador
+                if vendedor_ganador:
+                    df_out.at[idx, "VENDEDOR GANADOR"] = vendedor_ganador
+                if tipo_envio:
+                    df_out.at[idx, "TIPO ENVIO"] = tipo_envio
+
+                if calc_envio_c:
+                    pvp_ref = float(pvg_ganador) if pd.notna(pvg_ganador) else 208000.0
+                    df_out.at[idx, "COSTO ENVIO"] = calcular_costo_envio_por_peso_facturable(peso_fact, pvp_ref)
+
+                barra_c.progress((idx + 1) / max(total_proc, 1))
+                time.sleep(pausa_c)
+
+            st.session_state["df_matriz_completada_v188"] = df_out
+            st.session_state["hoja_matriz_completada_v188"] = hoja_c
+            estado_c.success("✅ ¡Matriz procesada por completo!")
+
+        if "df_matriz_completada_v188" in st.session_state:
+            df_final_c = st.session_state["df_matriz_completada_v188"]
+            hoja_final_c = st.session_state.get("hoja_matriz_completada_v188", "Hoja1")
+
+            st.markdown("### 📋 Resultados de la Matriz Completada")
+            st.dataframe(df_final_c, use_container_width=True)
+
+            excel_bytes_c = dataframe_a_excel_bytes(df_final_c, sheet_name=hoja_final_c)
+            st.download_button(
+                label="⬇️ Descargar Matriz Completada (.xlsx)",
+                data=excel_bytes_c,
+                file_name="Matriz_Articulos_Completada.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+                key="btn_download_cot_tab7"
+            )
+    else:
+        st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
