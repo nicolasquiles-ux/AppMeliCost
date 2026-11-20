@@ -723,15 +723,20 @@ def extraer_id_catalogo_o_ean_input(input_raw: str):
         return "EAN", parsed["ean"]
     return "TEXT", parsed["raw"]
 
-def construir_url_canonica_meli(raw_id: str, permalink_api: str = ""):
-    if permalink_api and permalink_api.startswith("http") and "articulo.mercadolibre.com" in permalink_api:
-        return permalink_api
-    clean_id = str(raw_id).strip().upper()
+def construir_url_canonica_meli(raw_id: str, permalink_api: str = "", catalog_id: str = ""):
+    if permalink_api and str(permalink_api).strip().startswith("http"):
+        return str(permalink_api).strip()
+    clean_id = str(raw_id or "").strip().upper()
+    if clean_id.startswith("MLAU"):
+        return f"https://www.mercadolibre.com.ar/p/{clean_id}"
     if clean_id.startswith("MLA"):
         num_part = re.sub(r'\D', '', clean_id)
         if num_part:
             return f"https://articulo.mercadolibre.com.ar/MLA-{num_part}"
-    return f"https://articulo.mercadolibre.com.ar/{clean_id}"
+    clean_cat = str(catalog_id or "").strip().upper()
+    if clean_cat.startswith("MLA"):
+        return f"https://www.mercadolibre.com.ar/p/{clean_cat}"
+    return ""
 
 @st.cache_data(ttl=3600)
 def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
@@ -802,7 +807,8 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
         )
         if r_prod.status_code == 200:
             for prod in r_prod.json().get("results", [])[:2]:
-                cat_id = prod.get("id")
+                cat_id = prod.get("id", "")
+                prod_permalink = prod.get("permalink", "")
                 if not cat_id:
                     continue
                 r_items = requests.get(
@@ -815,9 +821,14 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                         p = it.get("price")
                         if p and float(p) > 0:
                             ship = it.get("shipping") or {}
+                            item_id = it.get("item_id") or it.get("id") or ""
+                            raw_link = it.get("permalink") or prod_permalink or ""
+                            link_final = construir_url_canonica_meli(item_id, raw_link, cat_id)
                             ofertas.append({
                                 "price": float(p),
-                                "permalink": it.get("permalink", ""),
+                                "item_id": item_id,
+                                "catalog_id": cat_id,
+                                "permalink": link_final,
                                 "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
                                 "logistic_type": ship.get("logistic_type", ""),
                                 "free_shipping": bool(ship.get("free_shipping", False)),
@@ -842,9 +853,15 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                         p = it.get("price")
                         if p and float(p) > 0:
                             ship = it.get("shipping") or {}
+                            item_id = it.get("item_id") or it.get("id") or ""
+                            cat_id = it.get("catalog_product_id") or ""
+                            raw_link = it.get("permalink") or ""
+                            link_final = construir_url_canonica_meli(item_id, raw_link, cat_id)
                             ofertas.append({
                                 "price": float(p),
-                                "permalink": it.get("permalink", ""),
+                                "item_id": item_id,
+                                "catalog_id": cat_id,
+                                "permalink": link_final,
                                 "seller_id": it.get("seller_id") or (it.get("seller") or {}).get("id"),
                                 "logistic_type": ship.get("logistic_type", ""),
                                 "free_shipping": bool(ship.get("free_shipping", False)),
@@ -899,7 +916,7 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
                         "category_id": b.get("category_id", ""),
                         "catalog_product_id": b.get("catalog_product_id", ""),
                         "vendedor_name": seller_nick,
-                        "permalink": construir_url_canonica_meli(b.get("id"), b.get("permalink", "")),
+                        "permalink": construir_url_canonica_meli(b.get("id"), b.get("permalink", ""), b.get("catalog_product_id", "")),
                         "condition": b.get("condition", "new"),
                         "listing_type_id": b.get("listing_type_id", ""),
                         "thumbnail": b.get("secure_thumbnail") or b.get("thumbnail", "")
@@ -997,7 +1014,7 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
             "price": price_final,
             "stock": stock_final,
             "sold_quantity": sold_final,
-            "permalink": construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", "")),
+            "permalink": construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id),
             "category_id": cat_final
         })
 
@@ -1123,7 +1140,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
                 pass
 
     items_procesados = []
-    for r in raw_items[:50]:
+    for idx, r in enumerate(raw_items[:50]):
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
@@ -1137,7 +1154,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
         det = detalles_dict.get(item_id, {})
 
-        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""))
+        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id)
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
@@ -1846,7 +1863,8 @@ elif tab_activa == 2:
                 """, unsafe_allow_html=True)
 
             st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-            st.link_button("🔗 Abrir esta publicación en Mercado Libre", item_foco["permalink"])
+            if item_foco.get("permalink"):
+                st.link_button("🔗 Abrir esta publicación en Mercado Libre", item_foco["permalink"])
             st.markdown("<hr style='margin: 12px 0;'>", unsafe_allow_html=True)
 
         if items_mercado:
@@ -2332,7 +2350,7 @@ elif tab_activa == 6:
                                                     "title": b.get("title"),
                                                     "price": float(b.get("price", 0.0)),
                                                     "stock": int(b.get("available_quantity", 0)),
-                                                    "permalink": b.get("permalink"),
+                                                    "permalink": construir_url_canonica_meli(b.get("id"), b.get("permalink", ""), b.get("catalog_product_id", "")),
                                                     "catalog_product_id": b.get("catalog_product_id", "")
                                                 })
                             st.session_state["mis_pubs_cache"] = mis_items_detalles
@@ -2485,7 +2503,6 @@ elif tab_activa == 7:
             total_proc = len(df_out) if max_filas_c == 0 else min(int(max_filas_c), len(df_out))
             barra_c = st.progress(0)
             estado_c = st.empty()
-            cache_vendedores_c = {}
 
             for idx in range(total_proc):
                 row = df_out.iloc[idx]
@@ -2506,7 +2523,9 @@ elif tab_activa == 7:
                     if ofertas:
                         ganador = ofertas[0]
                         pvg_ganador = ganador["price"]
-                        link_ganador = ganador["permalink"]
+                        link_ganador = ganador["permalink"] or construir_url_canonica_meli(
+                            ganador.get("item_id", ""), "", ganador.get("catalog_id", "")
+                        )
                         tipo_envio = mapear_tipo_envio_meli(ganador["logistic_type"], ganador["free_shipping"])
                         vendedor_ganador = resolver_vendedor_nickname_oficial(ganador["seller_id"], st.session_state["access_token"])
                         if len(ofertas) > 1:
