@@ -847,7 +847,6 @@ def calcular_pvp_en_cuotas(pvp_base: float, cuotas: int, ofertas: list | None = 
     if pd.isna(pvp_base) or float(pvp_base) <= 0:
         return np.nan
 
-    # Si alguna oferta activa expone explícitamente la cantidad de cuotas solicitada, se prioriza su precio
     if ofertas:
         for of in ofertas:
             inst = of.get("installments")
@@ -1944,6 +1943,74 @@ if tab_activa == 0:
         else:
             st.markdown(f'<div class="card-noviable">🔴 <b>ALERTA ROJA (PÉRDIDA):</b> Esta publicación genera una pérdida neta de <b>${ganancia_neta:,.2f} ({margen_pct:.1f}%)</b>.</div>', unsafe_allow_html=True)
 
+        st.markdown("<hr style='margin: 12px 0;'>", unsafe_allow_html=True)
+        st.subheader("📋 Resumen Desglosado de Costos, Impuestos y Logística")
+        pct_env = (costo_envio_sim / pvp_sim * 100.0) if pvp_sim > 0 else 0.0
+        pct_prod = (costo_prod_input / pvp_sim * 100.0) if pvp_sim > 0 else 0.0
+        pct_ded = (total_deducciones / pvp_sim * 100.0) if pvp_sim > 0 else 0.0
+        descuento_ahorro = max(0.0, costo_base_calc - costo_prod_input)
+
+        df_desglose = pd.DataFrame([
+            {
+                "Concepto": "Precio de Venta Simulado (PVP)",
+                "Monto ($)": pvp_sim,
+                "% sobre PVP": 100.0,
+                "Detalle / Base de Cálculo": f"Modalidad: {tipo_pub_sim}"
+            },
+            {
+                "Concepto": "Comisión Mercado Libre",
+                "Monto ($)": -m_com,
+                "% sobre PVP": -pct_com_sim,
+                "Detalle / Base de Cálculo": f"{pct_com_sim:.1f}% sobre PVP (Base {info_cuota['comision_base']*100:.1f}% + Finan {info_cuota['tasa_finan']*100:.1f}%)"
+            },
+            {
+                "Concepto": "Ingresos Brutos (IIBB)",
+                "Monto ($)": -m_iibb,
+                "% sobre PVP": -pct_iibb_sim,
+                "Detalle / Base de Cálculo": f"{pct_iibb_sim:.2f}% sobre PVP"
+            },
+            {
+                "Concepto": "IVA Oficial",
+                "Monto ($)": -m_iva,
+                "% sobre PVP": -pct_iva_sim,
+                "Detalle / Base de Cálculo": f"{pct_iva_sim:.1f}% sobre PVP"
+            },
+            {
+                "Concepto": "Logística / Envío Total",
+                "Monto ($)": -costo_envio_sim,
+                "% sobre PVP": -pct_env,
+                "Detalle / Base de Cálculo": f"{cant_cajas_mat} bulto/s · {peso_unit:.1f} kg unit. ({'Matriz' if found_mat else 'Estándar'})"
+            },
+            {
+                "Concepto": "Subtotal Deducciones (Comis. + Impuestos + Flete)",
+                "Monto ($)": -total_deducciones,
+                "% sobre PVP": -pct_ded,
+                "Detalle / Base de Cálculo": "Total descontado del PVP antes del costo del producto"
+            },
+            {
+                "Concepto": "Costo Efectivo del Producto",
+                "Monto ($)": -costo_prod_input,
+                "% sobre PVP": -pct_prod,
+                "Detalle / Base de Cálculo": f"Base ${costo_base_calc:,.2f} con {pct_descuento_proveedor:.1f}% desc. (Ahorro: ${descuento_ahorro:,.2f})"
+            },
+            {
+                "Concepto": "Resultado Neto Libre a Bolsillo",
+                "Monto ($)": ganancia_neta,
+                "% sobre PVP": margen_pct,
+                "Detalle / Base de Cálculo": "PVP - Deducciones - Costo Efectivo del Producto"
+            },
+        ])
+
+        st.dataframe(
+            df_desglose,
+            column_config={
+                "Monto ($)": st.column_config.NumberColumn(format="$%,.2f"),
+                "% sobre PVP": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
 # ------------------------------------------------------------------------------
 # SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
 # ------------------------------------------------------------------------------
@@ -2332,562 +2399,4 @@ elif tab_activa == 5:
 
     if datos.get("found_matriz"):
         _, costo_envio_auto, _, peso_tot_m, _, cant_cajas_m, _ = buscar_datos_en_matriz(query_builder, pub_pvp)
-        detalle_flete_txt = f"Calculado desde Matriz Logística ({cant_cajas_m} bulto/s · {peso_tot_m:.1f} kg facturables)"
-    else:
-        costo_envio_auto, peso_fact_calc, peso_vol_calc, tiene_embalaje = calcular_flete_desde_embalaje(
-            pub_altura, pub_ancho, pub_prof, pub_peso_embalado, pub_pvp
-        )
-        if tiene_embalaje:
-            detalle_flete_txt = f"Calculado desde embalaje ({peso_fact_calc:.1f} kg facturables · Vol: {peso_vol_calc:.1f} kg)"
-        else:
-            detalle_flete_txt = "Sin datos de embalaje en publicación/Matriz (Flete = $0)"
-
-    costo_producto_manual = st.number_input(
-        "🏷️ Costo del Producto ($ ARS) — [Único dato manual para evaluar rentabilidad]", 
-        min_value=0.0, 
-        step=500.0, 
-        key="pub_costo_base_input",
-        help="Ingresá tu costo neto del artículo. El envío, comisiones e impuestos se calculan automáticamente."
-    )
-
-    info_tasa = st.session_state["tasas_cuotas"][pub_type]
-    comision_pct = info_tasa["comision_base"] + info_tasa["tasa_finan"]
-    
-    m_comision = pub_pvp * comision_pct
-    m_iibb = pub_pvp * ALICUOTA_IIBB
-    m_iva = pub_pvp * ALICUOTA_IVA
-    total_impuestos_deducciones = m_comision + m_iibb + m_iva + costo_envio_auto
-    
-    ganancia_neta_pub = pub_pvp - total_impuestos_deducciones - costo_producto_manual
-    margen_neto_pct = (ganancia_neta_pub / pub_pvp) * 100.0 if pub_pvp > 0 else 0.0
-
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Envío Calculado (Embalaje)</div>
-            <div class="kpi-value" style="color: #0284c7; font-size: 18px;">${costo_envio_auto:,.2f}</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">{detalle_flete_txt}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_m2:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Deducciones Totales (Comis. + Taxes + Flete)</div>
-            <div class="kpi-value" style="color: #e11d48; font-size: 18px;">${total_impuestos_deducciones:,.2f}</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">Comis. {comision_pct*100:.1f}% + Impuestos 24.5% + Envío</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_m3:
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Neto Libre a Bolsillo</div>
-            <div class="kpi-value" style="color: {'#059669' if ganancia_neta_pub > 0 else '#dc2626'}; font-size: 18px;">${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 1px;">PVP ${pub_pvp:,.0f} - Deducciones - Costo</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-    if costo_producto_manual <= 0:
-        st.info("ℹ️ **Ingresá el Costo del Producto ($ ARS)** arriba para verificar al instante si la publicación da positiva o negativa en margen.")
-    elif ganancia_neta_pub > 0:
-        st.markdown(f'''
-        <div class="card-viable">
-            🟢 <b>PUBLICACIÓN POSITIVA EN MARGEN (RENTABLE):</b><br>
-            Deja una ganancia neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b> libre a bolsillo. ¡Aprobada para subir!
-        </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown(f'''
-        <div class="card-noviable">
-            🔴 <b>PUBLICACIÓN NEGATIVA EN MARGEN (PÉRDIDA):</b><br>
-            Genera una pérdida neta de <b>${ganancia_neta_pub:,.2f} ({margen_neto_pct:.1f}%)</b>. No conviene publicarla a este precio/costo.
-        </div>
-        ''', unsafe_allow_html=True)
-
-    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-    pub_descripcion = st.text_area("📝 Descripción de la Publicación (Clonada o Editable)", height=120, key="pub_desc_dyn")
-
-    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-    if st.button("🚀 PUBLICAR EN MERCADO LIBRE", type="primary", use_container_width=True):
-        if not st.session_state["access_token"]:
-            st.error("❌ Se requiere un Access Token activo en la barra lateral para publicar.")
-        elif not pub_cat_id.strip():
-            st.error("❌ Se requiere un ID de Categoría válido.")
-        else:
-            access_token_clean = st.session_state["access_token"].strip()
-            pictures_payload = []
-
-            if archivos_imagenes_subidos:
-                with st.spinner(f"Subiendo {min(len(archivos_imagenes_subidos), 10)} imágenes propias a Mercado Libre..."):
-                    for img_file in archivos_imagenes_subidos[:10]:
-                        try:
-                            url_upload = "https://api.mercadolibre.com/pictures/items/upload"
-                            headers_img = {"Authorization": f"Bearer {access_token_clean}"}
-                            files_data = {"file": (img_file.name, img_file.getvalue(), img_file.type)}
-                            
-                            res_img = requests.post(url_upload, headers=headers_img, files=files_data, timeout=15)
-                            if res_img.status_code in [200, 201]:
-                                pic_id = res_img.json().get("id")
-                                if pic_id:
-                                    pictures_payload.append({"id": pic_id})
-                        except Exception:
-                            pass
-
-            if not pictures_payload and urls_fotos_extraidas:
-                pictures_payload = [{"source": u} for u in urls_fotos_extraidas[:10]]
-
-            if not pictures_payload:
-                pictures_payload = [{"source": "https://http2.mlstatic.com/D_NQ_NP_918505-MLA46554522436_062021-O.jpg"}]
-
-            tipo_list_clean = "gold_special" if "Clásica" in pub_type else "gold_pro"
-            
-            payload_post = {
-                "category_id": pub_cat_id.strip(),
-                "price": float(pub_pvp),
-                "currency_id": "ARS",
-                "available_quantity": int(pub_stock_qty),
-                "buying_mode": "buy_it_now",
-                "listing_type_id": tipo_list_clean,
-                "condition": "new",
-                "channels": ["marketplace"],
-                "pictures": pictures_payload,
-                "sale_terms": [
-                    {"id": "WARRANTY_TIME", "value_name": "90 días"}
-                ],
-                "shipping": {
-                    "mode": "me2",
-                    "local_pick_up": False,
-                    "free_shipping": False
-                },
-                "attributes": [
-                    {"id": "BRAND", "value_name": pub_brand.strip() or "Genérica"},
-                    {"id": "MODEL", "value_name": pub_model.strip() or "Standard"},
-                    {"id": "REQUIRES_ASSEMBLY", "value_name": pub_ensamblado.strip()},
-                    {"id": "INCLUDES_ASSEMBLY_MANUAL", "value_name": "Sí"}
-                ]
-            }
-
-            if pub_catalog_id.strip():
-                payload_post["catalog_product_id"] = pub_catalog_id.strip()
-                payload_post["family_name"] = pub_family_name.strip()
-            else:
-                payload_post["title"] = pub_family_name.strip()
-
-            if pub_altura.strip():
-                payload_post["attributes"].append({"id": "HEIGHT", "value_name": pub_altura.strip()})
-            if pub_ancho.strip():
-                payload_post["attributes"].append({"id": "WIDTH", "value_name": pub_ancho.strip()})
-            if pub_prof.strip():
-                payload_post["attributes"].append({"id": "DEPTH", "value_name": pub_prof.strip()})
-
-            if pub_video_id.strip():
-                payload_post["video_id"] = pub_video_id.strip()
-
-            headers_post = {
-                "Authorization": f"Bearer {access_token_clean}",
-                "Content-Type": "application/json"
-            }
-
-            try:
-                with st.spinner("Enviando publicación a Mercado Libre..."):
-                    res_api = requests.post("https://api.mercadolibre.com/items", json=payload_post, headers=headers_post, timeout=12)
-                    if res_api.status_code in [200, 201]:
-                        data_created = res_api.json()
-                        item_id = data_created.get("id")
-                        permalink = data_created.get("permalink")
-
-                        if item_id and pub_descripcion.strip():
-                            try:
-                                requests.post(
-                                    f"https://api.mercadolibre.com/items/{item_id}/description",
-                                    json={"plain_text": pub_descripcion.strip()},
-                                    headers=headers_post,
-                                    timeout=8
-                                )
-                            except Exception:
-                                pass
-
-                        st.success(f"🎉 ¡Publicación exitosa! ID Item: **{item_id}**")
-                        if permalink:
-                            st.markdown(f"🔗 [Ver Publicación en Mercado Libre]({permalink})")
-                    else:
-                        err_resp = res_api.json() if res_api.content else {}
-                        st.error(f"Error API MeLi ({res_api.status_code}): {err_resp.get('message', res_api.text)}")
-                        if "cause" in err_resp:
-                            st.write("📋 Detalle técnico retornado por la API:", err_resp.get("cause"))
-            except Exception as e:
-                st.error(f"Error de conexión: {e}")
-
-# ------------------------------------------------------------------------------
-# SECCIÓN 6: MODO DEFENSIVO & REPRICING AUTOMÁTICO DE TUS PUBLICACIONES
-# ------------------------------------------------------------------------------
-elif tab_activa == 6:
-    st.header("🛡️ Modo Defensivo & Repricing Automático de Tus Publicaciones")
-    st.caption("Monitoreo en vivo de tus publicaciones activas en MeLi, comparación con el BuyBox/competencia y cálculo de piso anti-pérdida.")
-
-    token_defensivo = st.session_state["access_token"]
-    if not token_defensivo:
-        st.warning("⚠️ Para utilizar el Modo Defensivo y auditar tus publicaciones en vivo, conectá tu cuenta de Mercado Libre en la barra lateral con un Access Token válido.")
-    else:
-        user_id_activo = st.session_state["user_info"].get("id")
-        if not user_id_activo:
-            try:
-                me_res = requests.get("https://api.mercadolibre.com/users/me", headers=get_meli_headers(token_defensivo), timeout=5)
-                if me_res.status_code == 200:
-                    user_id_activo = me_res.json().get("id")
-            except Exception:
-                pass
-
-        col_def1, col_def2 = st.columns([3, 1])
-        with col_def1:
-            st.info("ℹ️ Este módulo escanea tus publicaciones activas, cruza su EAN/SKU con tu Lista Gold y te muestra el **Piso Mínimo Rentable** frente al precio del mercado.")
-        with col_def2:
-            btn_escanear_mis_pubs = st.button("🛡️ ESCANEAR MIS PUBLICACIONES", type="primary", use_container_width=True)
-
-        if btn_escanear_mis_pubs or "mis_pubs_cache" in st.session_state:
-            if btn_escanear_mis_pubs:
-                with st.spinner("Obteniendo tus publicaciones activas desde la API de Mercado Libre..."):
-                    try:
-                        url_search_my_items = f"https://api.mercadolibre.com/users/{user_id_activo}/items/search?status=active&limit=50"
-                        res_my = requests.get(url_search_my_items, headers=get_meli_headers(token_defensivo), timeout=10)
-                        if res_my.status_code == 200:
-                            my_ids = res_my.json().get("results", [])
-                            mis_items_detalles = []
-                            if my_ids:
-                                for i in range(0, len(my_ids), 20):
-                                    chunk_ids = ",".join(my_ids[i:i+20])
-                                    multi_res = requests.get(f"https://api.mercadolibre.com/items?ids={chunk_ids}", headers=get_meli_headers(token_defensivo), timeout=8)
-                                    if multi_res.status_code == 200:
-                                        for entry in multi_res.json():
-                                            if entry.get("code") == 200:
-                                                b = entry.get("body", {})
-                                                mis_items_detalles.append({
-                                                    "id": b.get("id"),
-                                                    "title": b.get("title"),
-                                                    "price": float(b.get("price", 0.0)),
-                                                    "stock": int(b.get("available_quantity", 0)),
-                                                    "permalink": construir_url_canonica_meli(b.get("id"), b.get("permalink", ""), b.get("catalog_product_id", "")),
-                                                    "catalog_product_id": b.get("catalog_product_id", "")
-                                                })
-                            st.session_state["mis_pubs_cache"] = mis_items_detalles
-                        else:
-                            st.error(f"Error al obtener tus publicaciones (HTTP {res_my.status_code})")
-                    except Exception as e:
-                        st.error(f"Error de conexión: {e}")
-
-            mis_pubs = st.session_state.get("mis_pubs_cache", [])
-            if mis_pubs:
-                st.success(f"✅ Se encontraron **{len(mis_pubs)} publicaciones activas** en tu cuenta.")
-                
-                auditoria_rows = []
-                for pub in mis_pubs:
-                    t_pub = pub["title"]
-                    p_actual = pub["price"]
-                    
-                    found_g, costo_g, _, _ = buscar_costo_y_titulo_en_lista_gold(t_pub)
-                    if not found_g:
-                        costo_g = p_actual * 0.45
-                    
-                    found_mat, costo_env_p, _, _, _, _, _ = buscar_datos_en_matriz(t_pub, p_actual)
-                    if not found_mat:
-                        costo_env_p = 25000.0
-
-                    deducciones_fijas_pct = 0.245 + 0.145
-                    piso_minimo_recomendado = round((costo_g + costo_env_p) / (1.0 - deducciones_fijas_pct), 2)
-                    
-                    estado_alerta = "🟢 Margen Saludable"
-                    if p_actual < piso_minimo_recomendado:
-                        estado_alerta = "🔴 VENDIENDO A PÉRDIDA"
-                    elif p_actual < (piso_minimo_recomendado * 1.1):
-                        estado_alerta = "🟡 Margen Crítico"
-
-                    auditoria_rows.append({
-                        "ID": pub["id"],
-                        "Título": t_pub,
-                        "Precio Actual ($)": p_actual,
-                        "Costo Gold ($)": costo_g,
-                        "Flete Est. ($)": costo_env_p,
-                        "Piso Mínimo ($)": piso_minimo_recomendado,
-                        "Estado": estado_alerta,
-                        "Enlace": pub["permalink"]
-                    })
-
-                df_audit = pd.DataFrame(auditoria_rows)
-                
-                st.subheader("📋 Auditoría Defensiva de Tus Publicaciones en Vivo")
-                st.dataframe(
-                    df_audit[["ID", "Título", "Precio Actual ($)", "Costo Gold ($)", "Piso Mínimo ($)", "Estado", "Enlace"]],
-                    column_config={
-                        "Precio Actual ($)": st.column_config.NumberColumn(format="$%,.2f"),
-                        "Costo Gold ($)": st.column_config.NumberColumn(format="$%,.2f"),
-                        "Piso Mínimo ($)": st.column_config.NumberColumn(format="$%,.2f"),
-                        "Enlace": st.column_config.LinkColumn("Ver en MeLi", display_text="Ir 🔗")
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-                st.subheader("⚡ Acción de Repricing Masivo / Defensivo por Lotes")
-                
-                pub_a_editar = st.selectbox("Seleccioná la publicación que querés ajustar de precio:", [f"{row['ID']} - {row['Título'][:45]} (Actual: ${row['Precio Actual ($)']:,.0f})" for row in auditoria_rows])
-                
-                if pub_a_editar:
-                    selected_id = pub_a_editar.split(" - ")[0]
-                    matched_row = next((r for r in auditoria_rows if r["ID"] == selected_id), None)
-                    
-                    if matched_row:
-                        c_ed1, c_ed2, c_ed3 = st.columns(3)
-                        with c_ed1:
-                            st.metric("Precio Actual en MeLi", f"${matched_row['Precio Actual ($)']:,.2f}")
-                        with c_ed2:
-                            st.metric("Piso Mínimo Seguro (Break-Even)", f"${matched_row['Piso Mínimo ($)']:,.2f}")
-                        with c_ed3:
-                            nuevo_precio_input = st.number_input("Nuevo Precio Defensivo ($)", min_value=float(matched_row['Piso Mínimo ($)']), value=float(matched_row['Precio Actual ($)']), step=500.0)
-                        
-                        if st.button("🛡️ APLICAR CAMBIO DE PRECIO EN MERCADO LIBRE", type="primary"):
-                            try:
-                                headers_put = {"Authorization": f"Bearer {token_defensivo}", "Content-Type": "application/json"}
-                                payload_put = {"price": float(nuevo_precio_input)}
-                                res_put = requests.put(f"https://api.mercadolibre.com/items/{selected_id}", json=payload_put, headers=headers_put, timeout=10)
-                                if res_put.status_code == 200:
-                                    st.success(f"🎉 ¡Precio actualizado con éxito en Mercado Libre para el ítem {selected_id} a ${nuevo_precio_input:,.2f}!")
-                                else:
-                                    err_json = res_put.json() if res_put.content else {}
-                                    st.error(f"Error al actualizar precio en MeLi: {err_json.get('message', res_put.text)}")
-                            except Exception as e:
-                                st.error(f"Error de red: {e}")
-            else:
-                st.info("ℹ️ No se detectaron publicaciones activas en esta cuenta o el token no tiene permisos de lectura de ítems.")
-
-# ------------------------------------------------------------------------------
-# SECCIÓN 7: COTIZADOR & COMPLETADOR MASIVO DE MATRIZ (.XLSX)
-# ------------------------------------------------------------------------------
-elif tab_activa == 7:
-    st.header("📥 Cotizador & Completador Masivo de Matriz (.xlsx)")
-    st.caption(
-        "Completa PVG GANADOR, PVP 2, PVP en 3, 6, 9 y 12 pagos, LINK, VENDEDOR GANADOR, TIPO ENVIO y COSTO ENVIO. "
-        "Como la API de MeLi no devuelve 4 precios fijos distintos por artículo, los PVP en 3, 6, 9 y 12 pagos toman el dato explícito si aparece en la oferta o calculan el PVP equivalente sobre PVG GANADOR según las tasas de financiación configuradas."
-    )
-
-    archivo_matriz_cot = st.file_uploader(
-        "📁 Subí tu archivo de matriz (.xlsx)",
-        type=["xlsx"],
-        key="uploader_matriz_cotizador_tab7",
-        help="Admite 'Matriz Articulos Gemini - COTIZADOR PVP.xlsx' u otro Excel con las mismas columnas."
-    )
-
-    if archivo_matriz_cot is not None:
-        xls_c = pd.ExcelFile(archivo_matriz_cot)
-        hoja_c = st.selectbox("📄 Seleccioná la hoja a procesar", xls_c.sheet_names, index=0, key="sel_hoja_cot_tab7")
-        df_base_c = pd.read_excel(archivo_matriz_cot, sheet_name=hoja_c)
-
-        st.markdown(f"**Filas detectadas:** `{len(df_base_c)}` | **Columnas:** `{len(df_base_c.columns)}`")
-
-        c_o1, c_o2, c_o3 = st.columns(3)
-        with c_o1:
-            max_filas_c = st.number_input(
-                "Cantidad de filas a procesar (0 = todas)",
-                min_value=0,
-                max_value=len(df_base_c),
-                value=0,
-                step=10,
-                key="num_max_filas_cot_tab7"
-            )
-        with c_o2:
-            pausa_c = st.slider(
-                "Pausa entre consultas (seg)",
-                min_value=0.05,
-                max_value=1.0,
-                value=0.15,
-                step=0.05,
-                key="slider_pausa_cot_tab7"
-            )
-        with c_o3:
-            calc_envio_c = st.checkbox(
-                "Calcular COSTO ENVIO por peso/PVP",
-                value=True,
-                key="chk_costo_envio_cot_tab7"
-            )
-
-        if st.button("🚀 COMPLETAR MATRIZ DESDE MELI", type="primary", use_container_width=True, key="btn_run_cot_tab7"):
-            df_out = df_base_c.copy()
-            cols_salida = [
-                "PVG GANADOR",
-                "PVP 2",
-                "PVP 3 PAGOS",
-                "PVP 6 PAGOS",
-                "PVP 9 PAGOS",
-                "PVP 12 PAGOS",
-                "LINK",
-                "VENDEDOR GANADOR",
-                "TIPO ENVIO",
-                "COSTO ENVIO",
-            ]
-            for col_obj in cols_salida:
-                if col_obj not in df_out.columns:
-                    df_out[col_obj] = np.nan
-                else:
-                    df_out[col_obj] = df_out[col_obj].astype("object")
-
-            headers_c = get_meli_headers(st.session_state["access_token"])
-            total_proc = len(df_out) if max_filas_c == 0 else min(int(max_filas_c), len(df_out))
-            barra_c = st.progress(0)
-            estado_c = st.empty()
-
-            for idx in range(total_proc):
-                row = df_out.iloc[idx]
-                ean_limpio = normalizar_ean_matriz(row.get("ean", ""))
-                desc = str(row.get("Descripcion", "") or "")
-                peso_fact = calcular_peso_facturable_fila_matriz(row)
-
-                estado_c.text(f"Procesando fila {idx + 1}/{total_proc} — Art: {row.get('Articulo', '')} | EAN: {ean_limpio or 'S/D'}")
-
-                pvg_ganador = np.nan
-                pvp_2 = np.nan
-                pvp_3 = np.nan
-                pvp_6 = np.nan
-                pvp_9 = np.nan
-                pvp_12 = np.nan
-                link_ganador = ""
-                vendedor_ganador = ""
-                tipo_envio = ""
-                ofertas = []
-
-                if ean_limpio:
-                    ofertas = consultar_ofertas_ean_para_matriz(ean_limpio, desc, headers_c)
-                    if ofertas:
-                        ganador = ofertas[0]
-                        pvg_ganador = ganador["price"]
-                        link_ganador = ganador["permalink"] or construir_url_canonica_meli(
-                            ganador.get("item_id", ""), "", ganador.get("catalog_id", "")
-                        )
-                        tipo_envio = mapear_tipo_envio_meli(ganador["logistic_type"], ganador["free_shipping"])
-                        vendedor_ganador = resolver_vendedor_nickname_oficial(ganador["seller_id"], st.session_state["access_token"])
-                        if len(ofertas) > 1:
-                            pvp_2 = ofertas[1]["price"]
-
-                        pvp_3 = calcular_pvp_en_cuotas(pvg_ganador, 3, ofertas)
-                        pvp_6 = calcular_pvp_en_cuotas(pvg_ganador, 6, ofertas)
-                        pvp_9 = calcular_pvp_en_cuotas(pvg_ganador, 9, ofertas)
-                        pvp_12 = calcular_pvp_en_cuotas(pvg_ganador, 12, ofertas)
-
-                if pd.notna(pvg_ganador):
-                    df_out.at[idx, "PVG GANADOR"] = pvg_ganador
-                if pd.notna(pvp_2):
-                    df_out.at[idx, "PVP 2"] = pvp_2
-                if pd.notna(pvp_3):
-                    df_out.at[idx, "PVP 3 PAGOS"] = pvp_3
-                if pd.notna(pvp_6):
-                    df_out.at[idx, "PVP 6 PAGOS"] = pvp_6
-                if pd.notna(pvp_9):
-                    df_out.at[idx, "PVP 9 PAGOS"] = pvp_9
-                if pd.notna(pvp_12):
-                    df_out.at[idx, "PVP 12 PAGOS"] = pvp_12
-                if link_ganador:
-                    df_out.at[idx, "LINK"] = link_ganador
-                if vendedor_ganador:
-                    df_out.at[idx, "VENDEDOR GANADOR"] = vendedor_ganador
-                if tipo_envio:
-                    df_out.at[idx, "TIPO ENVIO"] = tipo_envio
-
-                if calc_envio_c:
-                    pvp_ref = float(pvg_ganador) if pd.notna(pvg_ganador) else 208000.0
-                    df_out.at[idx, "COSTO ENVIO"] = calcular_costo_envio_por_peso_facturable(peso_fact, pvp_ref)
-
-                barra_c.progress((idx + 1) / max(total_proc, 1))
-                time.sleep(pausa_c)
-
-            st.session_state["df_matriz_completada_v188"] = df_out
-            st.session_state["hoja_matriz_completada_v188"] = hoja_c
-            estado_c.success("✅ ¡Matriz procesada por completo!")
-
-        if "df_matriz_completada_v188" in st.session_state:
-            df_final_c = st.session_state["df_matriz_completada_v188"]
-            hoja_final_c = st.session_state.get("hoja_matriz_completada_v188", "Hoja1")
-
-            st.markdown("### 📋 Resultados de la Matriz Completada")
-            st.dataframe(df_final_c, use_container_width=True)
-
-            excel_bytes_c = dataframe_a_excel_bytes(df_final_c, sheet_name=hoja_final_c)
-            st.download_button(
-                label="⬇️ Descargar Matriz Completada (.xlsx)",
-                data=excel_bytes_c,
-                file_name="Matriz_Articulos_Completada.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True,
-                key="btn_download_cot_tab7"
-            )
-    else:
-        st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
-
-# ------------------------------------------------------------------------------
-# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (IDA Y VUELTA CON API + LINKS)
-# ------------------------------------------------------------------------------
-elif tab_activa == 8:
-    st.header("🔍 Comparador por Imagen Similar")
-    st.caption("Trae publicaciones con imagen similar y su Link directo sin descartar por medidas ni características.")
-
-    col_img, col_txt = st.columns([1, 2])
-    with col_img:
-        img_subida = st.file_uploader(
-            "🖼️ Imagen de referencia",
-            type=["jpg", "jpeg", "png", "webp"],
-            key="cmp_img_ref_v188_5",
-        )
-        if img_subida is not None:
-            st.image(img_subida, caption="Referencia cargada", use_container_width=True)
-
-    with col_txt:
-        termino = st.text_input(
-            "🏷️ Palabra clave / tipo de producto para consultar la API",
-            value="biblioteca melamina",
-            key="cmp_txt_query_v188_5",
-        )
-        st.caption(
-            "No se aplican filtros de medidas ni características: te devuelve las publicaciones encontradas y sus links para que sigas el análisis."
-        )
-
-    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v188_5"):
-        img_bytes = img_subida.getvalue() if img_subida is not None else None
-        with st.spinner("Consultando API de Mercado Libre y evaluando similitud visual..."):
-            filas, diag = buscar_publicaciones_similares_por_imagen(
-                consulta_base=termino,
-                img_bytes=img_bytes,
-                access_token=st.session_state["access_token"],
-            )
-        st.session_state["cmp_sim_filas_v188_5"] = filas
-        st.session_state["cmp_sim_diag_v188_5"] = diag
-
-    if "cmp_sim_filas_v188_5" in st.session_state:
-        filas = st.session_state["cmp_sim_filas_v188_5"]
-        diag = st.session_state.get("cmp_sim_diag_v188_5", {})
-        st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-
-        if diag.get("error"):
-            st.warning(
-                f"API devolvió HTTP {diag.get('status_code')} en `{diag.get('endpoint_usado')}`: {diag.get('error')}"
-            )
-
-        if filas:
-            st.success(f"Se encontraron **{len(filas)}** publicaciones con su enlace directo.")
-            df_res = pd.DataFrame(filas)
-            st.dataframe(
-                df_res,
-                column_config={
-                    "Similitud Imagen (%)": st.column_config.NumberColumn(format="%.1f%%"),
-                    "Miniatura": st.column_config.ImageColumn("Imagen", width="small"),
-                    "Precio ($)": st.column_config.NumberColumn(format="$%,.0f"),
-                    "Stock Disp.": st.column_config.NumberColumn(format="%d"),
-                    "Ventas Acum.": st.column_config.NumberColumn(format="%d"),
-                    "Link": st.column_config.LinkColumn("Link MeLi", display_text="Abrir 🔗"),
-                },
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info(
-                "No se obtuvieron publicaciones. Probá con otro término o revisá si tu cuenta/token tiene habilitado el acceso a `/sites/MLA/search`."
-            )
+        detalle_flete_
