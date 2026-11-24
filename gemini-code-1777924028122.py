@@ -10,7 +10,7 @@ import requests
 import streamlit as st
 from PIL import Image, ImageOps
 
-APP_VERSION = "v192.0"
+APP_VERSION = "v193.0"
 
 st.set_page_config(
     page_title=f"NQ Sales Intelligence Matrix Pro ({APP_VERSION})",
@@ -310,6 +310,14 @@ def get_meli_headers(token: str = ""):
     if token and token.strip():
         headers["Authorization"] = f"Bearer {token.strip()}"
     return headers
+
+
+def get_web_headers():
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-AR,es;q=0.9"
+    }
 
 
 def obtener_url_login_meli():
@@ -800,6 +808,81 @@ def resolver_vendedor_nickname_oficial(seller_id, access_token=""):
 
 
 # ------------------------------------------------------------------------------
+# RESPALDO WEB PÚBLICO PARA MONITOR / COMPETENCIA CUANDO LA API DA 403 O VACÍO
+# ------------------------------------------------------------------------------
+def extraer_competencia_web_publica(catalog_id: str, variantes: list[str], diagnostico: list[str] | None = None) -> list[dict]:
+    urls_candidatas: list[tuple[str, str]] = []
+    if catalog_id:
+        urls_candidatas.append((f"catálogo {catalog_id}", f"https://www.mercadolibre.com.ar/p/{catalog_id}"))
+
+    for var_q in variantes[:3]:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", str(var_q).strip().lower()).strip("-")
+        if slug:
+            urls_candidatas.append((f"listado '{var_q}'", f"https://listado.mercadolibre.com.ar/{slug}"))
+
+    headers_web = get_web_headers()
+    encontrados: list[dict] = []
+    vistos: set[tuple[str, float]] = set()
+
+    for etiqueta, url_obj in urls_candidatas:
+        try:
+            resp = requests.get(url_obj, headers=headers_web, timeout=10, allow_redirects=True)
+            if diagnostico is not None:
+                diagnostico.append(f"Web {etiqueta} -> HTTP {resp.status_code}")
+            if resp.status_code != 200 or len(resp.text) < 1500:
+                continue
+
+            html = resp.text
+            bloques_mla = re.findall(r'(MLA-?\d{6,14})', html)
+            precios_raw = re.findall(r'"price"\s*:\s*(\d+(?:\.\d+)?)', html)
+            titulos_raw = re.findall(r'"title"\s*:\s*"([^"]{6,140})"', html)
+
+            if not precios_raw:
+                precios_pesos = re.findall(
+                    r'class="[^"]*price-tag-amount[^"]*"[^>]*>.*?<span[^>]*class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([\d.]+)</span>',
+                    html,
+                    re.DOTALL,
+                )
+                precios_raw = [p.replace(".", "") for p in precios_pesos if p.replace(".", "").isdigit()]
+
+            for idx_p, p_str in enumerate(precios_raw[:25]):
+                try:
+                    precio_val = float(p_str)
+                except ValueError:
+                    continue
+                if precio_val <= 100:
+                    continue
+
+                item_raw = bloques_mla[idx_p].replace("-", "") if idx_p < len(bloques_mla) else (catalog_id or f"WEB-{idx_p+1}")
+                titulo_val = titulos_raw[idx_p] if idx_p < len(titulos_raw) else (variantes[0] if variantes else "Publicación Mercado Libre")
+                clave_dedup = (item_raw, precio_val)
+                if clave_dedup in vistos:
+                    continue
+                vistos.add(clave_dedup)
+
+                encontrados.append({
+                    "vendedor_name": "Mercado Libre (Web Pública)",
+                    "id": item_raw,
+                    "title": titulo_val,
+                    "price": precio_val,
+                    "installments_qty": 1,
+                    "listing_type_id": "gold_pro",
+                    "stock": 0,
+                    "sold_quantity": 0,
+                    "permalink": construir_url_canonica_meli(item_raw, "", catalog_id),
+                    "category_id": "MLA4765",
+                })
+
+            if encontrados:
+                break
+        except Exception as exc:
+            if diagnostico is not None:
+                diagnostico.append(f"Web {etiqueta} -> error {exc}")
+
+    return encontrados
+
+
+# ------------------------------------------------------------------------------
 # FUNCIONES PARA COMPLETADO DE MATRIZ (.XLSX) DESDE API DE MELI
 # ------------------------------------------------------------------------------
 def normalizar_ean_matriz(valor) -> str:
@@ -882,7 +965,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
             timeout=8,
         )
         if r_prod.status_code == 200:
-            for prod in (r_prod.json().get("results", []) or [])[:2]:
+            for prod in r_prod.json().get("results", [])[:2]:
                 cat_id = prod.get("id", "")
                 prod_permalink = prod.get("permalink", "")
                 if not cat_id:
@@ -893,7 +976,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                     timeout=8,
                 )
                 if r_items.status_code == 200:
-                    for it in (r_items.json().get("results", []) or []):
+                    for it in r_items.json().get("results", []):
                         p = it.get("price")
                         if p and float(p) > 0:
                             ship = it.get("shipping") or {}
@@ -926,7 +1009,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
                     timeout=8,
                 )
                 if r_s.status_code == 200:
-                    for it in (r_s.json().get("results", []) or []):
+                    for it in r_s.json().get("results", []):
                         p = it.get("price")
                         if p and float(p) > 0:
                             ship = it.get("shipping") or {}
@@ -962,7 +1045,7 @@ def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> byte
 
 
 # ------------------------------------------------------------------------------
-# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (v192.0)
+# FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR
 # ------------------------------------------------------------------------------
 def calcular_firma_visual_robusta(img_bytes: bytes):
     if not img_bytes:
@@ -1224,14 +1307,14 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
         try:
             res_pi = requests.get(f"https://api.mercadolibre.com/products/{catalog_id}/items", headers=headers, timeout=8)
             if res_pi.status_code == 200:
-                raw_items = res_pi.json().get("results", []) or []
+                raw_items = res_pi.json().get("results", [])
         except Exception:
             pass
         if not raw_items:
             try:
                 res_ci = requests.get(f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}", headers=headers, timeout=8)
                 if res_ci.status_code == 200:
-                    raw_items = res_ci.json().get("results", []) or []
+                    raw_items = res_ci.json().get("results", [])
             except Exception:
                 pass
 
@@ -1243,7 +1326,7 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
         try:
             res_q = requests.get(url_search, headers=headers, timeout=8)
             if res_q.status_code == 200:
-                raw_items = res_q.json().get("results", []) or []
+                raw_items = res_q.json().get("results", [])
         except Exception:
             pass
 
@@ -1291,14 +1374,11 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
         seller_id = det.get("seller_id") or (r.get("seller", {}).get("id") if isinstance(r.get("seller"), dict) else r.get("seller_id"))
         nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
 
-        stock_final = det.get("stock_real", int(r.get("available_quantity", r.get("stock", 0))))
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
         cat_final = det.get("category_real") or r.get("category_id", category_id or "MLA4765")
         title_final = det.get("title_real") or r.get("title", "")
-
-        if price_final <= 0:
-            continue
 
         items_procesados.append({
             "vendedor_name": nickname,
@@ -1311,7 +1391,7 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
             "category_id": cat_final
         })
 
-    if item_objetivo and float(item_objetivo.get("price", 0.0)) > 0 and not any(x["id"] == item_objetivo["id"] for x in items_procesados):
+    if item_objetivo and not any(x["id"] == item_objetivo["id"] for x in items_procesados):
         items_procesados.insert(0, item_objetivo)
 
     return item_objetivo, items_procesados
@@ -1321,23 +1401,25 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
     headers = get_meli_headers(access_token)
     type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
-
+    
     catalog_id = clean_val if type_input == "CATALOG_ID" else ""
     product_title = titulo_gold.strip() if titulo_gold else ""
     raw_items = []
-    buy_box_item = None
+    diagnostico: list[str] = []
+    fuente_datos = "API Mercado Libre"
 
-    if type_input == "EAN" and clean_val:
+    if type_input == "EAN":
         url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
         try:
             res_p = requests.get(url_ean, headers=headers, timeout=8)
+            diagnostico.append(f"/products/search (EAN {clean_val}) -> HTTP {res_p.status_code}")
             if res_p.status_code == 200:
-                p_results = res_p.json().get("results", []) or []
+                p_results = res_p.json().get("results", [])
                 if p_results:
                     catalog_id = p_results[0].get("id", "")
                     product_title = p_results[0].get("name", product_title)
-        except Exception:
-            pass
+        except Exception as exc:
+            diagnostico.append(f"/products/search (EAN {clean_val}) -> error {exc}")
 
     if not catalog_id:
         q_cat_text = " ".join(filter(None, [titulo_gold.strip(), articulo_gold.strip()])).strip()
@@ -1347,81 +1429,63 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
             try:
                 url_p_q = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(q_cat_text)}"
                 res_pq = requests.get(url_p_q, headers=headers, timeout=8)
+                diagnostico.append(f"/products/search (q='{q_cat_text}') -> HTTP {res_pq.status_code}")
                 if res_pq.status_code == 200:
-                    pq_results = res_pq.json().get("results", []) or []
+                    pq_results = res_pq.json().get("results", [])
                     if pq_results:
                         catalog_id = pq_results[0].get("id", "")
                         if not product_title:
                             product_title = pq_results[0].get("name", "")
-            except Exception:
-                pass
+            except Exception as exc:
+                diagnostico.append(f"/products/search (q='{q_cat_text}') -> error {exc}")
 
     if catalog_id:
-        try:
-            res_cat = requests.get(f"https://api.mercadolibre.com/products/{catalog_id}", headers=headers, timeout=8)
-            if res_cat.status_code == 200:
-                cat_json = res_cat.json() or {}
-                if not product_title and cat_json.get("name"):
-                    product_title = cat_json.get("name")
-                bb = cat_json.get("buy_box_winner")
-                if isinstance(bb, dict) and bb.get("price"):
-                    buy_box_item = {
-                        "id": bb.get("item_id") or catalog_id,
-                        "title": product_title or f"Catálogo {catalog_id}",
-                        "price": float(bb.get("price") or 0.0),
-                        "available_quantity": int(bb.get("available_quantity") or 0),
-                        "sold_quantity": int(bb.get("sold_quantity") or 0),
-                        "permalink": construir_url_canonica_meli(bb.get("item_id") or "", "", catalog_id),
-                        "seller_id": bb.get("seller_id"),
-                        "category_id": cat_json.get("category_id", "MLA4765"),
-                        "listing_type_id": "gold_pro",
-                    }
-        except Exception:
-            pass
-
         url_prod_items = f"https://api.mercadolibre.com/products/{catalog_id}/items"
         try:
             res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
+            diagnostico.append(f"/products/{catalog_id}/items -> HTTP {res_pi.status_code}")
             if res_pi.status_code == 200:
-                raw_items = res_pi.json().get("results", []) or []
-        except Exception:
-            pass
+                raw_items = res_pi.json().get("results", [])
+        except Exception as exc:
+            diagnostico.append(f"/products/{catalog_id}/items -> error {exc}")
+
+        if not raw_items:
+            url_c_items = f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}"
+            try:
+                res_ci = requests.get(url_c_items, headers=headers, timeout=8)
+                diagnostico.append(f"/sites/MLA/search (catalog={catalog_id}) -> HTTP {res_ci.status_code}")
+                if res_ci.status_code == 200:
+                    raw_items = res_ci.json().get("results", [])
+            except Exception as exc:
+                diagnostico.append(f"/sites/MLA/search (catalog={catalog_id}) -> error {exc}")
+
+    search_terms = []
+    if titulo_gold.strip() and articulo_gold.strip():
+        search_terms.append(f"{titulo_gold.strip()} {articulo_gold.strip()}")
+    if titulo_gold.strip():
+        search_terms.append(titulo_gold.strip())
+    if articulo_gold.strip():
+        search_terms.append(articulo_gold.strip())
+    if clean_val and clean_val not in search_terms:
+        search_terms.append(clean_val)
 
     if not raw_items:
-        search_terms = []
-        if titulo_gold.strip() and articulo_gold.strip():
-            search_terms.append(f"{titulo_gold.strip()} {articulo_gold.strip()}")
-        if titulo_gold.strip():
-            search_terms.append(titulo_gold.strip())
-            sin_cod = re.sub(r"\b[A-Z]{1,5}\d{2,6}[A-Z0-9-]*\b", "", titulo_gold, flags=re.IGNORECASE)
-            sin_cod = re.sub(r"\s+", " ", sin_cod).strip()
-            if sin_cod and sin_cod not in search_terms:
-                search_terms.append(sin_cod)
-        if articulo_gold.strip():
-            search_terms.append(articulo_gold.strip())
-        if clean_val and clean_val not in search_terms:
-            search_terms.append(clean_val)
-
         for term_search in search_terms:
             if raw_items:
                 break
             url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
             try:
                 res_q = requests.get(url_q, headers=headers, timeout=8)
+                diagnostico.append(f"/sites/MLA/search (q='{term_search}') -> HTTP {res_q.status_code}")
                 if res_q.status_code == 200:
-                    raw_items = res_q.json().get("results", []) or []
-                elif res_q.status_code == 403:
-                    continue
-            except Exception:
-                pass
-
-    if not raw_items and buy_box_item:
-        raw_items = [buy_box_item]
+                    raw_items = res_q.json().get("results", [])
+            except Exception as exc:
+                diagnostico.append(f"/sites/MLA/search (q='{term_search}') -> error {exc}")
 
     list_ids = []
     for r in raw_items[:50]:
         i_id = r.get("item_id") or r.get("id", "")
-        if i_id and str(i_id).upper().startswith("MLA") and i_id not in list_ids:
+        if i_id:
             list_ids.append(i_id)
 
     detalles_dict = {}
@@ -1437,53 +1501,50 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
                         if entry.get("code") == 200:
                             b = entry.get("body", {})
                             it_id = b.get("id")
-
+                            
                             stk = int(b.get("available_quantity", 0))
                             vars_list = b.get("variations", [])
                             if vars_list and isinstance(vars_list, list):
                                 stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
                                 if stk_vars > 0:
                                     stk = stk_vars
-
+                                    
                             detalles_dict[it_id] = {
                                 "title_real": b.get("title", ""),
                                 "stock_real": stk,
                                 "sold_real": int(b.get("sold_quantity", 0)),
                                 "price_real": float(b.get("price", 0.0)),
                                 "category_real": b.get("category_id", "MLA4765"),
-                                "permalink_real": b.get("permalink", ""),
-                                "seller_id": b.get("seller_id")
+                                "permalink_real": b.get("permalink", "")
                             }
             except Exception:
                 pass
 
     items_procesados = []
-    for r in raw_items[:50]:
+    for idx, r in enumerate(raw_items[:50]):
         item_id = r.get("item_id") or r.get("id", "")
         if not item_id:
             continue
 
-        det = detalles_dict.get(item_id, {})
-        seller_id = det.get("seller_id")
-        if not seller_id and isinstance(r.get("seller"), dict):
+        seller_id = None
+        if isinstance(r.get("seller"), dict):
             seller_id = r.get("seller", {}).get("id")
         if not seller_id:
             seller_id = r.get("seller_id")
 
-        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token or "")
+        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
+        det = detalles_dict.get(item_id, {})
+
         url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id)
 
         inst = r.get("installments", {})
         q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
 
         title_final = det.get("title_real") or r.get("title") or product_title or f"Publicación {item_id}"
-        stock_final = det.get("stock_real", int(r.get("available_quantity", r.get("stock", 0))))
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
         sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
         price_final = det.get("price_real", float(r.get("price", 0.0)))
         cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
-
-        if price_final <= 0:
-            continue
 
         items_procesados.append({
             "vendedor_name": nickname,
@@ -1498,8 +1559,16 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
             "category_id": cat_final
         })
 
-    items_procesados.sort(key=lambda x: x["price"])
-    return catalog_id, product_title, items_procesados
+    if not items_procesados:
+        variantes_web = [t for t in [product_title, titulo_gold.strip(), articulo_gold.strip(), clean_val] if t]
+        items_web = extraer_competencia_web_publica(catalog_id, variantes_web, diagnostico)
+        if items_web:
+            items_procesados = items_web
+            fuente_datos = f"Respaldo Web Público ({catalog_id or variantes_web[0]})"
+        else:
+            fuente_datos = "sin_resultados_o_bloqueado"
+
+    return catalog_id, product_title, items_procesados, fuente_datos, diagnostico
 
 
 def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
@@ -1520,11 +1589,7 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
                 urls_a_probar.append(f"https://articulo.mercadolibre.com.ar/MLA-{num_part}")
                 urls_a_probar.append(f"https://www.mercadolibre.com.ar/up/{candidate}")
 
-    headers_web = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-AR,es;q=0.9"
-    }
+    headers_web = get_web_headers()
 
     for url_web in dict.fromkeys(urls_a_probar):
         try:
@@ -1539,7 +1604,7 @@ def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
             if not m_title:
                 m_title = re.search(r'<meta property="og:title" content="([^"]+)"', html)
             if m_title:
-                tit = re.sub(r'<[^>]+>', '', m_title.group(1)).replace(" | MercadoLibre", "").replace(" - Mercado Libre", "").strip()
+                tit = re.sub(r'<[^>]+>', '', m_title.group(1)).replace(" | MercadoLibre", "").strip()
                 if tit and "Mercado Libre" not in tit and len(tit) > 3:
                     res_data["family_name"] = tit[:60]
                     encontrado = True
@@ -1651,7 +1716,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
             url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={parsed_meli['ean']}"
             r_ean = requests.get(url_ean, headers=headers_ext, timeout=8)
             if r_ean.status_code == 200:
-                results = r_ean.json().get("results", []) or []
+                results = r_ean.json().get("results", [])
                 if results:
                     parsed_meli["tipo"] = "MELI_URL_OR_ID"
                     parsed_meli["catalog_id"] = results[0].get("id", "")
@@ -1690,12 +1755,12 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                         if bb_winner.get("item_id"):
                             resolved_item_id = bb_winner["item_id"]
 
-                    for pic in (prod_data.get("pictures", []) or [])[:10]:
+                    for pic in prod_data.get("pictures", [])[:10]:
                         pic_url = pic.get("secure_url") or pic.get("url")
                         if pic_url and pic_url not in res_data["fotos"]:
                             res_data["fotos"].append(pic_url)
 
-                    for attr in prod_data.get("attributes", []) or []:
+                    for attr in prod_data.get("attributes", []):
                         aid = attr.get("id")
                         vname = attr.get("value_name")
                         if aid == "BRAND" and vname:
@@ -1755,14 +1820,14 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                                 except Exception:
                                     pass
 
-                    for pic in (item_data.get("pictures", []) or [])[:10]:
+                    for pic in item_data.get("pictures", [])[:10]:
                         if len(res_data["fotos"]) >= 10:
                             break
                         pic_url = pic.get("secure_url") or pic.get("url")
                         if pic_url and pic_url not in res_data["fotos"]:
                             res_data["fotos"].append(pic_url)
 
-                    for attr in item_data.get("attributes", []) or []:
+                    for attr in item_data.get("attributes", []):
                         aid = attr.get("id")
                         vname = attr.get("value_name")
                         if aid == "BRAND" and vname:
@@ -1796,7 +1861,7 @@ def extraer_ficha_completa_meli(query_builder: str, access_token: str = ""):
                 res_data["error_api"] = " | ".join(errores_http)
 
     if not res_data["exito_externo"] and parsed_meli["tipo"] == "TEXT" and len(query_builder.strip()) > 3:
-        _, _, items_busq = buscar_competencia_integral_ean(query_builder.strip(), access_token)
+        _, _, items_busq, _, _ = buscar_competencia_integral_ean(query_builder.strip(), access_token)
         if items_busq:
             top_hit = items_busq[0]
             res_data["exito_externo"] = True
@@ -1826,11 +1891,9 @@ with st.sidebar:
     st.title("⚡ Control Panel")
     st.caption(f"Versión activa: **{APP_VERSION}**")
 
-    if st.button("🧹 Limpiar Caché", use_container_width=True, key="btn_clear_cache_side"):
+    if st.button("🧹 Limpiar Caché de Consultas", use_container_width=True):
         st.cache_data.clear()
-        for k_cache in ["ultima_clave_extraida", "datos_ficha_cache", "mis_pubs_cache", "cmp_sim_filas_v192", "cmp_sim_diag_v192", "diag_api_resultados_v192"]:
-            st.session_state.pop(k_cache, None)
-        st.success("Caché limpiada.")
+        st.success("✅ Caché limpiada.")
         st.rerun()
     
     st.markdown("---")
@@ -1838,7 +1901,6 @@ with st.sidebar:
     
     manual_token = st.text_input("Access Token Directo (Opcional)", value=st.session_state["access_token"], type="password")
     if manual_token != st.session_state["access_token"]:
-        st.cache_data.clear()
         st.session_state["access_token"] = manual_token.strip()
         st.session_state["user_info"] = obtener_perfil_meli(st.session_state["access_token"])
         sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
@@ -1849,9 +1911,9 @@ with st.sidebar:
         st.success(f"🟢 Vendedor: **{nickname}**")
         if st.button("🔄 Actualizar Tarifas API"):
             sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
-            st.success("¡Tarifas sincronizadas!")
+            st.success("¡Tarifas sincronizadas con MeLi!")
+            st.rerun()
         if st.button("Desconectar MeLi"):
-            st.cache_data.clear()
             st.session_state["access_token"] = ""
             st.session_state["user_info"] = {}
             st.session_state["tarifas_actualizadas_api"] = False
@@ -1920,7 +1982,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# NAVEGACIÓN VISUAL POR BOTONES (10 SOLAPAS)
+# NAVEGACIÓN VISUAL POR BOTONES (9 SOLAPAS)
 # ------------------------------------------------------------------------------
 MENU_ITEMS = [
     ("🧮", "Costos & Margen"),
@@ -1931,8 +1993,7 @@ MENU_ITEMS = [
     ("🚀", "Publicador"),
     ("🛡️", "Modo Defensivo"),
     ("📥", "Cotizador Matriz"),
-    ("🔍", "Comparador Imagen"),
-    ("🧪", "Diagnóstico API")
+    ("🔍", "Comparador Imagen")
 ]
 
 nav_cols = st.columns(len(MENU_ITEMS), gap="small")
@@ -1989,7 +2050,7 @@ if tab_activa == 0:
         col_st1, col_st2 = st.columns(2)
         with col_st1:
             if not found_gold:
-                st.markdown('<div class="badge-missing">❌ SKU no hallado en Lista Gold. Usando base manual.</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="badge-missing">❌ SKU no hallado en Lista Gold. Usando base manual.</div>', unsafe_allow_html=True)
             else:
                 st.success(f"✅ Costo base Lista Gold: **${costo_gold_val:,.2f}** ({desc_g})")
         with col_st2:
@@ -2149,12 +2210,7 @@ elif tab_activa == 1:
 
     if opciones_ean_gold:
         labels_gold_s2 = [op[0] for op in opciones_ean_gold]
-        st.selectbox(
-            "📋 Seleccionar Producto desde la Lista Gold",
-            labels_gold_s2,
-            key="select_gold_dropdown_mon",
-            on_change=actualizar_desde_selectbox_mon
-        )
+        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold_s2, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
         st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
     col_m1, col_m2 = st.columns([3, 1])
@@ -2164,13 +2220,13 @@ elif tab_activa == 1:
         st.write("")
         btn_run_monitor = st.button("⚡ ANALIZAR COMPETENCIA", type="primary", use_container_width=True)
 
-    if btn_run_monitor or (query_mon and query_mon.strip()):
+    if btn_run_monitor or query_mon:
         found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
         pvp_ref_mon = costo_gold_m * 2.0 if found_gold_m else 208000.0
         found_mat_m, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_mon, pvp_ref_mon)
 
         with st.spinner("Analizando competencia y controlando precios..."):
-            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(
+            cat_id_m, title_m, items_m, fuente_m, diag_m = buscar_competencia_integral_ean(
                 query_mon,
                 st.session_state["access_token"],
                 titulo_gold=desc_m,
@@ -2182,15 +2238,15 @@ elif tab_activa == 1:
         else:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
-        if cat_id_m:
-            st.caption(f"Catálogo detectado: `{cat_id_m}` — {title_m or desc_m or query_mon.strip()}")
+        if cat_id_m or title_m:
+            st.caption(f"Catálogo detectado: `{cat_id_m or 'S/D'}` — {title_m or desc_m} | Fuente: `{fuente_m}`")
 
         if items_m:
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
-
+            
             min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
             costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
-
+            
             if min_comp_price > 0 and min_comp_price < costo_total_operativo:
                 st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a <b>${min_comp_price:,.2f}</b>. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No igualés ese precio!</div><br>', unsafe_allow_html=True)
 
@@ -2208,6 +2264,10 @@ elif tab_activa == 1:
             )
         else:
             st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
+            if diag_m:
+                with st.expander("🔍 Diagnóstico de consulta (API / Web)"):
+                    for linea_d in diag_m:
+                        st.write(f"- {linea_d}")
 
 # ------------------------------------------------------------------------------
 # SECCIÓN 2: RADIOGRAFÍA DE CUALQUIER MLA / ANÁLISIS DE MERCADO & STOCK REAL
@@ -2227,7 +2287,7 @@ elif tab_activa == 2:
         with st.spinner("Consultando API de Mercado Libre y analizando métricas del ítem y su competencia..."):
             item_foco, items_mercado = analizar_mla_y_mercado(query_mla_mkt.strip(), st.session_state["access_token"])
 
-        if item_foco and float(item_foco.get("price", 0.0)) > 0:
+        if item_foco:
             cat_nombre_foco = obtener_nombre_categoria_meli(item_foco["category_id"])
             fact_item_foco = item_foco["price"] * item_foco["sold_quantity"]
 
@@ -2238,7 +2298,7 @@ elif tab_activa == 2:
                 <div style="font-size: 12px; color: #475569;">
                     <b>Vendedor:</b> {item_foco['vendedor_name']} &nbsp;|&nbsp; 
                     <b>Categoría:</b> {cat_nombre_foco} ({item_foco['category_id']}) &nbsp;|&nbsp; 
-                    <b>Catálogo:</b> {item_foco.get('catalog_product_id') or 'Publicación Tradicional'}
+                    <b>Catálogo:</b> {item_foco['catalog_product_id'] or 'Publicación Tradicional'}
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2418,7 +2478,7 @@ elif tab_activa == 5:
         st.success(f"🎯 **Datos Sincronizados (Lista Gold):** `{datos.get('desc_gold')}` | Costo: **${datos.get('costo_gold', 0):,.2f}**")
     else:
         msg_err = f" ({datos.get('error_api')})" if datos.get("error_api") else ""
-        st.warning(f"⚠️ No se obtuvo respuesta directa de la API para `{query_builder}`{msg_err}. Verificá tu conexión o ingresá los datos manualmente.")
+        st.warning(f"⚠️ No se obtuvo respuesta directa para `{query_builder}`{msg_err}. Verificá el link/código o completá los campos manualmente.")
 
     st.subheader("📦 Datos de Logística & Embalaje de la Caja")
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
@@ -2746,7 +2806,7 @@ elif tab_activa == 6:
                         url_search_my_items = f"https://api.mercadolibre.com/users/{user_id_activo}/items/search?status=active&limit=50"
                         res_my = requests.get(url_search_my_items, headers=get_meli_headers(token_defensivo), timeout=10)
                         if res_my.status_code == 200:
-                            my_ids = res_my.json().get("results", []) or []
+                            my_ids = res_my.json().get("results", [])
                             mis_items_detalles = []
                             if my_ids:
                                 for i in range(0, len(my_ids), 20):
@@ -2993,13 +3053,13 @@ elif tab_activa == 7:
                 barra_c.progress((idx + 1) / max(total_proc, 1))
                 time.sleep(pausa_c)
 
-            st.session_state["df_matriz_completada_v192"] = df_out
-            st.session_state["hoja_matriz_completada_v192"] = hoja_c
+            st.session_state["df_matriz_completada_v190"] = df_out
+            st.session_state["hoja_matriz_completada_v190"] = hoja_c
             estado_c.success("✅ ¡Matriz procesada por completo!")
 
-        if "df_matriz_completada_v192" in st.session_state:
-            df_final_c = st.session_state["df_matriz_completada_v192"]
-            hoja_final_c = st.session_state.get("hoja_matriz_completada_v192", "Hoja1")
+        if "df_matriz_completada_v190" in st.session_state:
+            df_final_c = st.session_state["df_matriz_completada_v190"]
+            hoja_final_c = st.session_state.get("hoja_matriz_completada_v190", "Hoja1")
 
             st.markdown("### 📋 Resultados de la Matriz Completada")
             st.dataframe(df_final_c, use_container_width=True)
@@ -3018,12 +3078,12 @@ elif tab_activa == 7:
         st.info("👆 Subí tu archivo **`Matriz Articulos Gemini - COTIZADOR PVP.xlsx`** para completarlo y descargarlo.")
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR (v192.0)
+# SECCIÓN 8: COMPARADOR POR IMAGEN SIMILAR
 # ------------------------------------------------------------------------------
 elif tab_activa == 8:
     st.header(f"🔍 Comparador por Imagen Similar ({APP_VERSION})")
     st.caption(
-        "Nota: la API de Mercado Libre no expone un buscador visual abierto por imagen y /sites/MLA/search puede devolver 403 en este entorno. "
+        "Nota: la API de Mercado Libre no expone un buscador visual abierto por imagen y /sites/MLA/search puede devolver 403 sin token. "
         "Esta vista consulta primero catálogo (/products/search), permite cargar una planilla CSV/XLSX de candidatos si la API bloquea y calcula similitud visual con tu foto."
     )
 
@@ -3032,7 +3092,7 @@ elif tab_activa == 8:
         img_subida = st.file_uploader(
             "🖼️ Imagen de referencia",
             type=["jpg", "jpeg", "png", "webp"],
-            key="cmp_img_ref_v192",
+            key="cmp_img_ref_v190",
         )
         if img_subida is not None:
             st.image(img_subida, caption="Referencia cargada", use_container_width=True)
@@ -3041,15 +3101,15 @@ elif tab_activa == 8:
         termino = st.text_input(
             "🏷️ Palabra clave / tipo de producto para consultar",
             value="placard 2 puertas 2 cajones",
-            key="cmp_txt_query_v192",
+            key="cmp_txt_query_v190",
         )
         archivo_cand = st.file_uploader(
             "📄 Planilla opcional de candidatos (CSV/XLSX) con columnas: titulo, precio, link, miniatura",
             type=["csv", "xlsx"],
-            key="cmp_cand_file_v192",
+            key="cmp_cand_file_v190",
         )
 
-    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v192"):
+    if st.button("🔍 BUSCAR PUBLICACIONES SIMILARES", type="primary", use_container_width=True, key="cmp_btn_run_v190"):
         img_bytes = img_subida.getvalue() if img_subida is not None else None
         candidatos_ext = None
 
@@ -3078,12 +3138,12 @@ elif tab_activa == 8:
                 access_token=st.session_state["access_token"],
                 candidatos_externos=candidatos_ext,
             )
-        st.session_state["cmp_sim_filas_v192"] = filas
-        st.session_state["cmp_sim_diag_v192"] = diag
+        st.session_state["cmp_sim_filas_v190"] = filas
+        st.session_state["cmp_sim_diag_v190"] = diag
 
-    if "cmp_sim_filas_v192" in st.session_state:
-        filas = st.session_state["cmp_sim_filas_v192"]
-        diag = st.session_state.get("cmp_sim_diag_v192", {})
+    if "cmp_sim_filas_v190" in st.session_state:
+        filas = st.session_state["cmp_sim_filas_v190"]
+        diag = st.session_state.get("cmp_sim_diag_v190", {})
         st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
         if diag.get("endpoint_usado"):
@@ -3114,158 +3174,3 @@ elif tab_activa == 8:
             st.info(
                 "No se obtuvieron publicaciones desde la API. Conectá un Access Token en el panel lateral o subí una planilla CSV/XLSX de candidatos con sus links y miniaturas para comparar por foto."
             )
-
-# ------------------------------------------------------------------------------
-# SECCIÓN 9: DIAGNÓSTICO EN VIVO DE API MERCADO LIBRE (CHECK TÉCNICO)
-# ------------------------------------------------------------------------------
-elif tab_activa == 9:
-    st.header("🧪 Diagnóstico en Vivo de API Mercado Libre")
-    st.caption(
-        "Chequeo directo de endpoints de Mercado Libre con tu sesión actual para separar "
-        "respuestas reales de la API (200 / 403 / 404 / vacíos) de la lógica de cada solapa."
-    )
-
-    token_diag = (st.session_state.get("access_token") or "").strip()
-    headers_diag = get_meli_headers(token_diag)
-
-    c_d1, c_d2, c_d3 = st.columns([2.5, 1.5, 1])
-    with c_d1:
-        valor_diag = st.text_input(
-            "Código de prueba (EAN, MLA, MLAU o ID de catálogo)",
-            value="7798009182461",
-            key="diag_api_input_v192",
-        )
-    with c_d2:
-        item_id_extra = st.text_input(
-            "ID de ítem opcional (ej. MLA3343768358)",
-            value="",
-            key="diag_api_item_extra_v192",
-        )
-    with c_d3:
-        st.write("")
-        btn_diag_api = st.button(
-            "🧪 EJECUTAR CHEQUEO API",
-            type="primary",
-            use_container_width=True,
-            key="diag_api_btn_run_v192",
-        )
-
-    st.markdown(
-        f"**Estado del token en sesión:** `{'Conectado' if token_diag else 'Sin token'}` "
-        f"| **Header Authorization enviado:** `{'Sí (Bearer ...)' if token_diag else 'No'}`"
-    )
-
-    if btn_diag_api:
-        parsed_d = extraer_ids_meli_avanzado(valor_diag.strip()) if valor_diag.strip() else {
-            "tipo": "TEXT", "catalog_id": "", "item_id": "", "alt_item_id": "", "ean": "", "raw": ""
-        }
-        q_limpio = re.sub(r"\D", "", valor_diag.strip()) if re.fullmatch(r"[\d\s\-\.]+", valor_diag.strip()) else valor_diag.strip()
-
-        pruebas = []
-        if token_diag:
-            pruebas.append(("Perfil autenticado (/users/me)", "https://api.mercadolibre.com/users/me"))
-            uid_d = st.session_state.get("user_info", {}).get("id")
-            if uid_d:
-                pruebas.append((
-                    "Mis ítems activos (/users/{id}/items/search)",
-                    f"https://api.mercadolibre.com/users/{uid_d}/items/search?status=active&limit=5",
-                ))
-
-        if q_limpio:
-            pruebas.append((
-                "Búsqueda catálogo (/products/search)",
-                f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(str(q_limpio))}",
-            ))
-            pruebas.append((
-                "Búsqueda marketplace (/sites/MLA/search)",
-                f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(str(q_limpio))}&limit=5",
-            ))
-
-        if parsed_d.get("ean"):
-            pruebas.append((
-                "Catálogo por EAN (/products/search?product_identifier=...)",
-                f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={parsed_d['ean']}",
-            ))
-
-        cat_candidato = parsed_d.get("catalog_id") or (valor_diag.strip().upper() if re.match(r"^MLA[A-Z]?\d+$", valor_diag.strip(), re.IGNORECASE) else "")
-        if cat_candidato:
-            pruebas.append((
-                "Ficha catálogo (/products/{id})",
-                f"https://api.mercadolibre.com/products/{cat_candidato}",
-            ))
-            pruebas.append((
-                "Ítems de catálogo (/products/{id}/items)",
-                f"https://api.mercadolibre.com/products/{cat_candidato}/items",
-            ))
-
-        item_candidato = item_id_extra.strip().upper().replace("-", "") or parsed_d.get("item_id") or (
-            valor_diag.strip().upper().replace("-", "") if re.match(r"^MLA-?\d+$", valor_diag.strip(), re.IGNORECASE) else ""
-        )
-        if item_candidato:
-            pruebas.append((
-                "Detalle ítem (/items/{id})",
-                f"https://api.mercadolibre.com/items/{item_candidato}",
-            ))
-
-        resultados_diag = []
-        with st.spinner("Consultando endpoints en vivo..."):
-            for nombre_ep, url_ep in pruebas:
-                t0 = time.perf_counter()
-                try:
-                    resp_d = requests.get(url_ep, headers=headers_diag, timeout=10)
-                    ms = round((time.perf_counter() - t0) * 1000)
-                    status_c = resp_d.status_code
-                    cuerpo_txt = resp_d.text or ""
-                    cant_res = "-"
-                    try:
-                        data_json = resp_d.json()
-                        if isinstance(data_json, dict) and "results" in data_json and isinstance(data_json["results"], list):
-                            cant_res = str(len(data_json["results"]))
-                        elif isinstance(data_json, list):
-                            cant_res = str(len(data_json))
-                    except Exception:
-                        pass
-
-                    if status_c == 200:
-                        diag_estado = "✅ OK (200)"
-                    elif status_c == 403:
-                        diag_estado = "🚫 Bloqueado / Sin permiso (403)"
-                    elif status_c == 404:
-                        diag_estado = "❓ No encontrado / Ruta (404)"
-                    else:
-                        diag_estado = f"⚠️ HTTP {status_c}"
-
-                    resultados_diag.append({
-                        "Chequeo": nombre_ep,
-                        "HTTP": status_c,
-                        "Diagnóstico": diag_estado,
-                        "Resultados": cant_res,
-                        "Tiempo (ms)": ms,
-                        "URL": url_ep,
-                        "Cuerpo": cuerpo_txt[:2500],
-                    })
-                except Exception as exc_d:
-                    ms = round((time.perf_counter() - t0) * 1000)
-                    resultados_diag.append({
-                        "Chequeo": nombre_ep,
-                        "HTTP": "ERR",
-                        "Diagnóstico": f"❌ Excepción: {exc_d}",
-                        "Resultados": "-",
-                        "Tiempo (ms)": ms,
-                        "URL": url_ep,
-                        "Cuerpo": str(exc_d),
-                    })
-
-        st.session_state["diag_api_resultados_v192"] = resultados_diag
-
-    if "diag_api_resultados_v192" in st.session_state and st.session_state["diag_api_resultados_v192"]:
-        res_list = st.session_state["diag_api_resultados_v192"]
-        df_diag = pd.DataFrame(res_list)[["Chequeo", "HTTP", "Diagnóstico", "Resultados", "Tiempo (ms)", "URL"]]
-        st.subheader("📋 Resumen de Respuestas de la API")
-        st.dataframe(df_diag, use_container_width=True, hide_index=True)
-
-        st.subheader("🔎 Respuesta Cruda por Endpoint")
-        for r_item in res_list:
-            with st.expander(f"{r_item['Chequeo']} — HTTP {r_item['HTTP']} ({r_item['Tiempo (ms)']} ms)"):
-                st.code(r_item["URL"], language="text")
-                st.code(r_item["Cuerpo"] or "(Respuesta vacía)", language="json")
