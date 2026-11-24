@@ -965,7 +965,6 @@ def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Hoja1") -> byte
 # FUNCIONES PARA BUSCAR PUBLICACIONES POR IMAGEN SIMILAR (v190.0)
 # ------------------------------------------------------------------------------
 def calcular_firma_visual_robusta(img_bytes: bytes):
-    """Genera un vector normalizado combinando color en grilla 8x8 y histograma de color."""
     if not img_bytes:
         return None
     try:
@@ -1012,9 +1011,6 @@ def obtener_firma_miniatura_url(img_url: str):
 
 
 def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", limit: int = 50):
-    """Consulta primero /products/search -> /products/{id}/items y luego /sites/MLA/search
-    para evitar depender de un endpoint que puede responder HTTP 403.
-    """
     headers = get_meli_headers(access_token)
     q = (consulta or "").strip()
     diag = {
@@ -1028,7 +1024,6 @@ def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", 
         diag["error"] = "Ingresá una palabra clave o tipo de producto."
         return [], diag
 
-    # 1) Catálogo de productos (/products/search -> /products/{id}/items)
     recolectados = []
     seen_ids = set()
     prod_status = None
@@ -1078,7 +1073,6 @@ def consultar_items_meli_con_diagnostico(consulta: str, access_token: str = "", 
         diag["total_api"] = len(recolectados)
         return recolectados[:limit], diag
 
-    # 2) Intento alterno en /sites/MLA/search
     url = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(q)}&limit={limit}"
     diag["endpoint_usado"] = "/sites/MLA/search"
     try:
@@ -1320,6 +1314,231 @@ def analizar_mla_y_mercado(query_input: str, access_token: str = ""):
     return item_objetivo, items_procesados
 
 
+# ------------------------------------------------------------------------------
+# BÚSQUEDA ESCALONADA + RESPALDO PARA SOLAPA 2 (SIN PISAR EL RESTO DE LA APP)
+# ------------------------------------------------------------------------------
+def _generar_variantes_busqueda_s2(query_key: str, titulo_gold: str = "", articulo_gold: str = "") -> list[str]:
+    variantes: list[str] = []
+
+    def _add(txt: str):
+        limpio = re.sub(r"\s+", " ", (txt or "").strip())
+        if len(limpio) >= 2 and limpio not in variantes:
+            variantes.append(limpio)
+
+    _add(query_key)
+
+    if titulo_gold:
+        _add(titulo_gold)
+        sin_cod = re.sub(r"\b[A-Z]{1,5}\d{2,6}[A-Z0-9-]*\b", "", titulo_gold, flags=re.IGNORECASE)
+        sin_cod = re.sub(r"\b\d{8,14}\b", "", sin_cod)
+        _add(sin_cod)
+
+        palabras = [p for p in re.findall(r"[A-Za-zÁÉÍÓÚáéíóúñÑ0-9]+", sin_cod or titulo_gold) if len(p) > 2]
+        if len(palabras) >= 3:
+            _add(" ".join(palabras[:3]))
+        if len(palabras) >= 2:
+            _add(" ".join(palabras[:2]))
+        if len(palabras) >= 1 and not palabras[0].isdigit():
+            _add(palabras[0])
+
+    if articulo_gold:
+        _add(articulo_gold)
+
+    return variantes
+
+
+def _enriquecer_items_meli_s2(raw_items: list, catalog_id: str, headers: dict, product_title: str, access_token: str) -> list[dict]:
+    list_ids = []
+    for r in raw_items[:50]:
+        i_id = r.get("item_id") or r.get("id", "")
+        if i_id and i_id not in list_ids:
+            list_ids.append(i_id)
+
+    detalles_dict = {}
+    if list_ids:
+        for i in range(0, len(list_ids), 20):
+            chunk = list_ids[i:i+20]
+            ids_str = ",".join(chunk)
+            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
+            try:
+                res_m = requests.get(url_multiget, headers=headers, timeout=8)
+                if res_m.status_code == 200:
+                    for entry in res_m.json():
+                        if entry.get("code") == 200:
+                            b = entry.get("body", {})
+                            it_id = b.get("id")
+
+                            stk = int(b.get("available_quantity", 0))
+                            vars_list = b.get("variations", [])
+                            if vars_list and isinstance(vars_list, list):
+                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                                if stk_vars > 0:
+                                    stk = stk_vars
+
+                            detalles_dict[it_id] = {
+                                "title_real": b.get("title", ""),
+                                "stock_real": stk,
+                                "sold_real": int(b.get("sold_quantity", 0)),
+                                "price_real": float(b.get("price", 0.0)),
+                                "category_real": b.get("category_id", "MLA4765"),
+                                "permalink_real": b.get("permalink", ""),
+                                "seller_id": b.get("seller_id"),
+                            }
+            except Exception:
+                pass
+
+    items_procesados = []
+    for r in raw_items[:50]:
+        item_id = r.get("item_id") or r.get("id", "")
+        if not item_id:
+            continue
+
+        det = detalles_dict.get(item_id, {})
+        seller_id = det.get("seller_id")
+        if not seller_id and isinstance(r.get("seller"), dict):
+            seller_id = r.get("seller", {}).get("id")
+        if not seller_id:
+            seller_id = r.get("seller_id")
+
+        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
+        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id)
+
+        inst = r.get("installments", {})
+        q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
+
+        title_final = det.get("title_real") or r.get("title") or product_title or f"Publicación {item_id}"
+        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
+        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
+        price_final = det.get("price_real", float(r.get("price", 0.0)))
+        cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
+
+        if price_final <= 0:
+            continue
+
+        items_procesados.append({
+            "vendedor_name": nickname,
+            "id": item_id,
+            "title": title_final,
+            "price": price_final,
+            "installments_qty": q_c,
+            "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
+            "stock": stock_final,
+            "sold_quantity": sold_final,
+            "permalink": url_oficial,
+            "category_id": cat_final,
+        })
+
+    return items_procesados
+
+
+def buscar_competencia_con_respaldo_s2(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
+    """
+    Busca competencia para la Solapa 2 probando variantes escalonadas y
+    respaldos entre /products/search y /sites/MLA/search, devolviendo también
+    la fuente y el diagnóstico de cada intento.
+    """
+    headers = get_meli_headers(access_token)
+    type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
+    logs: list[str] = []
+
+    catalog_id = clean_val if type_input == "CATALOG_ID" else ""
+    product_title = titulo_gold.strip() if titulo_gold else ""
+    variantes = _generar_variantes_busqueda_s2(query_key, titulo_gold=titulo_gold, articulo_gold=articulo_gold)
+
+    # 1) Si viene EAN explícito o numérico, consultar /products/search?product_identifier=...
+    ean_candidato = clean_val if type_input == "EAN" else (re.sub(r"\D", "", query_key) if re.fullmatch(r"\s*\d{8,14}\s*", query_key or "") else "")
+    if ean_candidato and not catalog_id:
+        try:
+            url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={ean_candidato}"
+            res_p = requests.get(url_ean, headers=headers, timeout=8)
+            if res_p.status_code == 200:
+                p_results = res_p.json().get("results", [])
+                if p_results:
+                    catalog_id = p_results[0].get("id", "")
+                    product_title = p_results[0].get("name", product_title)
+                    logs.append(f"EAN {ean_candidato} -> catálogo {catalog_id}")
+                else:
+                    logs.append(f"EAN {ean_candidato} -> 200 sin catálogo directo")
+            else:
+                logs.append(f"EAN {ean_candidato} -> HTTP {res_p.status_code}")
+        except Exception as exc:
+            logs.append(f"EAN {ean_candidato} -> error {exc}")
+
+    # 2) Si tenemos catalog_id, buscar ítems del catálogo
+    if catalog_id:
+        raw_items = []
+        try:
+            res_pi = requests.get(f"https://api.mercadolibre.com/products/{catalog_id}/items", headers=headers, timeout=8)
+            if res_pi.status_code == 200:
+                raw_items = res_pi.json().get("results", [])
+                logs.append(f"/products/{catalog_id}/items -> 200 ({len(raw_items)} ítems)")
+            else:
+                logs.append(f"/products/{catalog_id}/items -> HTTP {res_pi.status_code}")
+        except Exception as exc:
+            logs.append(f"/products/{catalog_id}/items -> error {exc}")
+
+        if not raw_items:
+            try:
+                res_ci = requests.get(f"https://api.mercadolibre.com/sites/MLA/search?catalog_product_id={catalog_id}", headers=headers, timeout=8)
+                if res_ci.status_code == 200:
+                    raw_items = res_ci.json().get("results", [])
+                    logs.append(f"/sites/MLA/search?catalog_product_id={catalog_id} -> 200 ({len(raw_items)} ítems)")
+                else:
+                    logs.append(f"/sites/MLA/search?catalog_product_id={catalog_id} -> HTTP {res_ci.status_code}")
+            except Exception as exc:
+                logs.append(f"catalog_product_id {catalog_id} -> error {exc}")
+
+        if raw_items:
+            items_proc = _enriquecer_items_meli_s2(raw_items, catalog_id, headers, product_title, access_token or "")
+            if items_proc:
+                return catalog_id, product_title, items_proc, f"Catálogo {catalog_id}", logs
+
+    # 3) Búsqueda escalonada por variantes de texto/código: /products/search y /sites/MLA/search
+    for var_q in variantes:
+        # Intento A: /sites/MLA/search?q=...
+        try:
+            url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(var_q)}&limit=30"
+            res_q = requests.get(url_q, headers=headers, timeout=8)
+            if res_q.status_code == 200:
+                raw_q = res_q.json().get("results", [])
+                if raw_q:
+                    items_proc = _enriquecer_items_meli_s2(raw_q, catalog_id, headers, product_title or var_q, access_token or "")
+                    if items_proc:
+                        logs.append(f"/sites/MLA/search ('{var_q}') -> 200 ({len(items_proc)} ítems)")
+                        return catalog_id, product_title or var_q, items_proc, f"/sites/MLA/search ('{var_q}')", logs
+                logs.append(f"/sites/MLA/search ('{var_q}') -> 200 sin resultados")
+            else:
+                logs.append(f"/sites/MLA/search ('{var_q}') -> HTTP {res_q.status_code}")
+        except Exception as exc:
+            logs.append(f"/sites/MLA/search ('{var_q}') -> error {exc}")
+
+        # Intento B: /products/search?status=active&site_id=MLA&q=... -> /products/{id}/items
+        try:
+            url_pq = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(var_q)}"
+            res_pq = requests.get(url_pq, headers=headers, timeout=8)
+            if res_pq.status_code == 200:
+                pq_res = res_pq.json().get("results", [])
+                for prod in pq_res[:2]:
+                    pid = prod.get("id", "")
+                    if not pid:
+                        continue
+                    res_pi2 = requests.get(f"https://api.mercadolibre.com/products/{pid}/items", headers=headers, timeout=8)
+                    if res_pi2.status_code == 200:
+                        raw_pi2 = res_pi2.json().get("results", [])
+                        if raw_pi2:
+                            items_proc = _enriquecer_items_meli_s2(raw_pi2, pid, headers, prod.get("name") or var_q, access_token or "")
+                            if items_proc:
+                                logs.append(f"/products/{pid}/items ('{var_q}') -> 200 ({len(items_proc)} ítems)")
+                                return pid, prod.get("name") or var_q, items_proc, f"/products/{pid}/items ('{var_q}')", logs
+                logs.append(f"/products/search ('{var_q}') -> 200 sin ítems")
+            else:
+                logs.append(f"/products/search ('{var_q}') -> HTTP {res_pq.status_code}")
+        except Exception as exc:
+            logs.append(f"/products/search ('{var_q}') -> error {exc}")
+
+    return catalog_id, product_title, [], "sin_resultados", logs
+
+
 @st.cache_data(ttl=900)
 def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
     headers = get_meli_headers(access_token)
@@ -1398,83 +1617,7 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
             except Exception:
                 pass
 
-    list_ids = []
-    for r in raw_items[:50]:
-        i_id = r.get("item_id") or r.get("id", "")
-        if i_id:
-            list_ids.append(i_id)
-
-    detalles_dict = {}
-    if list_ids:
-        for i in range(0, len(list_ids), 20):
-            chunk = list_ids[i:i+20]
-            ids_str = ",".join(chunk)
-            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
-            try:
-                res_m = requests.get(url_multiget, headers=headers, timeout=8)
-                if res_m.status_code == 200:
-                    for entry in res_m.json():
-                        if entry.get("code") == 200:
-                            b = entry.get("body", {})
-                            it_id = b.get("id")
-                            
-                            stk = int(b.get("available_quantity", 0))
-                            vars_list = b.get("variations", [])
-                            if vars_list and isinstance(vars_list, list):
-                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
-                                if stk_vars > 0:
-                                    stk = stk_vars
-                                    
-                            detalles_dict[it_id] = {
-                                "title_real": b.get("title", ""),
-                                "stock_real": stk,
-                                "sold_real": int(b.get("sold_quantity", 0)),
-                                "price_real": float(b.get("price", 0.0)),
-                                "category_real": b.get("category_id", "MLA4765"),
-                                "permalink_real": b.get("permalink", "")
-                            }
-            except Exception:
-                pass
-
-    items_procesados = []
-    for idx, r in enumerate(raw_items[:50]):
-        item_id = r.get("item_id") or r.get("id", "")
-        if not item_id:
-            continue
-
-        seller_id = None
-        if isinstance(r.get("seller"), dict):
-            seller_id = r.get("seller", {}).get("id")
-        if not seller_id:
-            seller_id = r.get("seller_id")
-
-        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token)
-        det = detalles_dict.get(item_id, {})
-
-        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id)
-
-        inst = r.get("installments", {})
-        q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
-
-        title_final = det.get("title_real") or r.get("title") or product_title or f"Publicación {item_id}"
-        stock_final = det.get("stock_real", int(r.get("available_quantity", 0)))
-        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
-        price_final = det.get("price_real", float(r.get("price", 0.0)))
-        cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
-
-        items_procesados.append({
-            "vendedor_name": nickname,
-            "id": item_id,
-            "title": title_final,
-            "price": price_final,
-            "installments_qty": q_c,
-            "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
-            "stock": stock_final,
-            "sold_quantity": sold_final,
-            "permalink": url_oficial,
-            "category_id": cat_final
-        })
-
+    items_procesados = _enriquecer_items_meli_s2(raw_items, catalog_id, headers, product_title, access_token or "")
     return catalog_id, product_title, items_procesados
 
 
@@ -2098,7 +2241,7 @@ if tab_activa == 0:
         )
 
 # ------------------------------------------------------------------------------
-# SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA)
+# SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA) - CORREGIDO
 # ------------------------------------------------------------------------------
 elif tab_activa == 1:
     st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
@@ -2112,11 +2255,17 @@ elif tab_activa == 1:
             for lbl, ean_v in opciones_ean_gold:
                 if lbl == sel:
                     st.session_state["search_query_mon"] = ean_v
+                    st.session_state["auto_run_mon_s2"] = True
                     break
 
     if opciones_ean_gold:
         labels_gold_s2 = [op[0] for op in opciones_ean_gold]
-        st.selectbox("📋 Seleccionar Producto desde la Lista Gold", labels_gold_s2, key="select_gold_dropdown_mon", on_change=actualizar_desde_selectbox_mon)
+        st.selectbox(
+            "📋 Seleccionar Producto desde la Lista Gold",
+            labels_gold_s2,
+            key="select_gold_dropdown_mon",
+            on_change=actualizar_desde_selectbox_mon
+        )
         st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
     col_m1, col_m2 = st.columns([3, 1])
@@ -2126,13 +2275,15 @@ elif tab_activa == 1:
         st.write("")
         btn_run_monitor = st.button("⚡ ANALIZAR COMPETENCIA", type="primary", use_container_width=True)
 
-    if btn_run_monitor or query_mon:
+    disparar_busqueda_s2 = bool(btn_run_monitor or st.session_state.pop("auto_run_mon_s2", False) or (query_mon and query_mon.strip()))
+
+    if disparar_busqueda_s2 and query_mon and query_mon.strip():
         found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
         pvp_ref_mon = costo_gold_m * 2.0 if found_gold_m else 208000.0
         found_mat_m, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_mon, pvp_ref_mon)
 
         with st.spinner("Analizando competencia y controlando precios..."):
-            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(
+            cat_id_m, title_m, items_m, fuente_m, logs_m = buscar_competencia_con_respaldo_s2(
                 query_mon,
                 st.session_state["access_token"],
                 titulo_gold=desc_m,
@@ -2145,6 +2296,9 @@ elif tab_activa == 1:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
+            if fuente_m and fuente_m != "sin_resultados":
+                st.caption(f"Fuente detectada: `{fuente_m}`")
+
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
             
             min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
@@ -2167,6 +2321,11 @@ elif tab_activa == 1:
             )
         else:
             st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
+
+        if logs_m:
+            with st.expander("🔍 Diagnóstico de consulta (variantes y respuestas API)"):
+                for linea in logs_m:
+                    st.write(f"- `{linea}`")
 
 # ------------------------------------------------------------------------------
 # SECCIÓN 2: RADIOGRAFÍA DE CUALQUIER MLA / ANÁLISIS DE MERCADO & STOCK REAL
