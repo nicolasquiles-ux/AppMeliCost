@@ -2243,6 +2243,9 @@ if tab_activa == 0:
 # ------------------------------------------------------------------------------
 # SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA) - CORREGIDO
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# SECCIÓN 1: MONITOR & CONTROL DE PRECIOS (ANTI-PÉRDIDA) - BASE v190.0
+# ------------------------------------------------------------------------------
 elif tab_activa == 1:
     st.header("⚡ Monitor de Precios & Control Anti-Pérdida")
     st.caption("Monitoreo de la competencia en tiempo real con alertas de margen protegido para evitar vender por debajo del costo.")
@@ -2255,7 +2258,6 @@ elif tab_activa == 1:
             for lbl, ean_v in opciones_ean_gold:
                 if lbl == sel:
                     st.session_state["search_query_mon"] = ean_v
-                    st.session_state["auto_run_mon_s2"] = True
                     break
 
     if opciones_ean_gold:
@@ -2275,15 +2277,13 @@ elif tab_activa == 1:
         st.write("")
         btn_run_monitor = st.button("⚡ ANALIZAR COMPETENCIA", type="primary", use_container_width=True)
 
-    disparar_busqueda_s2 = bool(btn_run_monitor or st.session_state.pop("auto_run_mon_s2", False) or (query_mon and query_mon.strip()))
-
-    if disparar_busqueda_s2 and query_mon and query_mon.strip():
+    if btn_run_monitor or (query_mon and query_mon.strip()):
         found_gold_m, costo_gold_m, desc_m, art_m = buscar_costo_y_titulo_en_lista_gold(query_mon)
         pvp_ref_mon = costo_gold_m * 2.0 if found_gold_m else 208000.0
         found_mat_m, costo_env_m, _, _, _, _, _ = buscar_datos_en_matriz(query_mon, pvp_ref_mon)
 
         with st.spinner("Analizando competencia y controlando precios..."):
-            cat_id_m, title_m, items_m, fuente_m, logs_m = buscar_competencia_con_respaldo_s2(
+            cat_id_m, title_m, items_m = buscar_competencia_integral_ean(
                 query_mon,
                 st.session_state["access_token"],
                 titulo_gold=desc_m,
@@ -2296,14 +2296,11 @@ elif tab_activa == 1:
             st.success(f"✅ **Costo Lista Gold Oficial:** **${costo_gold_m:,.2f}** ({desc_m} - {art_m})")
 
         if items_m:
-            if fuente_m and fuente_m != "sin_resultados":
-                st.caption(f"Fuente detectada: `{fuente_m}`")
-
             df_comp_m = pd.DataFrame(items_m).sort_values(by="price", ascending=True).reset_index(drop=True)
-            
+
             min_comp_price = df_comp_m.iloc[0]["price"] if not df_comp_m.empty else 0
             costo_total_operativo = costo_gold_m + costo_env_m + (min_comp_price * 0.20)
-            
+
             if min_comp_price > 0 and min_comp_price < costo_total_operativo:
                 st.markdown(f'<div class="card-noviable">⚠️ <b>ADVERTENCIA ANTI-PÉRDIDA:</b> El competidor más bajo vende a <b>${min_comp_price:,.2f}</b>. Ese precio está por debajo de tu costo de reposición + comisiones. ¡No igualés ese precio!</div><br>', unsafe_allow_html=True)
 
@@ -2320,12 +2317,13 @@ elif tab_activa == 1:
                 hide_index=True
             )
         else:
-            st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
-
-        if logs_m:
-            with st.expander("🔍 Diagnóstico de consulta (variantes y respuestas API)"):
-                for linea in logs_m:
-                    st.write(f"- `{linea}`")
+            if not st.session_state["access_token"]:
+                st.warning(
+                    f"⚠️ No se obtuvieron publicaciones activas para **{desc_m or query_mon.strip()}** (catálogo `{cat_id_m or 'N/A'}`). "
+                    "Si Mercado Libre responde con `HTTP 403` sin sesión, conectá tu Access Token en el panel lateral para consultar con autenticación."
+                )
+            else:
+                st.info(f"ℹ️ No se encontraron publicaciones activas en Mercado Libre para **{desc_m or query_mon.strip()}**.")
 
 # ------------------------------------------------------------------------------
 # SECCIÓN 2: RADIOGRAFÍA DE CUALQUIER MLA / ANÁLISIS DE MERCADO & STOCK REAL
