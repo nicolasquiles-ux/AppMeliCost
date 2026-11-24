@@ -199,23 +199,35 @@ st.markdown(
             font-size: 13px;
             line-height: 1.5;
         }
-        .nav-btn-wrap button {
-            font-size: 12px !important;
-            font-weight: 700 !important;
-            padding: 6px 8px !important;
-            border-radius: 8px !important;
-        }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+
+def _leer_secreto_seguro(clave: str, defecto: str = "") -> str:
+    try:
+        if clave in st.secrets:
+            return str(st.secrets[clave] or defecto).strip()
+        for seccion in ("meli", "mercadolibre", "auth", "api"):
+            if seccion in st.secrets and clave in st.secrets[seccion]:
+                return str(st.secrets[seccion][clave] or defecto).strip()
+    except Exception:
+        pass
+    return defecto
+
+
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = 0
 if "access_token" not in st.session_state:
-    st.session_state["access_token"] = ""
+    token_init = _leer_secreto_seguro("MELI_ACCESS_TOKEN", "") or _leer_secreto_seguro("ACCESS_TOKEN", "")
+    st.session_state["access_token"] = token_init
+if "refresh_token" not in st.session_state:
+    st.session_state["refresh_token"] = _leer_secreto_seguro("MELI_REFRESH_TOKEN", "")
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = {}
+if "conexion_diagnostico" not in st.session_state:
+    st.session_state["conexion_diagnostico"] = "Sin validar aún"
 if "tasas_cuotas" not in st.session_state:
     st.session_state["tasas_cuotas"] = {k: dict(v) for k, v in DEFAULT_TASAS_CUOTAS.items()}
 if "tarifas_actualizadas_api" not in st.session_state:
@@ -234,14 +246,18 @@ if "q_mercado_mla" not in st.session_state:
     st.session_state["q_mercado_mla"] = "MLA1456789012"
 
 
+def obtener_credenciales_oauth() -> tuple[str, str, str]:
+    client_id = _leer_secreto_seguro("MELI_CLIENT_ID", "") or _leer_secreto_seguro("CLIENT_ID", "")
+    client_secret = _leer_secreto_seguro("MELI_CLIENT_SECRET", "") or _leer_secreto_seguro("CLIENT_SECRET", "")
+    redirect_uri = (
+        _leer_secreto_seguro("MELI_REDIRECT_URI", "")
+        or _leer_secreto_seguro("REDIRECT_URI", "")
+    )
+    return client_id, client_secret, redirect_uri
+
+
 def obtener_url_login_meli() -> str:
-    client_id = ""
-    redirect_uri = ""
-    try:
-        client_id = str(st.secrets.get("MELI_CLIENT_ID", "") or "")
-        redirect_uri = str(st.secrets.get("MELI_REDIRECT_URI", st.secrets.get("REDIRECT_URI", "")) or "")
-    except Exception:
-        pass
+    client_id, _, redirect_uri = obtener_credenciales_oauth()
     if client_id and redirect_uri:
         return (
             f"https://auth.mercadolibre.com.ar/authorization?response_type=code"
@@ -251,6 +267,45 @@ def obtener_url_login_meli() -> str:
     return "https://developers.mercadolibre.com.ar/"
 
 
+def intercambiar_code_o_refresh_token(code: str = "", refresh_token: str = "") -> tuple[bool, str]:
+    client_id, client_secret, redirect_uri = obtener_credenciales_oauth()
+    if not client_id or not client_secret:
+        return False, "Faltan MELI_CLIENT_ID / MELI_CLIENT_SECRET en Secrets."
+
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    if code:
+        payload["grant_type"] = "authorization_code"
+        payload["code"] = code.strip()
+        if redirect_uri:
+            payload["redirect_uri"] = redirect_uri.strip()
+    elif refresh_token:
+        payload["grant_type"] = "refresh_token"
+        payload["refresh_token"] = refresh_token.strip()
+    else:
+        return False, "No se recibió código OAuth ni refresh_token."
+
+    try:
+        r = requests.post(
+            "https://api.mercadolibre.com/oauth/token",
+            data=payload,
+            headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        data = r.json() if r.text else {}
+        if r.status_code == 200 and data.get("access_token"):
+            st.session_state["access_token"] = str(data["access_token"]).strip()
+            if data.get("refresh_token"):
+                st.session_state["refresh_token"] = str(data["refresh_token"]).strip()
+            return True, "Token OAuth obtenido correctamente."
+        err_msg = data.get("message") or data.get("error_description") or data.get("error") or f"HTTP {r.status_code}"
+        return False, f"Error OAuth ({r.status_code}): {err_msg}"
+    except Exception as e:
+        return False, f"Excepción al solicitar token OAuth: {e}"
+
+
 def get_meli_headers(access_token: str = "") -> dict:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -258,25 +313,46 @@ def get_meli_headers(access_token: str = "") -> dict:
     }
     token_eff = (access_token or st.session_state.get("access_token") or "").strip()
     if token_eff:
-        headers["Authorization"] = f"Bearer {token_eff}"
+        if not token_eff.lower().startswith("bearer "):
+            headers["Authorization"] = f"Bearer {token_eff}"
+        else:
+            headers["Authorization"] = token_eff
     return headers
 
 
-def obtener_perfil_meli(access_token: str) -> dict:
-    if not access_token or not access_token.strip():
-        return {}
+def obtener_perfil_meli(access_token: str) -> tuple[dict, str]:
+    tok = (access_token or "").strip()
+    if not tok:
+        return {}, "Sin token configurado (modo público)"
     try:
-        r = requests.get("https://api.mercadolibre.com/users/me", headers=get_meli_headers(access_token), timeout=8)
+        r = requests.get("https://api.mercadolibre.com/users/me", headers=get_meli_headers(tok), timeout=8)
         if r.status_code == 200:
             data = r.json()
-            return {
+            perfil = {
                 "id": data.get("id"),
                 "nickname": data.get("nickname") or "Vendedor Conectado",
                 "site_id": data.get("site_id") or "MLA",
             }
-    except Exception:
-        pass
-    return {"nickname": "Token Configurado"}
+            return perfil, f"Conectado OK ({perfil['nickname']})"
+        if r.status_code == 401 and st.session_state.get("refresh_token"):
+            ok_ref, _ = intercambiar_code_o_refresh_token(refresh_token=st.session_state["refresh_token"])
+            if ok_ref:
+                r2 = requests.get(
+                    "https://api.mercadolibre.com/users/me",
+                    headers=get_meli_headers(st.session_state["access_token"]),
+                    timeout=8,
+                )
+                if r2.status_code == 200:
+                    data2 = r2.json()
+                    perfil2 = {
+                        "id": data2.get("id"),
+                        "nickname": data2.get("nickname") or "Vendedor Conectado",
+                        "site_id": data2.get("site_id") or "MLA",
+                    }
+                    return perfil2, f"Renovado y conectado ({perfil2['nickname']})"
+        return {}, f"Token rechazado por API MeLi (HTTP {r.status_code})"
+    except Exception as e:
+        return {}, f"Error al consultar /users/me: {e}"
 
 
 def sincronizar_tarifas_financiacion_meli(access_token: str):
@@ -292,6 +368,23 @@ def sincronizar_tarifas_financiacion_meli(access_token: str):
             st.session_state["tarifas_actualizadas_api"] = True
     except Exception:
         pass
+
+
+# Captura automática de ?code=... al volver del login OAuth de Mercado Libre
+try:
+    oauth_code_url = str(st.query_params.get("code", "") or "").strip()
+    if oauth_code_url and oauth_code_url != st.session_state.get("_last_oauth_code", ""):
+        st.session_state["_last_oauth_code"] = oauth_code_url
+        ok_oauth, msg_oauth = intercambiar_code_o_refresh_token(code=oauth_code_url)
+        if ok_oauth:
+            perfil_auto, diag_auto = obtener_perfil_meli(st.session_state["access_token"])
+            st.session_state["user_info"] = perfil_auto
+            st.session_state["conexion_diagnostico"] = diag_auto
+            sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
+        else:
+            st.session_state["conexion_diagnostico"] = msg_oauth
+except Exception:
+    pass
 
 
 def limpiar_precio_moneda(valor) -> float:
@@ -736,16 +829,7 @@ def consultar_ofertas_ean_para_matriz(ean: str, descripcion: str, headers: dict)
 
     if not raw_items:
         q_txt = descripcion.strip() if descripcion.strip() else ean
-        try:
-            r_q = requests.get(
-                f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(q_txt)}&limit=15",
-                headers=headers,
-                timeout=8,
-            )
-            if r_q.status_code == 200:
-                raw_items = r_q.json().get("results", [])
-        except Exception:
-            pass
+        raw_items, _ = consultar_items_meli_con_diagnostico(q_txt, limit=15)
 
     for r in raw_items:
         pr = float(r.get("price") or 0.0)
@@ -1398,11 +1482,20 @@ def crear_publicacion_catalogo_meli(payload: dict, access_token: str):
         return False, {"error": str(e)}
 
 
+# Validación inicial automática si ya existe token en sesión/secrets
+if st.session_state.get("access_token") and not st.session_state.get("user_info"):
+    _p_init, _d_init = obtener_perfil_meli(st.session_state["access_token"])
+    st.session_state["user_info"] = _p_init
+    st.session_state["conexion_diagnostico"] = _d_init
+    if _p_init:
+        sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
+
+
 with st.sidebar:
     st.markdown(f"### ⚙️ Control Panel · `{APP_VERSION}`")
     st.caption(f"Versión activa en ejecución: **{APP_VERSION}**")
 
-    with st.expander("🔑 Conexión API Mercado Libre", expanded=False):
+    with st.expander("🔑 Conexión API Mercado Libre", expanded=True):
         url_oauth = obtener_url_login_meli()
         st.link_button("🔗 Iniciar Sesión OAuth MeLi", url_oauth, use_container_width=True)
         token_in = st.text_input(
@@ -1410,12 +1503,27 @@ with st.sidebar:
             value=st.session_state["access_token"],
             type="password",
         )
-        if st.button("✅ Validar y Conectar Token", use_container_width=True):
-            st.session_state["access_token"] = token_in.strip()
-            perfil = obtener_perfil_meli(st.session_state["access_token"])
-            st.session_state["user_info"] = perfil
-            sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
-            st.success(f"Conectado: {perfil.get('nickname', 'OK')}")
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            if st.button("✅ Validar Token", use_container_width=True):
+                st.session_state["access_token"] = token_in.strip()
+                perfil, diag_txt = obtener_perfil_meli(st.session_state["access_token"])
+                st.session_state["user_info"] = perfil
+                st.session_state["conexion_diagnostico"] = diag_txt
+                sincronizar_tarifas_financiacion_meli(st.session_state["access_token"])
+                st.rerun()
+        with col_b2:
+            if st.button("🔄 Refrescar", use_container_width=True):
+                if st.session_state.get("refresh_token"):
+                    ok_r, msg_r = intercambiar_code_o_refresh_token(refresh_token=st.session_state["refresh_token"])
+                    st.session_state["conexion_diagnostico"] = msg_r
+                    if ok_r:
+                        perfil_r, diag_r = obtener_perfil_meli(st.session_state["access_token"])
+                        st.session_state["user_info"] = perfil_r
+                        st.session_state["conexion_diagnostico"] = diag_r
+                st.cache_data.clear()
+                st.rerun()
+        st.caption(f"Estado API: **{st.session_state.get('conexion_diagnostico', 'Sin validar')}**")
 
     with st.expander("📂 Cargar Lista Gold (Costos)", expanded=True):
         up_gold = st.file_uploader("Subir Lista Gold (.xlsx / .csv)", type=["xlsx", "xls", "csv"], key="up_gold_sb")
@@ -1463,7 +1571,9 @@ with st.sidebar:
     st.caption(f"NQ Argentina · Core `{APP_VERSION}`")
 
 
-nick_actual = st.session_state.get("user_info", {}).get("nickname", "Modo Público")
+nick_actual = st.session_state.get("user_info", {}).get("nickname") or (
+    "Token Sin Validar" if st.session_state.get("access_token") else "Modo Público"
+)
 gold_count = len(st.session_state["lista_gold_df"]) if st.session_state["lista_gold_df"] is not None else 0
 
 st.markdown(
