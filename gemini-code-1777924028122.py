@@ -1480,7 +1480,194 @@ def buscar_competencia_integral_ean(query_key: str, access_token: str = None, ti
         })
 
     return catalog_id, product_title, items_procesados
+@st.cache_data(ttl=900)
+def buscar_competencia_integral_ean(query_key: str, access_token: str = None, titulo_gold: str = "", articulo_gold: str = ""):
+    headers = get_meli_headers(access_token)
+    type_input, clean_val = extraer_id_catalogo_o_ean_input(query_key)
 
+    catalog_id = clean_val if type_input == "CATALOG_ID" else ""
+    product_title = titulo_gold.strip() if titulo_gold else ""
+    raw_items = []
+    buy_box_item = None
+
+    # 1. Buscar producto de catálogo por EAN (endpoint con 200 OK en diagnóstico)
+    if type_input == "EAN" and clean_val:
+        url_ean = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&product_identifier={clean_val}"
+        try:
+            res_p = requests.get(url_ean, headers=headers, timeout=8)
+            if res_p.status_code == 200:
+                p_results = res_p.json().get("results", []) or []
+                if p_results:
+                    catalog_id = p_results[0].get("id", "")
+                    product_title = p_results[0].get("name", product_title)
+        except Exception:
+            pass
+
+    # 2. Si no hubo catálogo por EAN, buscar en /products/search por descripción + artículo/texto
+    if not catalog_id:
+        q_cat_text = " ".join(filter(None, [titulo_gold.strip(), articulo_gold.strip()])).strip()
+        if not q_cat_text and type_input == "TEXT":
+            q_cat_text = clean_val
+        if q_cat_text:
+            try:
+                url_p_q = f"https://api.mercadolibre.com/products/search?status=active&site_id=MLA&q={requests.utils.quote(q_cat_text)}"
+                res_pq = requests.get(url_p_q, headers=headers, timeout=8)
+                if res_pq.status_code == 200:
+                    pq_results = res_pq.json().get("results", []) or []
+                    if pq_results:
+                        catalog_id = pq_results[0].get("id", "")
+                        if not product_title:
+                            product_title = pq_results[0].get("name", "")
+            except Exception:
+                pass
+
+    # 3. Consultar ficha del catálogo (buy_box_winner) e ítems del catálogo
+    if catalog_id:
+        try:
+            res_cat = requests.get(f"https://api.mercadolibre.com/products/{catalog_id}", headers=headers, timeout=8)
+            if res_cat.status_code == 200:
+                cat_json = res_cat.json() or {}
+                if not product_title and cat_json.get("name"):
+                    product_title = cat_json.get("name")
+                bb = cat_json.get("buy_box_winner")
+                if isinstance(bb, dict) and bb.get("price"):
+                    buy_box_item = {
+                        "id": bb.get("item_id") or catalog_id,
+                        "title": product_title or f"Catálogo {catalog_id}",
+                        "price": float(bb.get("price") or 0.0),
+                        "available_quantity": int(bb.get("available_quantity") or 0),
+                        "sold_quantity": int(bb.get("sold_quantity") or 0),
+                        "permalink": construir_url_canonica_meli(bb.get("item_id") or "", "", catalog_id),
+                        "seller_id": bb.get("seller_id"),
+                        "category_id": cat_json.get("category_id", "MLA4765"),
+                        "listing_type_id": "gold_pro",
+                    }
+        except Exception:
+            pass
+
+        url_prod_items = f"https://api.mercadolibre.com/products/{catalog_id}/items"
+        try:
+            res_pi = requests.get(url_prod_items, headers=headers, timeout=8)
+            if res_pi.status_code == 200:
+                raw_items = res_pi.json().get("results", []) or []
+        except Exception:
+            pass
+
+    # 4. Respaldo secundario si no hubo ítems en /products/{id}/items (evita depender solo de /sites/MLA/search si da 403)
+    if not raw_items:
+        search_terms = []
+        if titulo_gold.strip() and articulo_gold.strip():
+            search_terms.append(f"{titulo_gold.strip()} {articulo_gold.strip()}")
+        if titulo_gold.strip():
+            search_terms.append(titulo_gold.strip())
+            sin_cod = re.sub(r"\b[A-Z]{1,5}\d{2,6}[A-Z0-9-]*\b", "", titulo_gold, flags=re.IGNORECASE)
+            sin_cod = re.sub(r"\s+", " ", sin_cod).strip()
+            if sin_cod and sin_cod not in search_terms:
+                search_terms.append(sin_cod)
+        if articulo_gold.strip():
+            search_terms.append(articulo_gold.strip())
+        if clean_val and clean_val not in search_terms:
+            search_terms.append(clean_val)
+
+        for term_search in search_terms:
+            if raw_items:
+                break
+            url_q = f"https://api.mercadolibre.com/sites/MLA/search?q={requests.utils.quote(term_search)}"
+            try:
+                res_q = requests.get(url_q, headers=headers, timeout=8)
+                if res_q.status_code == 200:
+                    raw_items = res_q.json().get("results", []) or []
+                elif res_q.status_code == 403:
+                    # /sites/MLA/search devuelve 403 en este entorno; seguimos sin romper
+                    continue
+            except Exception:
+                pass
+
+    if not raw_items and buy_box_item:
+        raw_items = [buy_box_item]
+
+    list_ids = []
+    for r in raw_items[:50]:
+        i_id = r.get("item_id") or r.get("id", "")
+        if i_id and str(i_id).upper().startswith("MLA") and i_id not in list_ids:
+            list_ids.append(i_id)
+
+    detalles_dict = {}
+    if list_ids:
+        for i in range(0, len(list_ids), 20):
+            chunk = list_ids[i:i+20]
+            ids_str = ",".join(chunk)
+            url_multiget = f"https://api.mercadolibre.com/items?ids={ids_str}"
+            try:
+                res_m = requests.get(url_multiget, headers=headers, timeout=8)
+                if res_m.status_code == 200:
+                    for entry in res_m.json():
+                        if entry.get("code") == 200:
+                            b = entry.get("body", {})
+                            it_id = b.get("id")
+
+                            stk = int(b.get("available_quantity", 0))
+                            vars_list = b.get("variations", [])
+                            if vars_list and isinstance(vars_list, list):
+                                stk_vars = sum(int(v.get("available_quantity", 0)) for v in vars_list if isinstance(v, dict))
+                                if stk_vars > 0:
+                                    stk = stk_vars
+
+                            detalles_dict[it_id] = {
+                                "title_real": b.get("title", ""),
+                                "stock_real": stk,
+                                "sold_real": int(b.get("sold_quantity", 0)),
+                                "price_real": float(b.get("price", 0.0)),
+                                "category_real": b.get("category_id", "MLA4765"),
+                                "permalink_real": b.get("permalink", ""),
+                                "seller_id": b.get("seller_id")
+                            }
+            except Exception:
+                pass
+
+    items_procesados = []
+    for r in raw_items[:50]:
+        item_id = r.get("item_id") or r.get("id", "")
+        if not item_id:
+            continue
+
+        det = detalles_dict.get(item_id, {})
+        seller_id = det.get("seller_id")
+        if not seller_id and isinstance(r.get("seller"), dict):
+            seller_id = r.get("seller", {}).get("id")
+        if not seller_id:
+            seller_id = r.get("seller_id")
+
+        nickname = resolver_vendedor_nickname_oficial(seller_id, access_token or "")
+        url_oficial = construir_url_canonica_meli(item_id, det.get("permalink_real") or r.get("permalink", ""), catalog_id)
+
+        inst = r.get("installments", {})
+        q_c = inst.get("quantity", 1) if isinstance(inst, dict) else 1
+
+        title_final = det.get("title_real") or r.get("title") or product_title or f"Publicación {item_id}"
+        stock_final = det.get("stock_real", int(r.get("available_quantity", r.get("stock", 0))))
+        sold_final = det.get("sold_real", int(r.get("sold_quantity", 0)))
+        price_final = det.get("price_real", float(r.get("price", 0.0)))
+        cat_final = det.get("category_real") or r.get("category_id", "MLA4765")
+
+        if price_final <= 0:
+            continue
+
+        items_procesados.append({
+            "vendedor_name": nickname,
+            "id": item_id,
+            "title": title_final,
+            "price": price_final,
+            "installments_qty": q_c,
+            "listing_type_id": str(r.get("listing_type_id", "gold_pro")),
+            "stock": stock_final,
+            "sold_quantity": sold_final,
+            "permalink": url_oficial,
+            "category_id": cat_final
+        })
+
+    items_procesados.sort(key=lambda x: x["price"])
+    return catalog_id, product_title, items_procesados
 
 def extraer_web_fallback_universal(parsed_meli: dict, res_data: dict):
     urls_a_probar = []
