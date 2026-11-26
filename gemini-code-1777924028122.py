@@ -1638,8 +1638,10 @@ def extraer_web_fallback_universal(parsed_meli: Dict[str, str], res_data: Dict[s
                 res_data["cat_meli_id"] = m_cat.group(1)
 
             m_desc = re.search(r'<p[^>]*class="[^"]*ui-pdp-description__content[^"]*"[^>]*>(.*?)</p>', html, re.DOTALL)
+
+
             if m_desc:
-                desc_clean = re.sub(r"<br\s*/?>", "
+desc_clean = re.sub(r"<br\s*/?>", "\n", m_desc.group(1))
 ", m_desc.group(1))
                 desc_clean = re.sub(r"<[^>]+>", "", desc_clean).strip()
                 if desc_clean:
