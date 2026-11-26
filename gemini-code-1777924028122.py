@@ -566,7 +566,7 @@ def parsear_valor_cm(val_str: str, default_cm: float = 0.0) -> float:
     num = float(m.group(1).replace(",", "."))
     if "mm" in s:
         return num / 10.0
-    if re.search(r"m", s) and "cm" not in s and "mm" not in s:
+    if re.search(r"\bm\b", s) and "cm" not in s and "mm" not in s:
         return num * 100.0
     return num
 
@@ -1045,7 +1045,7 @@ def consultar_ofertas_ean_para_matriz(ean_limpio: str, descripcion: str, headers
 
 def dataframe_a_excel_bytes(df: pd.DataFrame, sheet_name: str = "Datos") -> bytes:
     output = io.BytesIO()
-    safe_sheet = re.sub(r"[\[\]\:\*\?\/\]", "_", str(sheet_name or "Datos"))[:31]
+    safe_sheet = re.sub(r"[\[\]\:\*\?\/\\]", "_", str(sheet_name or "Datos"))[:31]
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=safe_sheet)
     return output.getvalue()
@@ -1444,7 +1444,7 @@ def buscar_competencia_integral_ean(
         search_terms.append(f"{titulo_gold.strip()} {articulo_gold.strip()}")
     if titulo_gold.strip():
         search_terms.append(titulo_gold.strip())
-        sin_cod = re.sub(r"[A-Z]{1,5}\d{2,6}[A-Z0-9-]*", "", titulo_gold, flags=re.IGNORECASE)
+        sin_cod = re.sub(r"\b[A-Z]{1,5}\d{2,6}[A-Z0-9-]*\b", "", titulo_gold, flags=re.IGNORECASE)
         sin_cod = re.sub(r"\s+", " ", sin_cod).strip()
         if sin_cod and sin_cod not in search_terms:
             search_terms.append(sin_cod)
@@ -1575,7 +1575,7 @@ def extraer_web_fallback_universal(parsed_meli: Dict[str, str], res_data: Dict[s
             num_part = re.sub(r"\D", "", candidate)
             if num_part:
                 urls_a_probar.append(f"https://articulo.mercadolibre.com.ar/MLA-{num_part}")
-                urls_a_probar.append(f"https://www.mercadolibre.com.ar/up/{candidate}")
+            urls_a_probar.append(f"https://www.mercadolibre.com.ar/up/{candidate}")
 
     headers_web = get_web_headers()
 
@@ -1638,11 +1638,8 @@ def extraer_web_fallback_universal(parsed_meli: Dict[str, str], res_data: Dict[s
                 res_data["cat_meli_id"] = m_cat.group(1)
 
             m_desc = re.search(r'<p[^>]*class="[^"]*ui-pdp-description__content[^"]*"[^>]*>(.*?)</p>', html, re.DOTALL)
-
-
             if m_desc:
-desc_clean = re.sub(r"<br\s*/?>", "\n", m_desc.group(1))
-", m_desc.group(1))
+                desc_clean = re.sub(r"<br\s*/?>", "\n", m_desc.group(1))
                 desc_clean = re.sub(r"<[^>]+>", "", desc_clean).strip()
                 if desc_clean:
                     res_data["descripcion"] = desc_clean
@@ -1930,8 +1927,8 @@ with st.sidebar:
         uploaded_gold = st.file_uploader("Subir Lista Gold (Excel/CSV)", type=["xlsx", "csv"], key="uploader_gold_side")
         if uploaded_gold is not None:
             st.session_state["lista_gold_df"] = procesar_archivo_lista_gold(uploaded_gold)
-            if st.session_state["lista_gold_df"] is not None:
-                st.success("✅ Lista Gold vinculada.")
+        if st.session_state["lista_gold_df"] is not None:
+            st.success("✅ Lista Gold vinculada.")
 
     with st.expander("📦 2. Matriz Logística (Bultos)", expanded=True):
         uploaded_matriz = st.file_uploader("Subir Matriz de Artículos (Excel)", type=["xlsx"], key="uploader_matriz_side")
@@ -3273,8 +3270,8 @@ elif tab_activa == 8:
                 access_token=st.session_state["access_token"],
                 candidatos_externos=candidatos_ext,
             )
-        st.session_state["cmp_sim_filas_v195"] = filas
-        st.session_state["cmp_sim_diag_v195"] = diag
+            st.session_state["cmp_sim_filas_v195"] = filas
+            st.session_state["cmp_sim_diag_v195"] = diag
 
     if "cmp_sim_filas_v195" in st.session_state:
         filas = st.session_state["cmp_sim_filas_v195"]
@@ -3421,9 +3418,11 @@ elif tab_activa == 9:
                         )
                         respuestas_crudas.append((sub_nombre, sub_url, r_sub.status_code, (r_sub.text or "")[:4000]))
 
+        st.subheader("📋 Resumen de Pruebas")
         st.dataframe(pd.DataFrame(resumen_diag), use_container_width=True, hide_index=True)
 
-        for nom_c, url_c, code_c, body_c in respuestas_crudas:
-            with st.expander(f"{nom_c} -> HTTP {code_c}"):
-                st.caption(url_c)
-                st.code(body_c, language="json")
+        st.subheader("🧾 Respuestas Crudas de la API")
+        for nombre_p, url_p, status_p, cuerpo_p in respuestas_crudas:
+            with st.expander(f"{nombre_p} — HTTP {status_p}"):
+                st.code(url_p, language="text")
+                st.code(cuerpo_p or "(Respuesta vacía)", language="json")
